@@ -12,7 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "db:purge-dev": "tsx scripts/purge-dev.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.125",
