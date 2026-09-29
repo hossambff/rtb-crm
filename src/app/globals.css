@@ -1,26 +1,119 @@
 @import "tailwindcss";
 
+/*
+ * Roundtable Sales OS — design tokens (PRD §16A).
+ * Dark-only monochrome UI; color is reserved for data viz, status and scores.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --bg: #070707;
+  --surface-1: #0b0b0b;
+  --surface-2: #1a1a1a;
+  --surface-3: #2e2e2e;
+  --border: #2e2e2e;
+  --border-strong: #3c3c3c;
+  --text-primary: #ffffff;
+  --text-body: #f4f4f4;
+  --text-secondary: #b4b4b4;
+  --text-muted: #828282;
+  --text-disabled: #6e6e6e;
+  --accent: #ffffff;
+  --accent-inverse: #0b0b0b;
+
+  /* Categorical chart palette (validated on #0B0B0B, fixed order) */
+  --viz-1: #5c98d5; /* blue — NET */
+  --viz-2: #ce7c4c; /* peach — ADS */
+  --viz-3: #44a781; /* mint — SPT */
+  --viz-4: #ab6dba; /* lilac — ENT */
+  --viz-5: #a9933b; /* butter — R100 */
+  --viz-6: #6c79c7; /* periwinkle */
+  --viz-7: #cf6872; /* rose */
+  --viz-8: #13a5b2; /* aqua — PAY */
+  --viz-other: #828282;
+
+  /* Status (reserved; always with icon + label) */
+  --status-good: #44a781;
+  --status-warning: #a9933b;
+  --status-serious: #ce7c4c;
+  --status-critical: #cf6872;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--text-primary);
+  --color-body: var(--text-body);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-disabled: var(--text-disabled);
+  --color-accent: var(--accent);
+  --color-accent-inverse: var(--accent-inverse);
+  --color-viz-1: var(--viz-1);
+  --color-viz-2: var(--viz-2);
+  --color-viz-3: var(--viz-3);
+  --color-viz-4: var(--viz-4);
+  --color-viz-5: var(--viz-5);
+  --color-viz-6: var(--viz-6);
+  --color-viz-7: var(--viz-7);
+  --color-viz-8: var(--viz-8);
+  --color-good: var(--status-good);
+  --color-warning: var(--status-warning);
+  --color-serious: var(--status-serious);
+  --color-critical: var(--status-critical);
+  --font-sans: var(--font-work-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-playfair), ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: var(--bg);
+  color: var(--text-body);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  font-weight: 300;
+  font-size: 14px;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display);
+  color: var(--text-primary);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: #ffffff;
+  color: #0b0b0b;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Thin scrollbars on dark surfaces */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
