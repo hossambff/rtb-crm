@@ -169,11 +169,14 @@ export const createDeal = action(createSchema, async (input, user) => {
   const [owner] = await db.select({ id: s.user.id, teamId: s.user.teamId }).from(s.user).where(eq(s.user.id, ownerId));
   if (!owner) throw new UserError("Unknown owner.");
 
-  // Account: existing (visible) or create-with-dedupe by normalized domain
+  // Account: existing (visible) or create-with-dedupe by normalized domain (or exact name when there's no domain).
+  // QA-07: nothing is written until the stage gate has passed; the new account and the deal are inserted in one
+  // transaction so a rejected create can't leave an orphan account behind.
   let accountId = input.accountId ?? null;
   let accountName = "";
   let accountMuu: number | null = null;
   let linkedExisting = false;
+  let createAccount: { name: string; domain: string | null } | null = null;
   if (accountId) {
     const where = await ownedEntityWhere(user, "accounts", "view", s.accounts.ownerId);
     const [acc] = await db.select().from(s.accounts).where(and(eq(s.accounts.id, accountId), isNull(s.accounts.deletedAt), where));
@@ -183,9 +186,20 @@ export const createDeal = action(createSchema, async (input, user) => {
   } else if (input.newAccount) {
     const domain = input.newAccount.domain ? normalizeDomain(input.newAccount.domain) : null;
     if (input.newAccount.domain && !domain) throw new UserError("That domain doesn't look valid.");
-    const existing = domain
+    let existing = domain
       ? (await db.select().from(s.accounts).where(and(isNull(s.accounts.deletedAt), or(eq(s.accounts.domain, domain), sql`${domain} = any(${s.accounts.altDomains})`))))[0]
       : undefined;
+    if (!existing && !domain) {
+      // Domain-less: reuse a visible account with exactly the same name instead of creating a duplicate.
+      const where = await ownedEntityWhere(user, "accounts", "view", s.accounts.ownerId);
+      existing = (
+        await db
+          .select()
+          .from(s.accounts)
+          .where(and(isNull(s.accounts.deletedAt), where, sql`lower(trim(${s.accounts.name})) = lower(${input.newAccount.name.trim()})`))
+          .limit(1)
+      )[0];
+    }
     if (existing) {
       if (existing.restricted && user.role !== "super_admin") throw new UserError("An account with that domain already exists. Ask an admin for access.");
       accountId = existing.id;
@@ -194,13 +208,8 @@ export const createDeal = action(createSchema, async (input, user) => {
       linkedExisting = true;
     } else {
       await assertCan(user, "accounts", "create");
-      const [acc] = await db
-        .insert(s.accounts)
-        .values({ name: input.newAccount.name, domain, website: domain ? `https://${domain}` : null, ownerId: user.id, createdBy: user.id, source: "deal_create", lifecycle: "prospect" })
-        .returning();
-      accountId = acc!.id;
-      accountName = acc!.name;
-      await audit({ actorId: user.id, action: "account.create", entity: "account", entityId: acc!.id, after: { name: acc!.name, domain } });
+      createAccount = { name: input.newAccount.name, domain };
+      accountName = input.newAccount.name;
     }
   }
 
@@ -211,7 +220,24 @@ export const createDeal = action(createSchema, async (input, user) => {
   if (missing.length) throw new UserError(`${stage.name} requires ${missing.map((k) => gateFieldMeta(k).label).join(", ")} — start in an earlier stage and move it once filled.`);
 
   const name = input.name?.trim() || `${accountName}${pipeline.key === "R100" ? " — RTB100" : ""}`;
-  const dealId = await db.transaction(async (tx) => {
+  const { dealId, createdAccountId } = await db.transaction(async (tx) => {
+    let createdAccountId: string | null = null;
+    if (createAccount) {
+      const [acc] = await tx
+        .insert(s.accounts)
+        .values({
+          name: createAccount.name,
+          domain: createAccount.domain,
+          website: createAccount.domain ? `https://${createAccount.domain}` : null,
+          ownerId: user.id,
+          createdBy: user.id,
+          source: "deal_create",
+          lifecycle: "prospect",
+        })
+        .returning({ id: s.accounts.id });
+      createdAccountId = acc!.id;
+      accountId = acc!.id;
+    }
     const [deal] = await tx
       .insert(s.deals)
       .values({
@@ -234,8 +260,10 @@ export const createDeal = action(createSchema, async (input, user) => {
       .returning({ id: s.deals.id });
     await tx.insert(s.dealStageHistory).values({ dealId: deal!.id, fromStageId: null, toStageId: stage.id, changedBy: user.id, reason: "created" });
     await logActivity({ type: "system", subject: "Deal created", body: `Created in ${stage.name}`, actorId: user.id, dealId: deal!.id, accountId }, tx);
-    return deal!.id;
+    return { dealId: deal!.id, createdAccountId };
   });
+  if (createdAccountId && createAccount)
+    await audit({ actorId: user.id, action: "account.create", entity: "account", entityId: createdAccountId, after: { name: createAccount.name, domain: createAccount.domain } });
   await audit({ actorId: user.id, action: "deal.create", entity: "deal", entityId: dealId, after: { name, pipeline: pipeline.key, stage: stage.key, ownerId, accountId } });
   await recomputeDealHealth(dealId);
   if (ownerId !== user.id) await notify([ownerId], { kind: "system", title: `${user.name} assigned you ${name}`, href: `/deals/${dealId}` });
