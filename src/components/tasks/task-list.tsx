@@ -37,7 +37,16 @@ export function TaskList({
   emptyDescription?: string;
 }) {
   const router = useRouter();
-  const [pending, start] = useTransition();
+  const [, start] = useTransition();
+  // QA-18 optimistic UI: a local override per task, applied only while the server copy still has the state it was
+  // made from (`from`), so it disappears by itself once the refreshed data arrives — or is superseded by an undo.
+  const [local, setLocal] = useState<Record<string, { status?: TaskView["status"]; snoozed?: boolean; from: string }>>({});
+  const fingerprint = (t: TaskView) => `${t.status}|${t.snoozeCount}`;
+  const view = (t: TaskView): TaskView & { snoozedNow?: boolean } => {
+    const o = local[t.id];
+    if (!o || o.from !== fingerprint(t)) return t;
+    return { ...t, status: o.status ?? t.status, snoozedNow: o.snoozed };
+  };
   const all = groups.flatMap((g) => g.tasks);
   const [editing, setEditing] = useState<TaskView | null>(() => (initialOpenId ? (all.find((t) => t.id === initialOpenId) ?? null) : null));
   const [snoozing, setSnoozing] = useState<TaskView | null>(null);
@@ -45,15 +54,25 @@ export function TaskList({
 
   if (!all.length) return <EmptyState title={emptyTitle} description={emptyDescription} />;
 
-  const setStatus = (t: TaskView, status: "open" | "done" | "cancelled") =>
+  const setStatus = (t: TaskView, status: "open" | "done" | "cancelled") => {
+    const base = all.find((x) => x.id === t.id) ?? t;
+    setLocal((m) => ({ ...m, [t.id]: { status, from: fingerprint(base) } })); // instant feedback
     start(async () => {
       const res = await setTaskStatus({ id: t.id, status });
-      if (!res.ok) return void toast.error(res.error);
+      if (!res.ok) {
+        setLocal((m) => {
+          const { [t.id]: _drop, ...rest } = m;
+          void _drop;
+          return rest;
+        });
+        return void toast.error(res.error);
+      }
       toast.success(status === "done" ? "Task completed" : status === "open" ? "Task reopened" : "Task cancelled", {
-        action: status === "done" ? { label: "Undo", onClick: () => void setTaskStatus({ id: t.id, status: "open" }).then(() => router.refresh()) } : undefined,
+        action: status === "done" ? { label: "Undo", onClick: () => setStatus({ ...base, status: "done" }, "open") } : undefined,
       });
       router.refresh();
     });
+  };
 
   const move = (from: HTMLElement, dir: 1 | -1) => {
     const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-task-row]") ?? []);
@@ -72,7 +91,8 @@ export function TaskList({
               <span className="tabular text-muted">{g.tasks.length}</span>
             </h3>
             <ul className="divide-y divide-border rounded-lg border border-border bg-surface-1">
-              {g.tasks.map((t) => {
+              {g.tasks.map((raw) => {
+                const t = view(raw);
                 const done = t.status !== "open";
                 return (
                   <li
@@ -80,7 +100,10 @@ export function TaskList({
                     data-task-row
                     tabIndex={0}
                     aria-label={`${t.title}${t.dueAt ? `, due ${fmtInTz(t.dueAt, tz)}` : ""}`}
-                    className="group flex items-start gap-3 px-4 py-3 outline-none transition-colors duration-150 focus-visible:bg-surface-2 focus-visible:ring-1 focus-visible:ring-white/60"
+                    className={cn(
+                      "group flex items-start gap-3 px-4 py-3 outline-none transition-colors duration-150 focus-visible:bg-surface-2 focus-visible:ring-1 focus-visible:ring-white/60",
+                      t.snoozedNow && "opacity-50",
+                    )}
                     onKeyDown={(e) => {
                       if (e.target !== e.currentTarget || e.metaKey || e.ctrlKey || e.altKey) return;
                       const k = e.key;
@@ -99,7 +122,7 @@ export function TaskList({
                       role="checkbox"
                       aria-checked={t.status === "done"}
                       aria-label={done ? `Reopen ${t.title}` : `Complete ${t.title}`}
-                      disabled={!t.canEdit || pending}
+                      disabled={!t.canEdit}
                       onClick={() => setStatus(t, done ? "open" : "done")}
                       className="mt-0.5 shrink-0 text-muted transition-colors duration-150 hover:text-fg disabled:opacity-40"
                     >
@@ -122,6 +145,7 @@ export function TaskList({
                           </Badge>
                         ) : null}
                         {t.owedBy === "us" ? <Badge>We owe</Badge> : t.owedBy === "them" ? <Badge>They owe</Badge> : null}
+                        {t.snoozedNow ? <Badge>Snoozed</Badge> : null}
                         {t.snoozeCount >= 3 ? (
                           <StatusBadge status="warning" label={`Snoozed ${t.snoozeCount}×`} />
                         ) : t.snoozeCount > 0 ? (
@@ -225,8 +249,10 @@ export function TaskList({
         withUntil
         confirmLabel="Snooze"
         onSubmit={async ({ reason, until }) => {
-          const res = await snoozeTask({ id: snoozing!.id, reason, until: until! });
+          const target = snoozing!;
+          const res = await snoozeTask({ id: target.id, reason, until: until! });
           if (!res.ok) return res.fieldErrors?.reason?.[0] ?? res.fieldErrors?.until?.[0] ?? res.error;
+          setLocal((m) => ({ ...m, [target.id]: { snoozed: true, from: fingerprint(target) } }));
           toast.success(res.data.escalated ? "Snoozed — your manager was notified (3+ snoozes)" : "Task snoozed");
           router.refresh();
           return null;
