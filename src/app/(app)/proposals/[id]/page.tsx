@@ -1,3 +1,4 @@
+import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/rbac/server";
@@ -10,13 +11,18 @@ import { PageHeader } from "@/components/ui/misc";
 import { ProFormaBuilder } from "@/components/proposals/builder";
 import { ProposalActions, ProposalStatusBadge, VersionDiff } from "@/components/proposals/proposal-controls";
 
-export const metadata = { title: "Pro forma" };
+const loadProposal = cache(async (id: string) => (/^[0-9a-f-]{36}$/i.test(id) ? getProposal(await requireUser(), id) : null));
+
+export async function generateMetadata({ params }: PageProps<"/proposals/[id]">) {
+  const d = await loadProposal((await params).id);
+  return { title: d ? `${d.deal.name} v${d.proposal.version} · Pro forma` : "Pro forma" };
+}
 
 export default async function ProposalPage({ params }: PageProps<"/proposals/[id]">) {
-  const user = await requireUser();
+  await requireUser();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const d = await getProposal(user, id);
+  const d = await loadProposal(id);
   if (!d) notFound();
   const locked = isLocked(d.proposal.status);
   const readOnly = locked || !d.perms.canEdit;

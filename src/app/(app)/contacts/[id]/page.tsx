@@ -1,3 +1,4 @@
+import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronRight, ExternalLink, Mail, Phone, UserX } from "lucide-react";
@@ -13,13 +14,20 @@ import { seniorityLabel } from "@/lib/contacts/seniority";
 import { fmtDate, fmtRelative } from "@/lib/format";
 import { can, requireUser } from "@/lib/rbac/server";
 
-export const metadata = { title: "Contact" };
+const loadContact = cache(async (id: string) => getContactDetail(await requireUser(), id));
+
+export async function generateMetadata({ params }: PageProps<"/contacts/[id]">) {
+  const user = await requireUser();
+  if (!(await can(user, "contacts", "view"))) return { title: "Contact" };
+  const d = await loadContact((await params).id);
+  return { title: d?.contact.fullName ?? "Contact" };
+}
 
 export default async function ContactPage(props: PageProps<"/contacts/[id]">) {
   const user = await requireUser();
   if (!(await can(user, "contacts", "view"))) notFound();
   const { id } = await props.params;
-  const data = await getContactDetail(user, id);
+  const data = await loadContact(id);
   if (!data) notFound();
   const { contact: c } = data;
   const owners = (await ownerFilterOptions()).map((o) => ({ id: o.id, name: o.name }));

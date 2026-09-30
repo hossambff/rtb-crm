@@ -13,7 +13,7 @@ import { EditAccountDialog } from "@/components/accounts/edit-account-dialog";
 import { MergeAccountDialog } from "@/components/accounts/merge-account-dialog";
 import { ConfidenceBadge, MuuValue } from "@/components/accounts/muu-value";
 import { ContactFormDialog } from "@/components/contacts/contact-form-dialog";
-import { accountFilterOptions, getAccount360, type Account360 } from "@/lib/accounts/queries";
+import { accountFilterOptions, getAccount360, getVisibleAccount, type Account360 } from "@/lib/accounts/queries";
 import { ownerFilterOptions } from "@/lib/users";
 import { ACCOUNT_TYPES, LIFECYCLES, PRIORITIES, R100_TYPES, labelOf } from "@/lib/accounts/constants";
 import { seniorityLabel } from "@/lib/contacts/seniority";
@@ -22,7 +22,12 @@ import { fmtDate, fmtNumber, fmtPct, fmtRelative, fmtUsd } from "@/lib/format";
 import { PIPELINE_COLORS } from "@/lib/palette";
 import { can, requireUser } from "@/lib/rbac/server";
 
-export const metadata = { title: "Account" };
+export async function generateMetadata(props: PageProps<"/accounts/[id]">) {
+  const user = await requireUser();
+  if (!(await can(user, "accounts", "view"))) return { title: "Account" };
+  const a = await getVisibleAccount(user, (await props.params).id);
+  return { title: a?.name ?? "Account" };
+}
 
 export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
   const user = await requireUser();
