@@ -21,6 +21,21 @@ export async function loadDirectory(): Promise<Directory> {
   return buildDirectory(contacts, accounts);
 }
 
+/**
+ * Memoized loader for one sync run (M-23): the directory (~12k contact/account rows) is read at most once, and only
+ * if some item actually needs participant matching. Pass the same loader to every ingest call of the run.
+ */
+export function directoryLoader(): () => Promise<Directory> {
+  let p: Promise<Directory> | null = null;
+  return () => {
+    p ??= loadDirectory().catch((e) => {
+      p = null; // don't cache a failure
+      throw e;
+    });
+    return p;
+  };
+}
+
 /** RTB's own domains (env allowlist + admin-added allowed_domains + the mailbox owner's domain). */
 export async function internalDomains(ownerEmail?: string | null): Promise<string[]> {
   let extra: string[] = [];

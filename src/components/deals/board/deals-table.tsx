@@ -1,6 +1,7 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   columnVisibilityFeature,
@@ -57,11 +58,15 @@ const COLUMN_LABELS: Record<string, string> = {
   lastActivity: "Last activity",
 };
 
+/** Server-side page of the list view (M-20): rows arrive sorted + paged; sort / page changes go through the URL. */
+export type ServerListPage = { page: number; pageSize: number; total: number; sort: string; dir: "asc" | "desc" };
+
 /** Spreadsheet-style deal grid (LIST-1/2): sort, column chooser, inline edit, bulk reassign / stage change / export. */
 export function DealsTable({
   pipeline,
   stages,
   deals,
+  serverPage,
   assignable,
   canAssign,
   canExport,
@@ -71,6 +76,7 @@ export function DealsTable({
   pipeline: PipelineDTO;
   stages: StageDTO[];
   deals: BoardDeal[];
+  serverPage?: ServerListPage;
   assignable: UserLite[];
   canAssign: boolean;
   canExport: boolean;
@@ -78,7 +84,22 @@ export function DealsTable({
   onExportSelected: (ids: string[]) => void;
 }) {
   const stageById = React.useMemo(() => new Map(stages.map((s) => [s.id, s])), [stages]);
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: "weighted", desc: true }]);
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const [localSorting, setLocalSorting] = React.useState<SortingState>([{ id: "weighted", desc: true }]);
+  const sorting: SortingState = serverPage ? [{ id: serverPage.sort, desc: serverPage.dir === "desc" }] : localSorting;
+  const goTo = (patch: Record<string, string>) => {
+    const next = new URLSearchParams(params.toString());
+    for (const [k, v] of Object.entries(patch)) next.set(k, v);
+    router.push(`${pathname}?${next.toString()}`);
+  };
+  const setSorting = (u: SortingState | ((old: SortingState) => SortingState)) => {
+    const next = typeof u === "function" ? u(sorting) : u;
+    if (!serverPage) return setLocalSorting(next);
+    const first = next[0];
+    if (first) goTo({ sort: first.id, dir: first.desc ? "desc" : "asc", page: "1" });
+  };
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   const hasNet = deals.some((d) => d.netUsd !== undefined);
 
@@ -228,6 +249,8 @@ export function DealsTable({
     enableRowSelection: (row) => row.original.canEdit,
     enableSortingRemoval: false,
     autoResetPageIndex: false,
+    manualSorting: Boolean(serverPage),
+    manualPagination: Boolean(serverPage),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 100 },
       columnVisibility: {
@@ -262,7 +285,10 @@ export function DealsTable({
           />
         ) : (
           <p className="text-xs text-muted tabular">
-            {deals.length} deal{deals.length === 1 ? "" : "s"} · click a cell to edit
+            {serverPage
+              ? `${serverPage.total} deal${serverPage.total === 1 ? "" : "s"} · showing ${Math.min(serverPage.total, (serverPage.page - 1) * serverPage.pageSize + 1)}–${Math.min(serverPage.total, serverPage.page * serverPage.pageSize)}`
+              : `${deals.length} deal${deals.length === 1 ? "" : "s"}`}{" "}
+            · click a cell to edit
           </p>
         )}
         <DropdownMenu>
@@ -326,7 +352,19 @@ export function DealsTable({
           </tbody>
         </table>
       </div>
-      {table.getPageCount() > 1 ? (
+      {serverPage && serverPage.total > serverPage.pageSize ? (
+        <div className="flex items-center justify-end gap-2 text-xs text-muted tabular">
+          <span>
+            Page {serverPage.page} of {Math.ceil(serverPage.total / serverPage.pageSize)}
+          </span>
+          <Button size="sm" variant="secondary" disabled={serverPage.page <= 1} onClick={() => goTo({ page: String(serverPage.page - 1) })}>
+            Previous
+          </Button>
+          <Button size="sm" variant="secondary" disabled={serverPage.page * serverPage.pageSize >= serverPage.total} onClick={() => goTo({ page: String(serverPage.page + 1) })}>
+            Next
+          </Button>
+        </div>
+      ) : !serverPage && table.getPageCount() > 1 ? (
         <div className="flex items-center justify-end gap-2 text-xs text-muted tabular">
           <span>
             Page {table.state.pagination.pageIndex + 1} of {table.getPageCount()}

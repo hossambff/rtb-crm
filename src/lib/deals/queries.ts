@@ -166,30 +166,8 @@ export async function getPipelineByKey(key: string): Promise<PipelineDTO | null>
  * Hidden fields are stripped; values are computed with pipeline-math.
  */
 export async function listDealsForBoard(user: AppUser, pipelineKey: string, filters: BoardFilters = {}): Promise<BoardDeal[]> {
-  const pipeline = await getPipelineByKey(pipelineKey);
-  if (!pipeline) return [];
-  const where = await dealAccessWhere(user, "view");
-  const stagesBy = await getStagesByPipeline();
-  const hidden = await hiddenDealFields(user.role);
-  const editScope = await scopeFor(user, dealModule(pipelineKey), "edit");
-  const stages = stagesBy[pipeline.id] ?? [];
-  const stageMap = new Map(stages.map((st) => [st.id, st]));
-  const customGateKeys = Array.from(new Set(stages.flatMap((st) => st.requiredFields).filter((k) => !(k in GATE_FIELDS))));
-
-  const conds: SQL[] = [where, eq(s.deals.pipelineId, pipeline.id)];
-  if (filters.q) {
-    const pat = likeEscape(filters.q);
-    conds.push(or(ilike(s.deals.name, pat), ilike(s.accounts.name, pat), ilike(s.accounts.domain, pat))!);
-  }
-  if (filters.owner === "me") conds.push(eq(s.deals.ownerId, user.id));
-  else if (filters.owner === "none") conds.push(isNull(s.deals.ownerId));
-  else if (filters.owner) conds.push(eq(s.deals.ownerId, filters.owner));
-  if (filters.priority === "none") conds.push(isNull(s.deals.priority));
-  else if (filters.priority) conds.push(eq(s.deals.priority, filters.priority));
-  if (filters.category) conds.push(eq(s.accounts.category, filters.category));
-  if (filters.status) conds.push(eq(s.deals.status, filters.status));
-  if (filters.overdue) conds.push(and(eq(s.deals.status, "open"), lt(s.deals.nextStepDueAt, new Date()))!);
-
+  const b = await boardBase(user, pipelineKey, filters);
+  if (!b) return [];
   const owner = alias(s.user, "owner");
   const rows = await db
     .select({
@@ -203,7 +181,7 @@ export async function listDealsForBoard(user: AppUser, pipelineKey: string, filt
     .from(s.deals)
     .leftJoin(s.accounts, eq(s.accounts.id, s.deals.accountId))
     .leftJoin(owner, eq(owner.id, s.deals.ownerId))
-    .where(and(...conds))
+    .where(and(...b.conds))
     .orderBy(desc(s.deals.updatedAt))
     .limit(5000);
 
@@ -214,9 +192,183 @@ export async function listDealsForBoard(user: AppUser, pipelineKey: string, filt
         .from(s.dealSplits)
         .innerJoin(s.deals, eq(s.deals.id, s.dealSplits.dealId))
         .innerJoin(s.user, eq(s.user.id, s.dealSplits.userId))
-        .where(and(eq(s.deals.pipelineId, pipeline.id), isNull(s.deals.deletedAt)))
+        .where(and(eq(s.deals.pipelineId, b.pipeline.id), isNull(s.deals.deletedAt)))
     : [];
-  const splitsBy = new Map<string, typeof splits>();
+  return toBoardDeals(user, b, rows, splits);
+}
+
+/* ───────────── List view: server-side pagination + sort (M-20) ───────────── */
+
+export const LIST_PAGE_SIZE = 100;
+export const LIST_SORTS = ["name", "account", "stage", "owner", "priority", "nextStep", "due", "muu", "gross", "net", "weighted", "prob", "health", "days", "lastActivity"] as const;
+export type ListSort = (typeof LIST_SORTS)[number];
+
+export type DealListPage = {
+  deals: BoardDeal[];
+  total: number;
+  page: number;
+  pageSize: number;
+  sort: ListSort;
+  dir: "asc" | "desc";
+  /** Totals over ALL matching open deals (header KPIs), computed in SQL. */
+  kpis: { openDeals: number; muu: number; gross: number; net: number; weighted: number; won: number };
+  /** Owners of any matching deal (for the owner filter), incl. imported placeholder owners. */
+  owners: UserLite[];
+};
+
+/**
+ * One page of the list view: filters, sort and pagination run in SQL (100 rows per page), so the page ships ~100
+ * rows instead of every deal on the pipeline (NET: ~2k rows, ~1.9 MB before RSC encoding). Values use the SQL twin
+ * of pipeline-math (analytics/value-sql) for sorting and KPIs; rows are still shaped by dealValue.
+ */
+export async function listDealsPage(user: AppUser, pipelineKey: string, filters: BoardFilters, opts: { page?: number; sort?: ListSort; dir?: "asc" | "desc" } = {}): Promise<DealListPage> {
+  const sort: ListSort = opts.sort && (LIST_SORTS as readonly string[]).includes(opts.sort) ? opts.sort : "weighted";
+  const dir = opts.dir === "asc" ? "asc" : "desc";
+  const page = Math.max(1, Math.floor(opts.page ?? 1) || 1);
+  const empty: DealListPage = { deals: [], total: 0, page, pageSize: LIST_PAGE_SIZE, sort, dir, kpis: { openDeals: 0, muu: 0, gross: 0, net: 0, weighted: 0, won: 0 }, owners: [] };
+  const b = await boardBase(user, pipelineKey, filters);
+  if (!b) return empty;
+  const owner = alias(s.user, "owner");
+  const where = and(...b.conds);
+  const w = sql<number>`${grossSql} * ${probSql}`;
+  const sortExpr: Record<ListSort, SQL> = {
+    name: sql`lower(${s.deals.name})`,
+    account: sql`lower(coalesce(${s.accounts.name}, ''))`,
+    stage: sql`${s.stages.sortOrder}`,
+    owner: sql`lower(coalesce(${owner.name}, ''))`,
+    priority: sql`case ${s.deals.priority} when 'top10' then 0 when 'high' then 1 when 'medium' then 2 when 'low' then 3 else 9 end`,
+    nextStep: sql`lower(coalesce(${s.deals.nextStep}, ''))`,
+    due: sql`${s.deals.nextStepDueAt}`,
+    muu: sql`coalesce(${s.deals.muu}, 0)`,
+    gross: grossSql,
+    net: netSql,
+    weighted: w,
+    prob: probSql,
+    health: sql`coalesce(${s.deals.healthScore}, -1)`,
+    days: sql`${s.deals.stageEnteredAt}`, // days in stage ↑ = entered earlier
+    lastActivity: sql`${s.deals.lastActivityAt}`,
+  };
+  // "days" sorts by stage entry, whose order is the reverse of days-in-stage
+  const flip = sort === "days";
+  const order = (dir === "asc") !== flip ? sql`${sortExpr[sort]} asc nulls last` : sql`${sortExpr[sort]} desc nulls last`;
+  const base = () =>
+    db
+      .select({
+        deal: s.deals,
+        accountName: s.accounts.name,
+        accountDomain: s.accounts.domain,
+        accountCategory: s.accounts.category,
+        ownerName: owner.name,
+        ownerImage: owner.image,
+      })
+      .from(s.deals)
+      .innerJoin(s.pipelines, eq(s.pipelines.id, s.deals.pipelineId))
+      .innerJoin(s.stages, eq(s.stages.id, s.deals.stageId))
+      .leftJoin(s.accounts, eq(s.accounts.id, s.deals.accountId))
+      .leftJoin(owner, eq(owner.id, s.deals.ownerId));
+  const [agg] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      openDeals: sql<number>`count(*) filter (where ${s.stages.category} = 'open')::int`,
+      won: sql<number>`count(*) filter (where ${s.stages.category} = 'won')::int`,
+      muu: sql<number>`coalesce(sum(${s.deals.muu}) filter (where ${s.stages.category} = 'open'), 0)::float8`,
+      gross: sql<number>`coalesce(sum(${grossSql}) filter (where ${s.stages.category} = 'open'), 0)::float8`,
+      net: sql<number>`coalesce(sum(${netSql}) filter (where ${s.stages.category} = 'open'), 0)::float8`,
+      weighted: sql<number>`coalesce(sum(${w}) filter (where ${s.stages.category} = 'open'), 0)::float8`,
+    })
+    .from(s.deals)
+    .innerJoin(s.pipelines, eq(s.pipelines.id, s.deals.pipelineId))
+    .innerJoin(s.stages, eq(s.stages.id, s.deals.stageId))
+    .leftJoin(s.accounts, eq(s.accounts.id, s.deals.accountId))
+    .where(where);
+  const total = agg?.total ?? 0;
+  const lastPage = Math.max(1, Math.ceil(total / LIST_PAGE_SIZE));
+  const pageNo = Math.min(page, lastPage);
+  const rows = total ? await base().where(where).orderBy(order, asc(s.deals.id)).limit(LIST_PAGE_SIZE).offset((pageNo - 1) * LIST_PAGE_SIZE) : [];
+  const ids = rows.map((r) => r.deal.id);
+  const splits = ids.length
+    ? await db
+        .select({ dealId: s.dealSplits.dealId, userId: s.dealSplits.userId, pct: s.dealSplits.pct, name: s.user.name, image: s.user.image })
+        .from(s.dealSplits)
+        .innerJoin(s.user, eq(s.user.id, s.dealSplits.userId))
+        .where(inArray(s.dealSplits.dealId, ids))
+    : [];
+  const owners = await db
+    .selectDistinct({ id: owner.id, name: owner.name, image: owner.image })
+    .from(s.deals)
+    .innerJoin(owner, eq(owner.id, s.deals.ownerId))
+    .where(and(...b.baseConds));
+  const hideNet = b.hidden.has("revSharePct");
+  return {
+    deals: toBoardDeals(user, b, rows, splits),
+    total,
+    page: pageNo,
+    pageSize: LIST_PAGE_SIZE,
+    sort,
+    dir,
+    kpis: { openDeals: agg?.openDeals ?? 0, muu: agg?.muu ?? 0, gross: agg?.gross ?? 0, net: hideNet ? 0 : (agg?.net ?? 0), weighted: agg?.weighted ?? 0, won: agg?.won ?? 0 },
+    owners: owners.map((o) => ({ id: o.id, name: o.name, image: o.image })),
+  };
+}
+
+// SQL value twins (see analytics/value-sql.ts; kept in lock-step with pipeline-math dealValue). Weighted uses
+// approved overrides — the same rule dealValue applies on the board.
+const grossSql = sql<number>`(case
+  when ${s.pipelines.unit} = 'muu' then greatest(coalesce(${s.deals.muu}, 0), 0)::float8 * coalesce(${s.deals.usdPerMuu}, ${s.pipelines.usdPerMuu}, 1)
+  when ${s.pipelines.unit} = 'usd' then coalesce(${s.deals.annualizedValueCents}, ${s.deals.contractValueCents}, 0)::float8 / 100
+  else 0 end)`;
+const netSql = sql<number>`(case
+  when ${s.pipelines.unit} = 'muu' then greatest(coalesce(${s.deals.muu}, 0), 0)::float8 * coalesce(${s.deals.usdPerMuu}, ${s.pipelines.usdPerMuu}, 1)
+    * least(1, greatest(0, coalesce(${s.deals.revSharePct}, ${s.pipelines.defaultRevSharePct}, 0.5)))
+  when ${s.pipelines.unit} = 'usd' then coalesce(${s.deals.annualizedValueCents}, ${s.deals.contractValueCents}, 0)::float8 / 100
+  else 0 end)`;
+const probSql = sql<number>`(case when ${s.deals.probabilityOverride} is not null and (${s.deals.overrideStatus} is null or ${s.deals.overrideStatus} = 'approved')
+  then least(1, greatest(0, ${s.deals.probabilityOverride})) else least(1, greatest(0, ${s.stages.probability})) end)`;
+
+type BoardBase = NonNullable<Awaited<ReturnType<typeof boardBase>>>;
+
+/** Shared access + filter conditions and lookups for the board and the list view. */
+async function boardBase(user: AppUser, pipelineKey: string, filters: BoardFilters) {
+  const pipeline = await getPipelineByKey(pipelineKey);
+  if (!pipeline) return null;
+  const where = await dealAccessWhere(user, "view");
+  const stagesBy = await getStagesByPipeline();
+  const hidden = await hiddenDealFields(user.role);
+  const editScope = await scopeFor(user, dealModule(pipelineKey), "edit");
+  const stages = stagesBy[pipeline.id] ?? [];
+  const stageMap = new Map(stages.map((st) => [st.id, st]));
+  const customGateKeys = Array.from(new Set(stages.flatMap((st) => st.requiredFields).filter((k) => !(k in GATE_FIELDS))));
+
+  const baseConds: SQL[] = [where, eq(s.deals.pipelineId, pipeline.id)];
+  const conds: SQL[] = [...baseConds];
+  if (filters.q) {
+    const pat = likeEscape(filters.q);
+    conds.push(or(ilike(s.deals.name, pat), ilike(s.accounts.name, pat), ilike(s.accounts.domain, pat))!);
+  }
+  if (filters.owner === "me") conds.push(eq(s.deals.ownerId, user.id));
+  else if (filters.owner === "none") conds.push(isNull(s.deals.ownerId));
+  else if (filters.owner) conds.push(eq(s.deals.ownerId, filters.owner));
+  if (filters.priority === "none") conds.push(isNull(s.deals.priority));
+  else if (filters.priority) conds.push(eq(s.deals.priority, filters.priority));
+  if (filters.category) conds.push(eq(s.accounts.category, filters.category));
+  if (filters.status) conds.push(eq(s.deals.status, filters.status));
+  if (filters.overdue) conds.push(and(eq(s.deals.status, "open"), lt(s.deals.nextStepDueAt, new Date()))!);
+  return { pipeline, pipelineKey, stageMap, hidden, editScope, customGateKeys, conds, baseConds };
+}
+
+type BoardRow = {
+  deal: typeof s.deals.$inferSelect;
+  accountName: string | null;
+  accountDomain: string | null;
+  accountCategory: string | null;
+  ownerName: string | null;
+  ownerImage: string | null;
+};
+type SplitRow = { dealId: string; userId: string; pct: number; name: string; image: string | null };
+
+function toBoardDeals(user: AppUser, b: BoardBase, rows: BoardRow[], splits: SplitRow[]): BoardDeal[] {
+  const { pipeline, pipelineKey, stageMap, hidden, editScope, customGateKeys } = b;
+  const splitsBy = new Map<string, SplitRow[]>();
   for (const sp of splits) (splitsBy.get(sp.dealId) ?? splitsBy.set(sp.dealId, []).get(sp.dealId)!).push(sp);
 
   const now = Date.now();

@@ -35,15 +35,35 @@ export function untrusted(label: string, text: string, maxChars = 60_000): strin
   return `<untrusted source="${label}">\n${clipped.replace(/<\/?untrusted[^>]*>/gi, "")}\n</untrusted>`;
 }
 
-export async function aiObject<S extends z.ZodType>(opts: {
+/**
+ * Per-tier call limits (H-08). The abort signal bounds the WHOLE call (both attempts), so a slow or hung gateway
+ * throws a timeout and the caller's deterministic fallback runs, instead of the server action / sync / cron hanging
+ * until maxDuration. maxOutputTokens caps cost (reasoning models count reasoning tokens against it).
+ */
+export const AI_LIMITS = {
+  fast: { timeoutMs: 20_000, maxOutputTokens: 3_000 },
+  strong: { timeoutMs: 60_000, maxOutputTokens: 8_000 },
+} as const;
+const MAX_RETRIES = 1;
+
+type CallOpts = {
   kind: string;
   userId: string | null;
   tier?: "fast" | "strong";
-  schema: S;
   prompt: string;
   system?: string;
-}): Promise<z.infer<S>> {
+  /** Override the tier's output cap (never above it). */
+  maxOutputTokens?: number;
+};
+
+function limitsFor(opts: CallOpts) {
+  const base = AI_LIMITS[opts.tier ?? "fast"];
+  return { timeoutMs: base.timeoutMs, maxOutputTokens: Math.min(opts.maxOutputTokens ?? base.maxOutputTokens, base.maxOutputTokens) };
+}
+
+export async function aiObject<S extends z.ZodType>(opts: CallOpts & { schema: S }): Promise<z.infer<S>> {
   const model = await modelFor(opts.tier ?? "fast");
+  const lim = limitsFor(opts);
   const started = Date.now();
   try {
     const res = await generateObject({
@@ -51,31 +71,61 @@ export async function aiObject<S extends z.ZodType>(opts: {
       schema: opts.schema,
       system: opts.system ?? RTB_SYSTEM,
       prompt: opts.prompt,
+      maxRetries: MAX_RETRIES,
+      maxOutputTokens: lim.maxOutputTokens,
+      abortSignal: AbortSignal.timeout(lim.timeoutMs),
     });
-    await logRun(opts.kind, opts.userId, model, { promptChars: opts.prompt.length }, res.object, Date.now() - started);
+    await logRun(opts.kind, opts.userId, model, { promptChars: opts.prompt.length }, { object: res.object, usage: usageOf(res.usage) }, Date.now() - started, undefined, costOf(res.providerMetadata));
     return res.object as z.infer<S>;
   } catch (e) {
-    await logRun(opts.kind, opts.userId, model, { promptChars: opts.prompt.length }, null, Date.now() - started, String(e));
+    await logRun(opts.kind, opts.userId, model, { promptChars: opts.prompt.length }, null, Date.now() - started, errorText(e, lim.timeoutMs));
     throw e;
   }
 }
 
-export async function aiText(opts: { kind: string; userId: string | null; tier?: "fast" | "strong"; prompt: string; system?: string }) {
+export async function aiText(opts: CallOpts) {
   const model = await modelFor(opts.tier ?? "fast");
+  const lim = limitsFor(opts);
   const started = Date.now();
   try {
-    const res = await generateText({ model: model as LanguageModel, system: opts.system ?? RTB_SYSTEM, prompt: opts.prompt });
-    await logRun(opts.kind, opts.userId, model, { promptChars: opts.prompt.length }, { text: res.text.slice(0, 4000) }, Date.now() - started);
+    const res = await generateText({
+      model: model as LanguageModel,
+      system: opts.system ?? RTB_SYSTEM,
+      prompt: opts.prompt,
+      maxRetries: MAX_RETRIES,
+      maxOutputTokens: lim.maxOutputTokens,
+      abortSignal: AbortSignal.timeout(lim.timeoutMs),
+    });
+    await logRun(opts.kind, opts.userId, model, { promptChars: opts.prompt.length }, { text: res.text.slice(0, 4000), usage: usageOf(res.usage) }, Date.now() - started, undefined, costOf(res.providerMetadata));
     return res.text;
   } catch (e) {
-    await logRun(opts.kind, opts.userId, model, { promptChars: opts.prompt.length }, null, Date.now() - started, String(e));
+    await logRun(opts.kind, opts.userId, model, { promptChars: opts.prompt.length }, null, Date.now() - started, errorText(e, lim.timeoutMs));
     throw e;
   }
 }
 
-async function logRun(kind: string, userId: string | null, model: string, input: unknown, output: unknown, latencyMs: number, error?: string) {
+/** Token counts for agent_runs.output.usage (cost tracking). */
+function usageOf(u: { inputTokens?: number; outputTokens?: number; totalTokens?: number; outputTokenDetails?: { reasoningTokens?: number } } | undefined) {
+  if (!u) return null;
+  return { inputTokens: u.inputTokens ?? null, outputTokens: u.outputTokens ?? null, reasoningTokens: u.outputTokenDetails?.reasoningTokens ?? null, totalTokens: u.totalTokens ?? null };
+}
+
+/** USD cost when the AI Gateway reports it (providerMetadata.gateway.cost); else null. */
+function costOf(meta: unknown): number | null {
+  const cost = (meta as { gateway?: { cost?: unknown } } | undefined)?.gateway?.cost;
+  const n = typeof cost === "number" ? cost : typeof cost === "string" ? Number(cost) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function errorText(e: unknown, timeoutMs: number): string {
+  const name = (e as { name?: string })?.name;
+  if (name === "TimeoutError" || name === "AbortError") return `timeout after ${timeoutMs / 1000}s`;
+  return String(e).slice(0, 500);
+}
+
+async function logRun(kind: string, userId: string | null, model: string, input: unknown, output: unknown, latencyMs: number, error?: string, costUsd?: number | null) {
   try {
-    await db.insert(agentRuns).values({ kind, userId, model, input: input as never, output: output as never, latencyMs, error });
+    await db.insert(agentRuns).values({ kind, userId, model, input: input as never, output: output as never, latencyMs, error, costUsd: costUsd ?? null });
   } catch {
     /* logging must never break the feature */
   }

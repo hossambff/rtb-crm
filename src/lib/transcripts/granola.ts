@@ -7,6 +7,7 @@ import { IntegrationAuthError, getConnection, recordSyncSuccess } from "@/lib/in
 import { GRANOLA_API, parseNote, parseNoteList, type GranolaNoteSummary } from "./granola-core";
 import { normalizeTranscript } from "./parse";
 import { ingestTranscript } from "./ingest";
+import { directoryLoader } from "@/lib/integrations/directory";
 import { analyzeTranscript } from "./analyze";
 
 export class GranolaApiError extends Error {
@@ -70,6 +71,7 @@ export async function syncGranola(userId: string): Promise<GranolaSyncResult> {
   let updated = 0;
   let skipped = 0;
   let newest = conn.cursor ? new Date(conn.cursor) : since;
+  const directory = directoryLoader(); // loaded at most once per sync (M-23)
   for (const summary of notes.slice(0, 25)) {
     const note = parseNote(await granolaGet(key, GRANOLA_API.getNote(summary.id), GRANOLA_API.transcriptQuery), u?.name ?? "Me");
     const text = note.transcriptText ?? note.notesMarkdown;
@@ -88,7 +90,7 @@ export async function syncGranola(userId: string): Promise<GranolaSyncResult> {
       participants: [...note.attendees.map((a) => a.email ?? a.name ?? "").filter(Boolean), ...norm.speakers].slice(0, 50),
       uploadedBy: userId,
       calendarEventId: note.calendarEventId,
-    });
+    }, { directory });
     if (r.created) ingested++;
     else if (r.changed) updated++;
     else skipped++;

@@ -5,6 +5,7 @@ import * as s from "@/db/schema";
 import { getSetting } from "@/lib/settings";
 import { autonomyLevel } from "@/lib/integrations/core";
 import { bumpActivity, internalDomains, loadDirectory, resolveDealForAccount } from "@/lib/integrations/directory";
+import type { Directory } from "@/lib/integrations/matching-core";
 import { matchParticipants, normalizeEmail } from "@/lib/integrations/matching-core";
 import { recomputeDealHealth } from "@/lib/deals/service";
 
@@ -39,7 +40,11 @@ const ACTIVITY_SOURCE: Record<TranscriptSource, (typeof s.activitySource.enumVal
  * match it to a meeting (calendar event id, else owner ± 45 min) and deal (explicit → meeting → attendee domains),
  * and log one `call` activity.
  */
-export async function ingestTranscript(input: IngestTranscriptInput): Promise<{ id: string; created: boolean; changed: boolean }> {
+export async function ingestTranscript(
+  input: IngestTranscriptInput,
+  /** Share one memoized directory across a sync run (`directoryLoader()`), instead of a full reload per transcript (M-23). */
+  opts: { directory?: () => Promise<Directory> } = {},
+): Promise<{ id: string; created: boolean; changed: boolean }> {
   if (input.externalId) {
     const [existing] = await db
       .select({ id: s.transcripts.id, rawText: s.transcripts.rawText })
@@ -90,7 +95,7 @@ export async function ingestTranscript(input: IngestTranscriptInput): Promise<{ 
   const emails = input.participants.map((p) => normalizeEmail(p)).filter((e): e is string => Boolean(e));
   if (!accountId && emails.length && input.uploadedBy) {
     const [u] = await db.select({ email: s.user.email }).from(s.user).where(eq(s.user.id, input.uploadedBy));
-    const m = matchParticipants(emails, await loadDirectory(), { internalDomains: await internalDomains(u?.email), blocklist: [], ownerEmail: u?.email });
+    const m = matchParticipants(emails, await (opts.directory ?? loadDirectory)(), { internalDomains: await internalDomains(u?.email), blocklist: [], ownerEmail: u?.email });
     accountId = m.accountId;
     const autonomy = await getSetting<Record<string, unknown>>("agent.autonomy", {});
     if (!dealId && accountId && autonomyLevel(autonomy, "link_transcript") >= 2) dealId = await resolveDealForAccount(accountId, input.uploadedBy);

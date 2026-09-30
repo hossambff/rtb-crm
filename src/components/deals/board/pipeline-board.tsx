@@ -8,7 +8,7 @@ import type { BoardDeal, BoardFilters, BoardView, Lane, Picklist, PipelineDTO, S
 import { useStageMove } from "../stage-move";
 import { BoardToolbar } from "./board-toolbar";
 import { Kanban } from "./kanban";
-import { DealsTable } from "./deals-table";
+import { DealsTable, type ServerListPage } from "./deals-table";
 
 /**
  * Client shell for /pipelines/[key]: optimistic Kanban (useOptimistic → auto-rollback when the server action fails),
@@ -18,6 +18,7 @@ export function PipelineBoard({
   pipeline,
   stages,
   deals,
+  listPage,
   totals,
   filters,
   lane,
@@ -34,6 +35,8 @@ export function PipelineBoard({
   pipeline: PipelineDTO;
   stages: StageDTO[];
   deals: BoardDeal[];
+  /** List view is paginated + sorted server-side (M-20). */
+  listPage?: ServerListPage;
   totals: Record<string, ColumnTotals>;
   filters: BoardFilters;
   lane: Lane;
@@ -143,6 +146,7 @@ export function PipelineBoard({
           pipeline={pipeline}
           stages={stages}
           deals={optimisticDeals}
+          serverPage={listPage}
           assignable={assignable}
           canAssign={perms.canAssign}
           canExport={perms.canExport}
