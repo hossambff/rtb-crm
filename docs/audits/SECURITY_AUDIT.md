@@ -5,6 +5,46 @@
 - **Scope:** application code (`src/**`), auth config, route handlers, server actions, AI/Copilot, integrations, exports, Supabase grants, dependencies, git history.
 - **Method:** code trace of every `"use server"` file (28) and every route handler (22, including 2 outside `/api`). Live verification against the lead's dev server (`http://localhost:3000`), using the seeded dev accounts. Read-only SQL against the `rso` schema as `rso_app`. Temporary `[test] sec …` rows were used for field-level-security, restricted-deal and Account 360 tests, then deleted. Final count of `[test] sec%` deals, accounts and documents is 0. No source files were modified.
 - **Evidence labels:** **LIVE** = reproduced against the running server. **SQL** = verified with a read-only query. **CODE** = precise code trace. **SUSPECTED** = plausible but not fully traced.
+- **Remediation:** see [§0 Remediation status](#0-remediation-status) — every High and Medium is fixed in commit `3004704`.
+
+## 0. Remediation status
+
+Fixed in commit `3004704` (branch `worktree-agent-a85af33b751a44813`). Verification: **LIVE** = re-tested on a local dev server (port 3011) with the dev accounts and temporary `[test] fixsec` rows (all deleted afterwards, count verified 0); **TEST** = vitest regression test; **CODE** = code change only.
+
+| ID | Status | Fix | Verification |
+|---|---|---|---|
+| H-1 | Fixed | Only `super_admin` holds Better Auth admin statements (`adminRoles: ["super_admin"]`, `admin` = user statements). `hooks.before`: every `/api/auth/admin/*` mutation returns 404 over HTTP (even for super_admin; read endpoints super_admin only; `stop-impersonating` open); granting `super_admin`/`admin` via any `auth.api` call needs a super_admin caller. `hooks.after` audits BA role/lifecycle calls; denials audited as `auth.admin.denied`. Admin → Users actions keep their app guards and write through the internal adapter (`src/lib/auth/admin-ops.ts`). | LIVE: super_admin `set-role`/`update-user` → 404; exec `set-role` → 404; intern `list-users` → 404; super_admin `list-users` → 200. Super_admin provision → role change → revoke → deactivate → reactivate all succeeded (DB + audit rows checked). TEST `auth/__tests__/policy.test.ts`. |
+| H-2 | Fixed | Account 360 documents: account-level docs, or deal docs only when the deal passes `dealAccessWhere`. | LIVE: restricted deal's term sheet hidden for intern and exec, shown to super_admin; account doc still shown. |
+| H-3 | Fixed | Copilot account timeline and account tasks filtered to visible deals; `meeting_prep` denies meetings linked to an inaccessible deal (no account/owner fallback). | CODE (model not driven for this path). |
+| H-4 | Fixed | `pipeline_snapshots` exclude restricted deals. The weekly digest includes org pipeline totals only for recipients with `analytics.view = all`. | CODE. SQL: 0 snapshot rows exist, so no historical restricted data. |
+| H-07 (code review) | Fixed | Escalated alert copies use a neutral title/detail when the manager is not on the restricted deal's access list (deal or proposal entity). | CODE |
+| M-1 | Fixed | `checkRegistration`/`registerLead`: restricted accounts the caller can't see return a generic "can't be registered" block (no name, domain, id or deal/registration details). Duplicate checks show "an existing account you don't have access to". `createDeal` uses `getVisibleAccount`. Parent must be visible (validated on create/update; Account 360 hides a non-visible parent). Contact email clash names only visible contacts. | LIVE: commission_rep `checkRegistration(arenagroup.com)` and `(Paradium UUID)` → `accountName:null`; intern `checkAccountDuplicates(arenagroup.com)` → hidden label. |
+| M-2 | Fixed | `getCurrentUser` re-checks ban, `accessExpiresAt`, domain allowlist (env + DB) and dev accounts on every request, and deletes the user's sessions when a check fails. | LIVE: dev.intern expiry set to yesterday → next request 307 to /sign-in, 14 sessions revoked; restored. TEST. |
+| M-3 | Fixed | Copilot contacts use `contactVisibilityWhere`; account tasks and "my tasks" deal names filtered by deal visibility. | CODE |
+| M-4 | Fixed | Transcripts require the restricted-account access list when linked to an account. | LIVE: exec `/calls` no longer lists the restricted-account call; super_admin does. |
+| M-5 | Fixed | `requestApproval` sends a neutral title and no note for restricted deals (stage gates, overrides). Proposal approval notifications do the same. | CODE |
+| M-6 | Fixed | `runScopeWhere` adds the restricted-account check (admins included). | CODE |
+| M-7 | Fixed (at source) | Snapshots exclude restricted deals (see H-4). `analytics/executive.ts` is unchanged to avoid conflicting with the H-01 fix. | CODE |
+| M-8 | Fixed | Any split change (membership, %, role, including adding yourself) requires `assign` in scope on the deal. Won deals are locked unless the user has `commissions.configure`. | TEST (`splitsChanged`) |
+| M-9 / QA-14 | Fixed | Separation of duties for `decideProposal`, `applyRegistrationDecision` (both queues), `decideProbabilityOverride` and the approvals inbox. A super_admin may decide their own request only when `approvals.allow_self_super_admin` is `true` (default false). | TEST (`sod-core`) |
+| M-10 (+S-04) | Fixed | Client history sanitized: only user/assistant roles, and user text only. Prior tool results are replayed as `<untrusted>` text, never as authoritative tool results. The autonomy cap persists per chat id (server-side `agent_runs.input.chatId` with `untrustedSeen`/`injectionFlags`; fails closed) plus history heuristics. | LIVE: forged system/tool history accepted without error; TEST `copilot/__tests__/history.test.ts`. |
+| M-11 | Fixed | A next step from an inbound email is stored as `nextStepSuggestion` and never auto-applied. Auto-apply at level 2 happens only for outbound mail. Tasks from inbound commitments keep level 2. Email subject/sender, call title and activity subjects are wrapped with `untrustedField()`. | TEST |
+| M-12 | Fixed | `account.encryptOAuthTokens: true`. `auth.api.getAccessToken` decrypts; legacy plaintext is still readable. There are 0 Google rows today. | CODE |
+| M-13 | Fixed | 10 MB upload cap with a Content-Length pre-check. The xlsx ZIP central directory is inspected before exceljs (≤120 MB total, 80 MB/entry, ratio ≤200, ≤20 sheets, no ZIP64). ≤20k rows and ≤300 columns after parsing (CSV and XLSX). The scout domain list uses tighter bounds. | TEST `import/__tests__/limits.test.ts` |
+| M-14 | Fixed | `bonusCents`/`bonusEligible` changes only by super_admin, admin, finance or sales_leader, on both R100 update paths. | TEST |
+| M-15 | Fixed (code) / Deferred (ops) | Sessions for `dev.*@` emails are rejected when `NODE_ENV=production` (session-create hook and every request). Dev accounts are kept for local QA; `npm run db:purge-dev` remains the go-live step. The committed dev password should become per-machine (not done). | TEST |
+| QA-02 | Fixed | `normalizeClaimText` (NFKC, zero-width, number words, `$100M` → `$100 million`, "secs" → "seconds"). New paraphrase patterns (`src/lib/claims-patterns.ts`), applied to the DB by `scripts/update-claims.ts` (run; idempotent). Copilot drafts written in chat are claim-checked on finish, with a warning banner via message metadata. The system prompt forbids banned claims in chat. | TEST (QA repro strings); script run twice ("updated", then "up to date"); LIVE finish metadata carried claim hits. |
+| QA-13 | Fixed | `draft_email` refuses recipients that are not visible CRM contacts (primary or alternate email) or typed by the user, and a system-prompt rule says so. | TEST; LIVE: Copilot asked for the address instead of inventing one. |
+| L-1 | Fixed | `/api/cron/scout` uses `isAuthorizedCron`. | CODE |
+| L-2 | Fixed | Import parse/preview/commit check `sameOrigin` (in `shared.ts` / parse route). | CODE |
+| L-8 | Partly fixed | GCM tag must be 16 bytes (`authTagLength`). AAD deferred: it would invalidate stored ciphertexts. | CODE |
+| L-9 / S-02 | Partly fixed | The accounts export drops restricted rows. The contacts export relies on `contactVisibilityWhere` (access-list users still export them); deferred. | CODE |
+| L-10 | Partly fixed | Normalization and chat-draft checks (QA-02). Deferred: checking the body after the signature, `scanMnpi` on manual send, proposal checks, regex safety for admin patterns. | TEST |
+| L-12 | Partly fixed | `getDealContacts` uses `contactVisibilityWhere`. The `stage-service` contact lookup is left for the data-integrity owner of that file. | CODE |
+| L-13 | Fixed | An omitted owner means unchanged; any owner change (including unassigning) or creating for someone else needs `accounts.assign`. | CODE |
+| L-15 | Fixed | `requestMoreBudget` needs scout/enrichment create. `previewSearchRun` checks ownership. | CODE |
+| S-01 | Fixed | `bulkMoveStage` names only deals the caller can see. | CODE |
+| L-3, L-4, L-5, L-6, L-7, L-11, L-14, L-16, L-17, L-18, L-19, L-20 | Deferred | Out of this change's scope or owned by the other fix streams (L-11 = code review H-12, L-5 = code review H-04). L-16 changes sales-leader visibility semantics and needs a product decision. L-19 (CSP) needs a nonce pipeline. L-20 is Supabase role work. L-18's escalation part is covered by H-07. | — |
 
 ## 1. Summary
 
