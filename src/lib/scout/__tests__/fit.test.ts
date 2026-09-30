@@ -50,10 +50,19 @@ describe("normalizeWeights", () => {
 });
 
 describe("audienceSignal (D7 sweet spot 250K–25M)", () => {
-  it("is full inside the band, inclusive of edges", () => {
-    expect(audienceSignal(250_000)).toBe(1);
+  it("is graded inside the band — larger audiences score higher (QA-10)", () => {
+    expect(audienceSignal(250_000)).toBe(0.5);
+    expect(audienceSignal(1_000_000)).toBe(0.9);
+    expect(audienceSignal(10_000_000)).toBe(1);
     expect(audienceSignal(25_000_000)).toBe(1);
-    expect(audienceSignal(3_000_000)).toBe(1);
+    const [a, b, c] = [audienceSignal(800_000), audienceSignal(3_500_000), audienceSignal(12_000_000)];
+    expect(a).toBeLessThan(b);
+    expect(b).toBeLessThan(c);
+    expect(a).toBeGreaterThan(0.5);
+  });
+  it("QA-10 repro: 0.8M / 3.5M / 12M produce three different audience points", () => {
+    const pts = [800_000, 3_500_000, 12_000_000].map((m) => computeFit({ ...base, estMuu: m }).factors.audience);
+    expect(new Set(pts).size).toBe(3);
   });
   it("ramps below the band and is zero for tiny sites", () => {
     expect(audienceSignal(25_000)).toBe(0);
@@ -63,8 +72,8 @@ describe("audienceSignal (D7 sweet spot 250K–25M)", () => {
     expect(mid).toBeLessThan(1);
     expect(audienceSignal(200_000)).toBeGreaterThan(audienceSignal(100_000));
   });
-  it("above the band is still strong (ENT sized)", () => {
-    expect(audienceSignal(60_000_000)).toBe(0.8);
+  it("ENT-sized audiences stay at the top", () => {
+    expect(audienceSignal(60_000_000)).toBe(1);
   });
   it("unknown MUU is neutral-low", () => {
     expect(audienceSignal(null)).toBe(0.3);
@@ -130,7 +139,7 @@ describe("computeFit", () => {
     for (const f of FIT_FACTORS) expect(r.factors[f]).toBeLessThanOrEqual(r.weights[f] + 1e-9);
   });
   it("perfect signals → 100, nothing → low", () => {
-    const perfect = computeFit({ ...base, hasRelationship: true, lookalikeSimilarity: 1, techStack: [...base.techStack] });
+    const perfect = computeFit({ ...base, estMuu: 12_000_000, hasRelationship: true, lookalikeSimilarity: 1, techStack: [...base.techStack] });
     expect(perfect.score).toBe(100);
     const poor = computeFit({ estMuu: 5_000, category: "Food", ownership: "group owned", country: "BR", trendPct: 0.4, techStack: ["Shopify"], lookalikeSimilarity: null, hasRelationship: false });
     expect(poor.score).toBeLessThan(20);
@@ -138,7 +147,8 @@ describe("computeFit", () => {
   });
   it("respects admin weights", () => {
     const onlyAudience = { audience: 100, vertical: 0, ownership: 0, pain: 0, stack: 0, lookalike: 0, geo: 0, relationship: 0 };
-    expect(computeFit({ ...base, estMuu: 1_000_000 }, { weights: onlyAudience }).score).toBe(100);
+    expect(computeFit({ ...base, estMuu: 10_000_000 }, { weights: onlyAudience }).score).toBe(100);
+    expect(computeFit({ ...base, estMuu: 1_000_000 }, { weights: onlyAudience }).score).toBe(90);
     expect(computeFit({ ...base, estMuu: 10_000 }, { weights: onlyAudience }).score).toBe(0);
   });
   it("estimated value = est MUU × $/MUU", () => {
@@ -152,8 +162,15 @@ describe("computeFit", () => {
     expect(r.score).toBeGreaterThan(0);
   });
   it("custom sweet spot", () => {
-    const r = computeFit({ ...base, estMuu: 150_000 }, { sweetSpot: { NET: { min: 100_000, max: 1_000_000 }, ENT: { min: 5_000_000 } } });
-    expect(r.signals.audience).toBe(1);
+    const spot = { NET: { min: 100_000, max: 1_000_000 }, ENT: { min: 5_000_000 } };
+    expect(computeFit({ ...base, estMuu: 150_000 }, { sweetSpot: spot }).signals.audience).toBeGreaterThan(0.5);
+    expect(computeFit({ ...base, estMuu: 6_000_000 }, { sweetSpot: spot }).signals.audience).toBe(1);
+  });
+  it("explanation agrees with routing for ≥10M (QA-10)", () => {
+    const r = computeFit({ ...base, estMuu: 12_000_000 });
+    expect(r.routing).toBe("ENT");
+    expect(r.explanation).toContain("Enterprise-sized");
+    expect(r.explanation).not.toContain("NET sweet spot");
   });
 });
 

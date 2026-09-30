@@ -107,16 +107,34 @@ export function matchDisplaceable(techStack: string[]): string[] {
   return [...hits];
 }
 
-/** Audience signal: full inside the NET sweet spot; ramps on log scale below it; big sites still valuable (ENT). */
+const logRamp = (x: number, lo: number, hi: number) => (hi > lo ? Math.log10(x / lo) / Math.log10(hi / lo) : 1);
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Audience signal, graded on a log scale (QA-10 — bigger audiences must score higher, not a flat 1 across the band):
+ *   ≤ NET.min/10 (25K) → 0 · ramps to 0.5 at NET.min (250K) · 0.5 → 0.9 across the lower band up to 4× NET.min (1M)
+ *   · 0.9 → 1.0 up to the ENT threshold (10M) · ≥ ENT threshold (ENT-sized, routed to Enterprise) → 1.0.
+ * With a custom band where the ENT threshold sits below 4× NET.min the upper segment collapses gracefully.
+ */
 export function audienceSignal(muu: number | null, spot: SweetSpot = DEFAULT_SWEET_SPOT): number {
   if (muu == null) return 0.3; // unknown: neutral-low, flagged in the explanation
   if (muu <= 0) return 0;
-  const { min, max } = spot.NET;
-  if (muu >= min && muu <= max) return 1;
-  if (muu > max) return 0.8; // above NET band → ENT-sized, still a strong target
-  const floor = min / 10; // 25K with default band
+  const { min } = spot.NET;
+  const floor = min / 10; // 25K with the default band
+  const knee = Math.min(min * 4, spot.ENT.min); // 1M with the defaults
+  const top = Math.max(spot.ENT.min, knee);
   if (muu <= floor) return 0;
-  return Math.round((Math.log10(muu / floor) / Math.log10(min / floor)) * 100) / 100;
+  if (muu < min) return r2(0.5 * logRamp(muu, floor, min));
+  if (muu < knee) return r2(0.5 + 0.4 * logRamp(muu, min, knee));
+  if (muu < top) return r2(0.9 + 0.1 * logRamp(muu, knee, top));
+  return 1;
+}
+
+/** Where an MUU sits relative to the bands — shared by the explanation and routing so they always agree (QA-10). */
+export function audienceBand(muu: number, spot: SweetSpot = DEFAULT_SWEET_SPOT): "enterprise" | "net" | "above_net" | "below" {
+  if (muu >= spot.ENT.min) return "enterprise";
+  if (muu >= spot.NET.min && muu <= spot.NET.max) return "net";
+  return muu > spot.NET.max ? "above_net" : "below";
 }
 
 export function verticalSignal(category: string | null, core: string[] = DEFAULT_CORE_VERTICALS): number {
@@ -210,7 +228,9 @@ export function computeFit(input: FitInput, config: FitConfig = {}): FitResult {
   const parts: string[] = [];
   if (input.estMuu == null) parts.push("MUU unknown");
   else {
-    const band = input.estMuu >= spot.NET.min && input.estMuu <= spot.NET.max ? "in the NET sweet spot" : input.estMuu > spot.NET.max ? "above the NET band (ENT-sized)" : "below the sweet spot";
+    const b = audienceBand(input.estMuu, spot);
+    const band =
+      b === "enterprise" ? `Enterprise-sized (≥ ${fmtCompact(spot.ENT.min)} MUU)` : b === "net" ? "in the NET sweet spot" : b === "above_net" ? "above the NET band" : "below the sweet spot";
     parts.push(`${fmtCompact(input.estMuu)} est. MUU ${band}`);
   }
   if (input.category) parts.push(signals.vertical >= 0.7 ? `core ${input.category} vertical` : `${input.category} (non-core vertical)`);
