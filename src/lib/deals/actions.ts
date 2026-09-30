@@ -8,6 +8,7 @@ import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { normalizeDomain } from "@/lib/domain";
 import { assertCan, can, dealModule, ForbiddenError, ownedEntityWhere, scopeFor } from "@/lib/rbac/server";
+import { SCOPE_RANK } from "@/lib/rbac/model";
 import { toCsv } from "./csv";
 import { stageSlice } from "./board-shape";
 import { filledKeys, gateFieldMeta, missingFields } from "./gates";
@@ -750,7 +751,11 @@ export const exportDealsCsv = action(
   async ({ pipelineKey, filters, dealIds }, user) => {
     const pipeline = await getPipelineByKey(pipelineKey);
     if (!pipeline) throw new UserError("Unknown pipeline.");
-    const exportScope = await assertCan(user, dealModule(pipelineKey), "export");
+    // QA-19: pipeline export grant, or the org-wide Export permission (Appendix B — e.g. Finance). Rows are still limited
+    // to what the user can view (listDealsForBoard) and restricted deals never leave.
+    const [pipeExport, globalExport] = await Promise.all([scopeFor(user, dealModule(pipelineKey), "export"), scopeFor(user, "export", "export")]);
+    const exportScope = SCOPE_RANK[pipeExport] >= SCOPE_RANK[globalExport] ? pipeExport : globalExport;
+    if (exportScope === "none") throw new ForbiddenError("Your role can't export deals.");
     const stagesBy = await getStagesByPipeline();
     const hidden = await hiddenDealFields(user.role);
     const stageName = new Map((stagesBy[pipeline.id] ?? []).map((st) => [st.id, st.name]));
