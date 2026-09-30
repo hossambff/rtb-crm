@@ -97,7 +97,8 @@ registerApprovalHandler("probability_override", {
   apply: async ({ approval, decision, user }) => {
     for (const id of dealIdsOf(approval)) {
       const [before] = await db.select().from(s.deals).where(eq(s.deals.id, id));
-      if (!before) continue;
+      // Skip deals already decided elsewhere (e.g. from the deal page) or withdrawn — matters for bulk requests.
+      if (!before || before.overrideStatus !== "pending") continue;
       const set =
         decision === "approved"
           ? { overrideStatus: "approved", overrideApprovedBy: user.id }
