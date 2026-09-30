@@ -1,0 +1,39 @@
+"use client";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+
+export type AdminNavItem = { href: string; label: string };
+
+export function AdminNav({ items }: { items: AdminNavItem[] }) {
+  const pathname = usePathname();
+  return (
+    <nav aria-label="Admin sections" className="-mx-1 flex gap-1 overflow-x-auto border-b border-border pb-px lg:mx-0 lg:flex-col lg:border-b-0 lg:pb-0">
+      {items.map((it) => {
+        const active = it.href === "/admin" ? pathname === "/admin" : pathname.startsWith(it.href);
+        return (
+          <Link
+            key={it.href}
+            href={it.href}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm transition-colors duration-150",
+              active ? "bg-surface-2 font-medium text-fg" : "text-muted hover:bg-surface-2/60 hover:text-fg",
+            )}
+          >
+            {it.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function NoAccess({ message = "You don't have permission to view this page." }: { message?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border-strong px-6 py-14 text-center">
+      <p className="font-display text-lg text-fg">No access</p>
+      <p className="mt-1 max-w-sm text-sm text-muted">{message}</p>
+    </div>
+  );
+}
