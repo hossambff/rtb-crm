@@ -49,6 +49,7 @@ export const applyCallReview = action(
           due: z.string().nullable().default(null),
           evidence: z.string().max(1000).default(""),
           timestamp: z.string().max(12).nullable().default(null),
+          itemId: z.string().max(80).optional(),
         }),
       )
       .max(30),

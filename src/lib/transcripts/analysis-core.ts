@@ -81,7 +81,9 @@ export function normalizeAiTranscriptAnalysis(ai: TranscriptAnalysisAi, text: st
         id: `a${i + 1}`,
         owner: a.owner.slice(0, 80),
         task: a.task.slice(0, 300),
-        due: (parseIsoDue(a.due, ctx.occurredAt) ?? parseDue(a.evidence, ctx.occurredAt)?.date ?? null)?.toISOString() ?? null,
+        // QA-11: an explicit phrase in the quote/task ("next week", "by Friday") resolved against the call date beats the
+        // model's own date guess, which drifted (e.g. "next week" → this Friday).
+        due: (parseDue(a.evidence, ctx.occurredAt)?.date ?? parseDue(a.task, ctx.occurredAt)?.date ?? parseIsoDue(a.due, ctx.occurredAt) ?? null)?.toISOString() ?? null,
         evidence: grounded(a.evidence) ? a.evidence.slice(0, 500) : "",
         timestamp: a.timestamp && /^\d{1,2}:\d{2}(:\d{2})?$/.test(a.timestamp) ? a.timestamp : findTimestamp(text, a.evidence),
       })),
