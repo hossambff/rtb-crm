@@ -25,7 +25,7 @@ Generated 2026-09-30T00:50:27.571Z by `scripts/import-spreadsheets.ts` (verifica
 
 _+ = created, ~ = updated (existing record, empty fields filled / stage advanced). “Dupes merged” = rows that collapsed into a record created earlier in the same batch._
 
-> **Batch `70404ba2` (RTB Sites & RTB100 Pipeline (Top 100 list + Media sites_ Crypto, Blockchain, Finance, AI, Politics, Military).xlsx) failed** during its first flush (a same-name account claimed a domain another row already owned — fixed in the engine). Its inserts were kept and adopted by the next, completed run of the same file (which only filled gaps). Because the failed batch never wrote its import_records, its 6477 accounts / 1448 deals are **not** covered by one-click rollback; they can be attached to that batch with an INSERT … SELECT on created_at (see final report of the import agent).
+> **Batch `70404ba2` (RTB Sites & RTB100 Pipeline (Top 100 list + Media sites_ Crypto, Blockchain, Finance, AI, Politics, Military).xlsx) failed** during its first flush (a same-name account claimed a domain another row already owned — fixed in the engine). Its inserts were kept and adopted by the next, completed run of the same file (which only filled gaps). Because the failed batch never wrote its import_records, its 6477 accounts / 1448 deals are **not** covered by one-click rollback; they can be attached to that batch with the reviewed INSERT … SELECT in [Repair: attach batch `70404ba2` rows](#repair-attach-batch-70404ba2-rows-to-the-rollback-ledger-owner-approval-required) (not applied; needs owner approval).
 
 Later batches of the same file are idempotent re-runs after matching fixes; “Duplicate repair (post-import)” batches merged same-name duplicates and moved mis-attached R100/ADS deals (all reversible):
 
@@ -237,3 +237,68 @@ Placeholder users are `<first>.placeholder@roundtable.invalid`, role viewer, ban
 - NetDev “Monthly visits” (CLEANED, Spanish, NETDEV Pipeline, and v7 rows sourced from “NetDev Pipeline”) are stored as audience metric **visits**; MUU is derived as visits ÷ 2.5 and flagged *estimate*. Blue MUU cells in v7 are stored as “BFF research estimate”.
 - Every imported deal: tag `imported`, next step from the sheet or “Review imported deal”, due import date + 7 days, source = sheet name.
 - Removed (off model) accounts are lifecycle *disqualified* (reason in notes/customFields) and do not get early-stage deals from other list tabs.
+
+## Repair: attach batch `70404ba2` rows to the rollback ledger (owner approval required)
+
+**Status: NOT applied.** Proposed by the data-integrity fixes (CODE_REVIEW H-09). Nothing below has been run against
+the live database; the counts come from read-only queries on 2026-09-30.
+
+Why: batch `70404ba2-aa78-4217-9a84-69e57cd7b203` failed mid-flush on the first run, before the engine wrote its
+`import_records`. Its inserted rows were kept, so they are invisible to one-click rollback. (The engine now writes each
+chunk's rows and their `import_records` in the same transaction, so this can't recur.)
+
+The failed batch ran from `2026-09-29T23:57:38.741Z` until the next batch started (`2026-09-30T00:01:03.331Z`). Rows
+created in that window that no other batch's ledger mentions belong to it:
+
+| Entity | Rows (read-only count) |
+|---|---|
+| account | 6,360 (all live) |
+| deal | 1,379 (all live) |
+| contact | 2,527 (all live) |
+| activity | 1,352 |
+| audience_metric | 3,535 |
+| deal_stage_history | 3 (most history rows carry the sheet's import date, not now(), so they fall outside the window and are removed with their deal only via soft delete) |
+
+The stats row says 6,477 accounts / 1,448 deals were *planned*; the difference is rows whose chunk never committed.
+The ~914 accounts / 2,015 deals it *updated* have no `before` snapshot anywhere, so those field fills cannot be
+reverted automatically — they are also covered by the later completed run `dbead3c3`, which recorded its own updates.
+
+Run once, in a single transaction, on the session pooler (port 5432), after a backup:
+
+```sql
+begin;
+-- 1) sanity: must print the counts in the table above (stop if they differ)
+with w as (select timestamptz '2026-09-29T23:57:38.741Z' a, timestamptz '2026-09-30T00:01:03.331Z' b)
+select 'account', count(*) from rso.accounts, w where created_at >= w.a and created_at < w.b
+  and not exists (select 1 from rso.import_records r where r.entity = 'account' and r.entity_id = accounts.id)
+union all select 'deal', count(*) from rso.deals, w where created_at >= w.a and created_at < w.b
+  and not exists (select 1 from rso.import_records r where r.entity = 'deal' and r.entity_id = deals.id)
+union all select 'contact', count(*) from rso.contacts, w where created_at >= w.a and created_at < w.b
+  and not exists (select 1 from rso.import_records r where r.entity = 'contact' and r.entity_id = contacts.id);
+
+-- 2) attach them to the failed batch as "created"
+with w as (select timestamptz '2026-09-29T23:57:38.741Z' a, timestamptz '2026-09-30T00:01:03.331Z' b),
+     batch as (select '70404ba2-aa78-4217-9a84-69e57cd7b203'::uuid id)
+insert into rso.import_records (batch_id, entity, entity_id, action, before)
+select batch.id, x.entity, x.id, 'created', null from batch, (
+  select 'account' entity, id from rso.accounts, w where created_at >= w.a and created_at < w.b
+  union all select 'deal', id from rso.deals, w where created_at >= w.a and created_at < w.b
+  union all select 'contact', id from rso.contacts, w where created_at >= w.a and created_at < w.b
+  union all select 'activity', id from rso.activities, w where created_at >= w.a and created_at < w.b
+  union all select 'audience_metric', id from rso.audience_metrics, w where created_at >= w.a and created_at < w.b
+  union all select 'deal_stage_history', id from rso.deal_stage_history, w where changed_at >= w.a and changed_at < w.b
+) x
+where not exists (select 1 from rso.import_records r where r.entity = x.entity and r.entity_id = x.id);
+
+-- 3) audit trail
+insert into rso.audit_log (actor_kind, action, entity, entity_id, after)
+values ('system', 'import.ledger_repair', 'import_batch', '70404ba2-aa78-4217-9a84-69e57cd7b203',
+        '{"note":"attached rows created by the failed first flush (CODE_REVIEW H-09)"}');
+commit;
+```
+
+Notes for whoever runs it:
+- The batch stays `failed`; rollback works on any non-rolled-back batch. Rolling it back would soft-delete ~6.4k
+  accounts that the later completed batches (`dbead3c3`, `1247cb4b`, the duplicate repairs) treat as existing. Roll
+  back those later batches first, newest to oldest, if the goal is to undo the whole file.
+- Placeholder user rows are not attached (they are never removed by rollback anyway).

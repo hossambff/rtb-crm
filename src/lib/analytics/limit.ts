@@ -5,7 +5,7 @@ import { cache } from "react";
  *
  * History: this used to be a PROCESS-WIDE semaphore (2 slots) shared by every request, because postgres-js pipelined
  * statements on one connection and the Supabase transaction pooler stalled them. The DB client now sets
- * `max_pipeline: 1` (src/db/index.ts), so postgres-js queues excess queries per connection instead of pipelining —
+ * an in-flight limiter (src/db/index.ts `limitInFlight`), so excess queries queue instead of being pipelined —
  * the global queue only added head-of-line blocking (user B's dashboard waited behind user A's).
  *
  * Now the limit is PER REQUEST (React `cache()` scopes the semaphore to one server render): one dashboard keeps at
