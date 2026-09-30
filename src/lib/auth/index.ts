@@ -68,6 +68,11 @@ const plugins = [
 export const auth = betterAuth({
   appName: "Roundtable Sales OS",
   baseURL: process.env.BETTER_AUTH_URL ?? env.appUrl,
+  // Extra origins allowed to call auth endpoints (e.g. the team-scoped *.vercel.app alias). Comma-separated.
+  trustedOrigins: (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean),
   secret: process.env.BETTER_AUTH_SECRET,
   database: drizzleAdapter(db, {
     provider: "pg",
