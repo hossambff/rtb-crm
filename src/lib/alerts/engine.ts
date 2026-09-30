@@ -909,6 +909,26 @@ function ns26Candidate(ctx: Ctx, t: { id: string; title: string; assigneeId: str
   };
 }
 
+/** SEC H-07: is `entity` (a deal, or a proposal on a deal) restricted and `recipientId` neither on its access list nor super_admin? */
+async function restrictedForRecipient(entity: string, entityId: string, recipientId: string): Promise<boolean> {
+  let dealId: string | null = null;
+  if (entity === "deal") dealId = entityId;
+  else if (entity === "proposal") {
+    const [p] = await db.select({ dealId: s.proposals.dealId }).from(s.proposals).where(eq(s.proposals.id, entityId));
+    dealId = p?.dealId ?? null;
+  }
+  if (!dealId) return false;
+  const [d] = await db.select({ restricted: s.deals.restricted }).from(s.deals).where(eq(s.deals.id, dealId));
+  if (!d?.restricted) return false;
+  const [who] = await db.select({ role: s.user.role }).from(s.user).where(eq(s.user.id, recipientId));
+  if (who?.role === "super_admin") return false;
+  const [ok] = await db
+    .select({ u: s.restrictedAccess.userId })
+    .from(s.restrictedAccess)
+    .where(and(eq(s.restrictedAccess.entity, "deal"), eq(s.restrictedAccess.entityId, dealId), eq(s.restrictedAccess.userId, recipientId)));
+  return !ok;
+}
+
 /* ───────────── Upsert / resolve / escalate ───────────── */
 
 type AlertRow = typeof s.alerts.$inferSelect;
@@ -1114,6 +1134,8 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
       .set(mgr ? { state: "escalated", escalatedAt: ctx.now } : { escalatedAt: ctx.now })
       .where(eq(s.alerts.id, a.id));
     if (!mgr) continue;
+    // SEC H-07: the manager may not be on a restricted deal's access list — never copy its name/detail to them.
+    const hideFromMgr = await restrictedForRecipient(a.entity, a.entityId, mgr);
     const copy = await insertAlert(
       {
         ruleCode: a.ruleCode,
@@ -1121,8 +1143,10 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
         entityId: a.entityId,
         recipientId: mgr,
         severity: a.severity,
-        title: `Escalated: ${a.title}`,
-        detail: `Unresolved by ${u.name} for ${rule.escalateAfterHours}h+ of business time. ${a.detail ?? ""}`.trim(),
+        title: hideFromMgr ? `Escalated: ${a.ruleCode} alert on a restricted deal` : `Escalated: ${a.title}`,
+        detail: hideFromMgr
+          ? `Unresolved by ${u.name} for ${rule.escalateAfterHours}h+ of business time.`
+          : `Unresolved by ${u.name} for ${rule.escalateAfterHours}h+ of business time. ${a.detail ?? ""}`.trim(),
         suggestedAction: a.suggestedAction,
       },
       { escalatedAt: ctx.now },

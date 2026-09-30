@@ -204,7 +204,8 @@ export async function getAccount360(user: AppUser, id: string) {
   const childIdsQ = db.select({ id: s.accounts.id }).from(s.accounts).where(and(eq(s.accounts.parentId, account.id), isNull(s.accounts.deletedAt)));
   const [parent, children, deals, contacts, activities, documents, metrics, owner, migrations, childDeals] = await Promise.all([
     account.parentId
-      ? db.select({ id: s.accounts.id, name: s.accounts.name, domain: s.accounts.domain }).from(s.accounts).where(and(eq(s.accounts.id, account.parentId), isNull(s.accounts.deletedAt))).then((r) => r[0] ?? null)
+      ? // SEC M-1: never reveal a parent the user can't see (restricted / out of scope).
+        db.select({ id: s.accounts.id, name: s.accounts.name, domain: s.accounts.domain }).from(s.accounts).where(and(eq(s.accounts.id, account.parentId), await accountVisibilityWhere(user))).then((r) => r[0] ?? null)
       : Promise.resolve(null),
     db
       .select({ id: s.accounts.id, name: s.accounts.name, domain: s.accounts.domain, muu: s.accounts.muu, lifecycle: s.accounts.lifecycle, muuConfidence: s.accounts.muuConfidence })
@@ -287,8 +288,9 @@ export async function getAccount360(user: AppUser, id: string) {
       .select()
       .from(s.documents)
       .where(
+        // SEC H-2: account-level documents, plus deal documents only when the deal itself is visible (restricted/scope).
         or(
-          eq(s.documents.accountId, account.id),
+          and(eq(s.documents.accountId, account.id), isNull(s.documents.dealId)),
           exists(db.select({ x: sql`1` }).from(s.deals).where(and(eq(s.deals.id, s.documents.dealId), eq(s.deals.accountId, account.id), dealWhere))),
         ),
       )

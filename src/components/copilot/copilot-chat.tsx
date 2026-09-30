@@ -312,6 +312,33 @@ function ChatInner({
   );
 }
 
+type ChatClaims = { mode: string; blocked: boolean; hits: { claimId: string; claim: string; status: string; match: string; alternative: string | null }[] };
+
+/** QA-02: server-side claim check of the finished assistant text, sent as message metadata. */
+function claimsOf(metadata: unknown): ChatClaims | null {
+  const c = (metadata as { claims?: ChatClaims } | undefined)?.claims;
+  return c && Array.isArray(c.hits) && c.hits.length ? c : null;
+}
+
+function ClaimsBanner({ claims }: { claims: ChatClaims }) {
+  return (
+    <div role="alert" className="mb-2 rounded-md border border-border-strong bg-surface-1 px-3 py-2 text-[13px]">
+      <p className="flex items-center gap-1.5 font-medium text-fg">
+        <AlertTriangle className="size-3.5 shrink-0 text-warning" aria-hidden />
+        {claims.blocked ? "Blocked claims in this draft — don't send it as written" : "Claim check: this reply contains flagged claims"}
+      </p>
+      <ul className="mt-1 space-y-1 text-body">
+        {claims.hits.map((h) => (
+          <li key={h.claimId}>
+            <span className="text-secondary">{h.status === "banned" ? "Banned" : "Restricted"}:</span> “{h.match}”
+            {h.alternative ? <span className="text-muted"> → use: {h.alternative}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function MessageView({ message }: { message: UIMessage }) {
   if (message.role === "user") {
     const text = message.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
@@ -325,8 +352,10 @@ function MessageView({ message }: { message: UIMessage }) {
   // Sources = records actually read (search hits stay in their chip).
   for (const p of message.parts) if (isToolUIPart(p) && p.state === "output-available" && getToolName(p) !== "search_records") for (const r of collectRefs(p.output)) if (!refs.has(r.href)) refs.set(r.href, r);
   const sources = [...refs.values()].slice(0, 8);
+  const claims = claimsOf(message.metadata);
   return (
     <div className="border-l border-white bg-surface-2 py-2.5 pl-4 pr-3 text-sm leading-6 text-body">
+      {claims ? <ClaimsBanner claims={claims} /> : null}
       {message.parts.map((part, i) => {
         if (part.type === "text") return part.text ? <Markdown key={i} text={part.text} /> : null;
         if (isToolUIPart(part)) {

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, not, or, sql, type SQL } from "drizzle-orm";
+import { and, arrayOverlaps, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, not, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
@@ -7,6 +7,7 @@ import { untrusted } from "@/lib/ai";
 import { dealValue } from "@/lib/pipeline-math";
 import type { Role } from "@/lib/rbac/model";
 import { dealAccessWhere, getHiddenFields, ownedEntityWhere, scopeFor, type AppUser } from "@/lib/rbac/server";
+import { contactVisibilityWhere } from "@/lib/contacts/queries";
 import { clip, isUuid, looksLikeInjection } from "./guards";
 import { aggregatePipeline, type ReportDealRow } from "./report";
 import { dealRiskReasons } from "./risk";
@@ -15,8 +16,29 @@ import type { PipelineReport, RecordRef } from "./types";
 /* ───────────── run state (per chat request) ───────────── */
 
 export type ToolCallLog = { name: string; input: unknown; ok: boolean; ms: number; note?: string };
-export type RunState = { toolCalls: ToolCallLog[]; untrustedSeen: boolean; injectionFlags: number; denied: { entity: string; id: string; tool: string }[] };
-export const newRunState = (): RunState => ({ toolCalls: [], untrustedSeen: false, injectionFlags: 0, denied: [] });
+export type RunState = {
+  toolCalls: ToolCallLog[];
+  untrustedSeen: boolean;
+  injectionFlags: number;
+  denied: { entity: string; id: string; tool: string }[];
+  /** QA-13: email addresses the user typed in this conversation (allowed as draft recipients). */
+  userTypedEmails: string[];
+};
+export const newRunState = (): RunState => ({ toolCalls: [], untrustedSeen: false, injectionFlags: 0, denied: [], userTypedEmails: [] });
+
+/** QA-13: which of these addresses belong to CRM contacts the user can see (primary or alternate email). */
+export async function visibleContactEmails(user: AppUser, emails: string[]): Promise<Set<string>> {
+  const list = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  if (!list.length) return new Set();
+  const rows = await db
+    .select({ email: s.contacts.email, alt: s.contacts.altEmails })
+    .from(s.contacts)
+    .where(and(await contactWhere(user), or(inArray(sql`lower(${s.contacts.email})`, list), arrayOverlaps(s.contacts.altEmails, list))))
+    .limit(200);
+  const found = new Set<string>();
+  for (const r of rows) for (const e of [r.email ?? "", ...(r.alt ?? [])]) if (list.includes(e.toLowerCase())) found.add(e.toLowerCase());
+  return found;
+}
 
 export async function logDenied(user: AppUser, run: RunState | null, tool: string, entity: string, id: string) {
   run?.denied.push({ entity, id, tool });
@@ -51,8 +73,14 @@ async function accountWhere(user: AppUser): Promise<SQL> {
   return and(await ownedEntityWhere(user, "accounts", "view", s.accounts.ownerId), isNull(s.accounts.deletedAt), accountRestrictedOk(user))!;
 }
 
+/** SEC M-3: same rule as the UI — scope, soft delete, and never contacts of restricted accounts the user can't see. */
 async function contactWhere(user: AppUser): Promise<SQL> {
-  return and(await ownedEntityWhere(user, "contacts", "view", s.contacts.ownerId), isNull(s.contacts.deletedAt))!;
+  return contactVisibilityWhere(user, "view");
+}
+
+/** SEC H-3 / M-3: rows that hang off a deal (activities, tasks, documents) are visible only when that deal is. */
+function dealLinkedVisible(dealIdCol: typeof s.activities.dealId | typeof s.tasks.dealId, dealWhere: SQL): SQL {
+  return or(isNull(dealIdCol), exists(db.select({ x: sql`1` }).from(s.deals).where(and(eq(s.deals.id, dealIdCol), dealWhere))))!;
 }
 
 const likeOf = (q: string) => `%${q.replace(/[\\%_]/g, "\\$&")}%`;
@@ -461,7 +489,7 @@ export async function getAccountDetail(user: AppUser, run: RunState | null, id: 
       .select({ id: s.tasks.id, title: s.tasks.title, dueAt: s.tasks.dueAt, owedBy: s.tasks.owedBy, assignee: s.user.name })
       .from(s.tasks)
       .leftJoin(s.user, eq(s.user.id, s.tasks.assigneeId))
-      .where(and(eq(s.tasks.accountId, id), eq(s.tasks.status, "open")))
+      .where(and(eq(s.tasks.accountId, id), eq(s.tasks.status, "open"), dealLinkedVisible(s.tasks.dealId, dealWhere)))
       .limit(10),
   ]);
   const { notes, ...rest } = a;
@@ -504,7 +532,12 @@ export async function getTimeline(user: AppUser, run: RunState | null, opts: { d
   // activities module scope: all → everything on the record; team → team members' + own record; own → own actions or own record.
   const scope = await scopeFor(user, "activities", "view");
   if (scope === "none") return { error: "Your role cannot view activity timelines." };
-  const conds: SQL[] = [parent.entity === "deal" ? eq(s.activities.dealId, parent.id) : eq(s.activities.accountId, parent.id)];
+  const conds: SQL[] = [
+    parent.entity === "deal"
+      ? eq(s.activities.dealId, parent.id)
+      : // SEC H-3: an account timeline never includes activities of deals the user can't see (restricted / other scope).
+        and(eq(s.activities.accountId, parent.id), dealLinkedVisible(s.activities.dealId, await dealAccessWhere(user, "view")))!,
+  ];
   const ownsRecord = parent.ownerId === user.id;
   if (scope === "own" && !ownsRecord) conds.push(eq(s.activities.actorId, user.id));
   if (scope === "team" && !ownsRecord) conds.push(inArray(s.activities.actorId, user.teamMemberIds.length ? user.teamMemberIds : [user.id]));
@@ -553,7 +586,8 @@ export async function listMyWork(user: AppUser, run: RunState | null, kind: "tas
     const rows = await db
       .select({ id: s.tasks.id, title: s.tasks.title, dueAt: s.tasks.dueAt, priority: s.tasks.priority, owedBy: s.tasks.owedBy, origin: s.tasks.origin, dealId: s.tasks.dealId, dealName: s.deals.name })
       .from(s.tasks)
-      .leftJoin(s.deals, eq(s.deals.id, s.tasks.dealId))
+      // SEC M-3: only name deals the user can see (a task may be assigned on a restricted deal).
+      .leftJoin(s.deals, and(eq(s.deals.id, s.tasks.dealId), await dealAccessWhere(user, "view")))
       .where(and(eq(s.tasks.assigneeId, user.id), eq(s.tasks.status, "open")))
       .orderBy(asc(sql`coalesce(${s.tasks.dueAt}, 'infinity'::timestamptz)`))
       .limit(30);
@@ -568,7 +602,7 @@ export async function listMyWork(user: AppUser, run: RunState | null, kind: "tas
         priority: t.priority,
         owedBy: t.owedBy,
         origin: t.origin,
-        deal: t.dealId ? { id: t.dealId, name: t.dealName, href: dealHref(t.dealId) } : null,
+        deal: t.dealId && t.dealName ? { id: t.dealId, name: t.dealName, href: dealHref(t.dealId) } : null,
       })),
     };
   }

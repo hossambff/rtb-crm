@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { and, eq, exists, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
-import { auth } from "@/lib/auth";
+import { auth, extraAllowedDomains } from "@/lib/auth";
+import { sessionDenialReason } from "@/lib/auth/policy";
+import { env } from "@/lib/env";
 import { DEFAULT_MATRIX } from "./defaults";
 import { DEFAULT_HIDDEN_FIELDS, PIPELINE_MODULE, ROLES, SCOPE_RANK, type Action, type Matrix, type Module, type Role, type Scope } from "./model";
 
@@ -35,7 +37,20 @@ export const getCurrentUser = cache(async (): Promise<AppUser | null> => {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return null;
   const [u] = await db.select().from(s.user).where(eq(s.user.id, session.user.id));
-  if (!u || u.banned) return null;
+  if (!u) return null;
+  // SEC M-2 / M-15: re-validate on every request (ban, access expiry, domain allowlist, dev account in production),
+  // not only when the session was created; revoke the user's sessions when the check fails.
+  const denial = sessionDenialReason(
+    { email: u.email, banned: u.banned, banExpires: u.banExpires, accessExpiresAt: u.accessExpiresAt },
+    { allowedDomains: [...env.allowedDomains, ...(await extraAllowedDomains())], isProd: env.isProd },
+  );
+  if (denial) {
+    await db
+      .delete(s.session)
+      .where(eq(s.session.userId, u.id))
+      .catch(() => undefined);
+    return null;
+  }
   let teamPipelineKeys: string[] = [];
   let teamMemberIds: string[] = [u.id];
   if (u.teamId) {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { convertToModelMessages, createUIMessageStreamResponse, isStepCount, streamText, toUIMessageStream, type LanguageModel, type UIMessage } from "ai";
-import { and, count, eq, gte } from "drizzle-orm";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { aiAvailable, modelFor, RTB_SYSTEM } from "@/lib/ai";
@@ -9,7 +9,9 @@ import { getSetting } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/rbac/model";
 import { getCurrentUser, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { friendlyAiError } from "@/lib/copilot/errors";
-import { clip, isUuid } from "@/lib/copilot/guards";
+import { clip, emailsIn, isUuid, sanitizeHistory } from "@/lib/copilot/guards";
+import { checkClaimsWith, loadClaimRules } from "@/lib/claims";
+import { looksLikeDraft } from "@/lib/claims-core";
 import { buildSystemPrompt } from "@/lib/copilot/prompt";
 import { accountAccessible, loadAccessibleDeal, logDenied, newRunState, type RunState } from "@/lib/copilot/queries";
 import { copilotBucket } from "@/lib/copilot/rate-limit";
@@ -75,6 +77,27 @@ function sanitizeContext(raw: unknown): CopilotContext {
   return out;
 }
 
+/** SEC M-10: did an earlier request of this conversation process external/untrusted content? (server-side record) */
+async function chatSawUntrusted(userId: string, chatId: string): Promise<boolean> {
+  try {
+    const [row] = await db
+      .select({ n: count() })
+      .from(s.agentRuns)
+      .where(
+        and(
+          eq(s.agentRuns.userId, userId),
+          eq(s.agentRuns.kind, "copilot_chat"),
+          gte(s.agentRuns.createdAt, new Date(Date.now() - 7 * 86_400_000)),
+          sql`${s.agentRuns.input}->>'chatId' = ${chatId}`,
+          sql`(coalesce((${s.agentRuns.output}->>'untrustedSeen')::boolean, false) or coalesce((${s.agentRuns.output}->>'injectionFlags')::int, 0) > 0)`,
+        ),
+      );
+    return (row?.n ?? 0) > 0;
+  } catch {
+    return true; // fail closed: keep write tools at "suggest"
+  }
+}
+
 function lastUserText(messages: UIMessage[]): string {
   const m = [...messages].reverse().find((x) => x.role === "user");
   return (m?.parts ?? []).map((p) => (p.type === "text" ? p.text : "")).join(" ");
@@ -102,17 +125,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Hourly Copilot limit reached (${hourlyCap} requests). Try again later.`, code: "rate_limited" }, { status: 429 });
   }
 
-  let body: { messages?: unknown; context?: unknown };
+  let body: { messages?: unknown; context?: unknown; id?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   if (!Array.isArray(body.messages) || body.messages.length === 0) return NextResponse.json({ error: "messages[] is required." }, { status: 400 });
-  const messages = (body.messages as UIMessage[]).slice(-MAX_MESSAGES);
+  // SEC M-10 / S-04: the browser-supplied history is untrusted — strip forged roles/parts and replay prior tool results
+  // only as <untrusted> data; the chat id keys the server-side record of whether external content was already seen.
+  const sanitized = sanitizeHistory((body.messages as UIMessage[]).slice(-MAX_MESSAGES));
+  const messages = sanitized.messages;
+  if (!messages.length || messages[messages.length - 1]!.role !== "user") return NextResponse.json({ error: "The last message must be from the user." }, { status: 400 });
   const context = sanitizeContext(body.context);
+  const chatId = typeof body.id === "string" && body.id.length > 0 && body.id.length <= 120 ? body.id : null;
 
   const run = newRunState();
+  run.untrustedSeen = sanitized.untrustedSeen || (chatId ? await chatSawUntrusted(user.id, chatId) : false);
+  run.userTypedEmails = emailsIn(messages.filter((m) => m.role === "user").map((m) => m.parts.map((p) => (p.type === "text" ? p.text : "")).join(" ")).join(" "));
+  const claimRules = await loadClaimRules();
+  let assistantText = "";
   const started = Date.now();
   const model = await modelFor("strong");
   let logged = false;
@@ -124,7 +156,7 @@ export async function POST(req: Request) {
         kind: "copilot_chat",
         userId: user.id,
         model,
-        input: { context, messages: messages.length, lastUser: clip(lastUserText(messages), 500) } as never,
+        input: { context, chatId, messages: messages.length, lastUser: clip(lastUserText(messages), 500) } as never,
         toolCalls: run.toolCalls as never,
         output: { text: clip(out.text ?? "", 4000), steps: out.steps, usage: out.usage, denied: run.denied, untrustedSeen: run.untrustedSeen, injectionFlags: run.injectionFlags } as never,
         latencyMs: Date.now() - started,
@@ -172,12 +204,31 @@ export async function POST(req: Request) {
     },
   });
 
+  // QA-02: accumulate the assistant text so the claim guardrail can run on the finished answer (not only on
+  // draft_email): drafts written directly in chat get a warning banner via message metadata.
+  const tapped = result.stream.pipeThrough(
+    new TransformStream<(typeof result.stream extends ReadableStream<infer P> ? P : never), (typeof result.stream extends ReadableStream<infer P> ? P : never)>({
+      transform(part, controller) {
+        if (part.type === "text-delta" && assistantText.length < 60_000) assistantText += part.text;
+        controller.enqueue(part);
+      },
+    }),
+  );
+
   return createUIMessageStreamResponse({
     stream: toUIMessageStream({
-      stream: result.stream,
+      stream: tapped,
       tools,
       onError: (error) => friendlyAiError(error, model),
-      messageMetadata: ({ part }) => (part.type === "start" ? { model } : undefined),
+      messageMetadata: ({ part }) => {
+        if (part.type === "start") return { model };
+        if (part.type === "finish") {
+          if (!looksLikeDraft(assistantText)) return undefined;
+          const check = checkClaimsWith(assistantText, claimRules);
+          if (check.hits.length) return { model, claims: { mode: check.mode, blocked: check.blocked, hits: check.hits } };
+        }
+        return undefined;
+      },
     }),
   });
 }

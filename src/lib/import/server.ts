@@ -9,8 +9,9 @@ import { IMPORT_TARGETS, type ImportTarget, type Mapping } from "./fields";
 import { normalizeRow, type NormalizedRecord } from "./normalize";
 import { createStageMatcher } from "./status";
 import { readCsvText, readXlsx, sheetTable, type SheetData } from "./workbook";
+import { assertSheetBounds, assertUploadSize, IMPORT_LIMITS, inspectXlsxZip } from "./limits";
 
-export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = IMPORT_LIMITS.maxUploadBytes;
 export const TEMPLATES_KEY = "import.templates";
 
 export type ImportTemplate = { id: string; name: string; target: ImportTarget; pipelineKey: string | null; mapping: Mapping; createdBy: string; createdAt: string };
@@ -22,15 +23,25 @@ export async function loadTemplates(): Promise<ImportTemplate[]> {
 
 /** Parse an uploaded CSV / XLSX File into sheets. Throws a user-facing Error on bad input. */
 export async function parseUpload(file: File): Promise<SheetData[]> {
-  if (file.size > MAX_UPLOAD_BYTES) throw new Error("File is larger than 15 MB.");
+  // SEC M-13: size on the wire, then (xlsx) declared uncompressed size / sheets without inflating, then rows/columns.
+  assertUploadSize(file.size);
   const name = file.name.toLowerCase();
-  if (name.endsWith(".csv") || file.type === "text/csv") return readCsvText(await file.text(), file.name.replace(/\.csv$/i, ""));
+  if (name.endsWith(".csv") || file.type === "text/csv") {
+    const sheets = readCsvText(await file.text(), file.name.replace(/\.csv$/i, ""));
+    assertSheetBounds(sheets);
+    return sheets;
+  }
   if (name.endsWith(".xlsx") || file.type.includes("spreadsheetml")) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    inspectXlsxZip(bytes);
+    let sheets: SheetData[];
     try {
-      return await readXlsx(new Uint8Array(await file.arrayBuffer()));
+      sheets = await readXlsx(bytes);
     } catch {
       throw new Error("Couldn't read that workbook. Save it as .xlsx (Excel 2007+) or CSV and try again.");
     }
+    assertSheetBounds(sheets);
+    return sheets;
   }
   throw new Error("Upload a .csv or .xlsx file.");
 }

@@ -7,12 +7,12 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { normalizeDomain } from "@/lib/domain";
-import { assertCan, can, dealModule, ForbiddenError, ownedEntityWhere, scopeFor } from "@/lib/rbac/server";
+import { assertCan, can, dealAccessWhere, dealModule, ForbiddenError, ownedEntityWhere, scopeFor } from "@/lib/rbac/server";
 import { toCsv } from "./csv";
 import { stageSlice } from "./board-shape";
 import { filledKeys, gateFieldMeta, missingFields } from "./gates";
 import { getPipelineByKey, getStagesByPipeline, listActiveUsers, listDealsForBoard } from "./queries";
-import { extractMentions, overrideAutoApproved, validateSplits } from "./rules";
+import { extractMentions, overrideAutoApproved, splitsChanged, validateSplits } from "./rules";
 import {
   canAssignTo,
   executiveIds,
@@ -24,6 +24,10 @@ import {
   recomputeDealHealth,
 } from "./service";
 import { buildDealSummary } from "./summary";
+import { getVisibleAccount } from "@/lib/accounts/queries";
+import { contactVisibilityWhere } from "@/lib/contacts/queries";
+import { assertNotSelfDecision } from "@/lib/approvals/sod";
+import { canEditR100Bonus, changedBonusFields, R100_BONUS_FORBIDDEN } from "@/lib/r100/bonus-policy";
 import { assertContactUsable, createContactForDeal, moveSchema, performStageMove, stageById } from "./stage-service";
 
 export type { MoveResult } from "./stage-service";
@@ -72,8 +76,9 @@ export const bulkMoveStage = action(
         if (r.moved) moved.push(id);
         else if (r.pendingApproval) skipped.push({ id, name: ctx.deal.name, reason: "Stage needs approval — request sent" });
       } catch (e) {
-        const [d] = await db.select({ name: s.deals.name }).from(s.deals).where(eq(s.deals.id, id));
-        skipped.push({ id, name: d?.name ?? id, reason: e instanceof Error ? e.message : "Failed" });
+        // SEC (CODE_REVIEW S-01): only name deals the caller can see; restricted/out-of-scope ones stay anonymous.
+        const [d] = await db.select({ name: s.deals.name }).from(s.deals).where(and(eq(s.deals.id, id), await dealAccessWhere(user, "view")));
+        skipped.push({ id, name: d?.name ?? "Deal", reason: e instanceof Error ? e.message : "Failed" });
       }
     }
     await audit({ actorId: user.id, action: "deal.bulk_stage_change", entity: "deal", after: { toStageId: input.toStageId, moved: moved.length, skipped: skipped.length } });
@@ -175,8 +180,8 @@ export const createDeal = action(createSchema, async (input, user) => {
   let accountMuu: number | null = null;
   let linkedExisting = false;
   if (accountId) {
-    const where = await ownedEntityWhere(user, "accounts", "view", s.accounts.ownerId);
-    const [acc] = await db.select().from(s.accounts).where(and(eq(s.accounts.id, accountId), isNull(s.accounts.deletedAt), where));
+    // SEC M-1: scope + restricted (MNPI) access list — never echo the name of an account the caller can't see.
+    const acc = await getVisibleAccount(user, accountId);
     if (!acc) throw new UserError("That account isn't available.");
     accountName = acc.name;
     accountMuu = acc.muu;
@@ -350,6 +355,8 @@ const r100Schema = z.object({
 export const updateR100 = action(r100Schema, async ({ dealId, r100 }, user) => {
   const ctx = await loadDealForWrite(user, dealId, "edit");
   if (ctx.pipeline.key !== "R100") throw new UserError("Not a Roundtable 100 deal.");
+  // SEC M-14: the bonus is the commission base — reps can't set it on their own deals.
+  if (changedBonusFields(ctx.deal.r100 as Record<string, unknown> | null, r100).length && !canEditR100Bonus(user.role)) throw new ForbiddenError(R100_BONUS_FORBIDDEN);
   const next = { ...(ctx.deal.r100 ?? {}), ...r100, profileUrl: r100.profileUrl === "" ? null : (r100.profileUrl ?? ctx.deal.r100?.profileUrl ?? null) };
   await db.update(s.deals).set({ r100: next }).where(eq(s.deals.id, dealId));
   await audit({ actorId: user.id, action: "deal.update_r100", entity: "deal", entityId: dealId, before: ctx.deal.r100, after: next });
@@ -365,12 +372,17 @@ export const setSplits = action(
     const ctx = await loadDealForWrite(user, dealId, "edit");
     const err = validateSplits(splits);
     if (err) throw new UserError(err);
-    const current = new Set(ctx.splitUserIds);
-    const newcomers = splits.map((x) => x.userId).filter((id) => !current.has(id) && id !== user.id);
-    if (newcomers.length) {
-      await assertCan(user, dealModule(ctx.pipeline.key), "assign");
-      for (const id of newcomers) if (!(await canAssignTo(user, ctx.pipeline.key, id))) throw new ForbiddenError("You can't add that person to the split.");
+    // SEC M-8: splits decide commission recipients and grant "own" access, so ANY change (membership, %, role —
+    // including adding yourself) needs the assign permission in scope for this deal; won deals are locked to Finance.
+    const currentRows = await db.select({ userId: s.dealSplits.userId, pct: s.dealSplits.pct, role: s.dealSplits.role }).from(s.dealSplits).where(eq(s.dealSplits.dealId, dealId));
+    if (!splitsChanged(currentRows, splits)) return { ok: true };
+    if (ctx.stage.category === "won" && !(await can(user, "commissions", "configure"))) {
+      throw new UserError("Splits are locked on won deals — ask Finance to change them.");
     }
+    await loadDealForWrite(user, dealId, "assign");
+    const current = new Set(ctx.splitUserIds);
+    const newcomers = splits.map((x) => x.userId).filter((id) => !current.has(id));
+    for (const id of newcomers) if (!(await canAssignTo(user, ctx.pipeline.key, id))) throw new ForbiddenError("You can't add that person to the split.");
     const users = await db.select({ id: s.user.id }).from(s.user).where(inArray(s.user.id, splits.map((x) => x.userId)));
     if (users.length !== splits.length) throw new UserError("Unknown user in splits.");
     await db.transaction(async (tx) => {
@@ -662,6 +674,12 @@ export const decideProbabilityOverride = action(z.object({ dealId: uuid, approve
   if (!overrideAutoApproved(user.role)) throw new ForbiddenError("Only executives can approve overrides.");
   const ctx = await loadDealForWrite(user, dealId, "view");
   if (ctx.deal.overrideStatus !== "pending") throw new UserError("No pending override on this deal.");
+  // SEC M-9: the requester of the override can't approve it (super_admin only with the explicit opt-in setting).
+  const pendingReqs = await db
+    .select({ by: s.approvals.requestedBy })
+    .from(s.approvals)
+    .where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entityId, dealId), eq(s.approvals.status, "pending")));
+  for (const r of pendingReqs) await assertNotSelfDecision(user, r.by);
   await db.transaction(async (tx) => {
     await tx
       .update(s.deals)
@@ -769,7 +787,8 @@ export const exportDealsCsv = action(
 export const getDealContacts = action(z.object({ dealId: uuid }), async ({ dealId }, user) => {
   const ctx = await loadDealForWrite(user, dealId, "view");
   if (!ctx.deal.accountId) return [];
-  const where = await ownedEntityWhere(user, "contacts", "view", s.contacts.ownerId);
+  // SEC L-12: same visibility rule as the Contacts module (scope + restricted-account access list).
+  const where = await contactVisibilityWhere(user);
   return db
     .select({ id: s.contacts.id, name: s.contacts.fullName, title: s.contacts.title, email: s.contacts.email })
     .from(s.contacts)

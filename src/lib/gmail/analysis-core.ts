@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { parseDue, parseIsoDue } from "@/lib/integrations/due-date";
 import { matchStageName } from "@/lib/integrations/matching-core";
+import { untrustedField } from "@/lib/untrusted-core";
 
 export const EMAIL_INTENTS = ["interested", "objection", "scheduling", "legal", "pricing", "not_interested", "ooo", "referral", "other"] as const;
 export type EmailIntent = (typeof EMAIL_INTENTS)[number];
@@ -242,7 +243,8 @@ export function heuristicEmailAnalysis(input: EmailAnalysisInput): EmailAnalysis
 export function emailAnalysisPrompt(input: EmailAnalysisInput, wrappedBody: string, ownerName: string): string {
   return [
     `Analyze this ${input.direction === "outbound" ? "OUTBOUND email sent by" : "INBOUND email received by"} ${ownerName} (RTB side = "us").`,
-    `Sent at: ${input.sentAt.toISOString()}. From: ${input.fromName ?? ""} <${input.fromEmail ?? ""}>. Subject: ${input.subject ?? "(none)"}.`,
+    // SEC M-11: sender name/address and subject are attacker-controlled → wrapped as untrusted data.
+    `Sent at: ${input.sentAt.toISOString()}. From: ${untrustedField("email:from", `${input.fromName ?? ""} <${input.fromEmail ?? ""}>`)}. Subject: ${untrustedField("email:subject", input.subject)}.`,
     "Extract intent, who owes the next reply, explicit commitments (with exact quotes and due dates resolved relative to the sent date),",
     "deal progress signals, a stage suggestion only if clearly supported, sentiment and risk flags. Quotes must be copied verbatim.",
     input.stageNames?.length

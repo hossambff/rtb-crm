@@ -57,7 +57,8 @@ export async function GET(req: NextRequest) {
       ["updated_at", "updatedAt", (r) => r.updatedAt],
     ]);
     header = cols.map((c) => c[0]);
-    lines = res.rows.filter((r) => inScope(r.ownerId)).map((r) => cols.map((c) => c[2](r)));
+    // SEC L-9 / S-02: restricted (MNPI) accounts are never exported, even for access-list members (AUD-3).
+    lines = res.rows.filter((r) => inScope(r.ownerId) && !r.restricted).map((r) => cols.map((c) => c[2](r)));
   } else {
     const res = await listContacts(user, { ...parseContactListParams(sp), page: 1, pageSize: MAX_ROWS });
     type R = (typeof res.rows)[number];

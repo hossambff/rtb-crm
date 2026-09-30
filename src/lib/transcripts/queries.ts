@@ -19,8 +19,34 @@ async function visibleWhere(user: AppUser): Promise<SQL | null> {
   if (scope === "own") return own;
   const dealWhere = await dealAccessWhere(user, "view");
   const dealOk = or(isNull(s.transcripts.dealId), exists(db.select({ x: sql`1` }).from(s.deals).where(and(eq(s.deals.id, s.transcripts.dealId), dealWhere))))!;
+  // SEC M-4: a transcript linked (only) to a restricted account needs the account's access list too.
+  const accountOk =
+    user.role === "super_admin"
+      ? sql`true`
+      : or(
+          isNull(s.transcripts.accountId),
+          exists(
+            db
+              .select({ x: sql`1` })
+              .from(s.accounts)
+              .where(
+                and(
+                  eq(s.accounts.id, s.transcripts.accountId),
+                  or(
+                    eq(s.accounts.restricted, false),
+                    exists(
+                      db
+                        .select({ y: sql`1` })
+                        .from(s.restrictedAccess)
+                        .where(and(eq(s.restrictedAccess.entity, "account"), eq(s.restrictedAccess.entityId, s.accounts.id), eq(s.restrictedAccess.userId, user.id))),
+                    ),
+                  ),
+                ),
+              ),
+          ),
+        )!;
   const owner = scope === "team" ? inArray(s.transcripts.uploadedBy, user.teamMemberIds.length ? user.teamMemberIds : [user.id]) : sql`true`;
-  return or(own, and(owner, dealOk))!;
+  return or(own, and(owner, dealOk, accountOk))!;
 }
 
 export async function listTranscripts(user: AppUser, f: CallFilters, limit = 200) {

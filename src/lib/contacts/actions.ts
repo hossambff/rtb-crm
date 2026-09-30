@@ -42,19 +42,22 @@ async function assertAccountUsable(user: AppUser, accountId: string | null | und
   if (!acc) throw new UserError("That account isn't available.");
 }
 
-async function emailTaken(address: string | null | undefined, excludeId?: string) {
+/** SEC M-1: email uniqueness is global, but the owner's name is only revealed when the caller can see that contact. */
+async function emailTaken(user: AppUser, address: string | null | undefined, excludeId?: string) {
   if (!address) return null;
+  const visible = await contactVisibilityWhere(user);
   const [hit] = await db
-    .select({ id: s.contacts.id, fullName: s.contacts.fullName })
+    .select({ id: s.contacts.id, fullName: s.contacts.fullName, visible: sql<boolean>`${visible}` })
     .from(s.contacts)
     .where(and(isNull(s.contacts.deletedAt), sql`lower(${s.contacts.email}) = ${address.toLowerCase()}`, excludeId ? ne(s.contacts.id, excludeId) : undefined));
-  return hit ?? null;
+  if (!hit) return null;
+  return { id: hit.id, fullName: hit.visible ? hit.fullName : "Another contact you can't see" };
 }
 
 export const createContact = action(z.object(contactFields), async (input, user) => {
   await assertCan(user, "contacts", "create");
   await assertAccountUsable(user, input.accountId);
-  const dup = await emailTaken(input.email);
+  const dup = await emailTaken(user, input.email);
   if (dup) throw new UserError(`${dup.fullName} already has this email — open that contact instead.`);
   const { firstName, lastName } = splitName(input.fullName);
   const [row] = await db
@@ -78,7 +81,7 @@ async function loadEditable(user: AppUser, id: string) {
 export const updateContact = action(z.object({ id: z.string().uuid(), ...contactFields }), async (input, user) => {
   const before = await loadEditable(user, input.id);
   if (input.accountId !== before.accountId) await assertAccountUsable(user, input.accountId);
-  const dup = await emailTaken(input.email, input.id);
+  const dup = await emailTaken(user, input.email, input.id);
   if (dup) throw new UserError(`${dup.fullName} already has this email.`);
   const { id, ...fields } = input;
   const { firstName, lastName } = splitName(input.fullName);

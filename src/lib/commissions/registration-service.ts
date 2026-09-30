@@ -7,6 +7,7 @@ import { audit } from "@/lib/audit";
 import { getSetting } from "@/lib/settings";
 import type { AppUser } from "@/lib/rbac/server";
 import { protectUntil } from "./registration";
+import { assertNotSelfDecision } from "@/lib/approvals/sod";
 
 /**
  * Decide a lead registration (PRD COM-6) — the single path used by the Commissions → Registrations queue and by the
@@ -23,6 +24,8 @@ export async function applyRegistrationDecision(
   const [reg] = await db.select().from(s.leadRegistrations).where(eq(s.leadRegistrations.id, id));
   if (!reg) throw new UserError("Registration not found.");
   if (reg.status !== "pending") throw new UserError("This registration was already decided.");
+  // SEC M-9: the registering rep can never approve their own registration (single path for both queues).
+  await assertNotSelfDecision(user, reg.userId);
   const now = new Date();
   const days = Number(await getSetting<number>("commission.registration_protect_days", 90)) || 90;
   const patch = {

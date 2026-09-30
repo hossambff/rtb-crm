@@ -8,7 +8,7 @@ import { checkClaims } from "@/lib/claims";
 import { env } from "@/lib/env";
 import { getSetting } from "@/lib/settings";
 import { scopeFor, type AppUser } from "@/lib/rbac/server";
-import { autonomyDecision, canAssignTo, clip, gateIssues, isUuid, looksLikeInjection, scanMnpi } from "./guards";
+import { autonomyDecision, canAssignTo, clip, gateIssues, isUuid, looksLikeInjection, scanMnpi, unknownRecipients } from "./guards";
 import { agendaFor, likelyObjections } from "./playbook";
 import {
   accountAccessible,
@@ -20,6 +20,7 @@ import {
   stagesOfPipeline,
   suppressed,
   userNames,
+  visibleContactEmails,
   type RunState,
 } from "./queries";
 import type { CreateTaskOutput, EmailDraft, MeetingBrief, StageSuggestionOutput, TaskSuggestion } from "./types";
@@ -147,6 +148,14 @@ export async function buildEmailDraft(
   run: RunState,
   input: { to: string; subject: string; purpose: string; dealId?: string | null; body?: string | null },
 ): Promise<EmailDraft | { error: string }> {
+  // QA-13: never invent recipients — only CRM contacts the user can see, or addresses the user typed in this chat.
+  const toList = input.to.split(/[,;\s]+/).filter((e) => e.includes("@"));
+  if (!toList.length) return { error: "No recipient email address. Ask the user who should receive this, or pick a contact from get_deal / get_account / search_records." };
+  const unknown = unknownRecipients(toList, await visibleContactEmails(user, toList), new Set(run.userTypedEmails));
+  if (unknown.length)
+    return {
+      error: `${unknown.join(", ")} ${unknown.length === 1 ? "is" : "are"} not a CRM contact the user can see. Don't guess email addresses: ask the user for the recipient, or use a contact returned by get_deal / get_account / search_records.`,
+    };
   let context = "";
   if (input.dealId) {
     const deal = await getDealDetail(user, run, input.dealId);
@@ -260,9 +269,11 @@ export async function meetingPrep(user: AppUser, run: RunState, input: { meeting
   if (input.meetingId) {
     if (!isUuid(input.meetingId)) return { error: "Invalid meeting id." };
     const [m] = await db.select().from(s.meetings).where(eq(s.meetings.id, input.meetingId));
-    let allowed = Boolean(m && m.ownerId === user.id);
-    if (m && !allowed && m.dealId) allowed = Boolean(await loadAccessibleDeal(user, m.dealId, "view"));
-    if (m && !allowed && m.accountId) allowed = await accountAccessible(user, m.accountId);
+    // SEC H-3: a meeting linked to a deal is only accessible when that deal is (no fallback to the account/owner,
+    // which would expose a restricted deal's meeting, timeline and attendees).
+    let allowed = false;
+    if (m?.dealId) allowed = Boolean(await loadAccessibleDeal(user, m.dealId, "view"));
+    else if (m) allowed = m.ownerId === user.id || (m.accountId ? await accountAccessible(user, m.accountId) : false);
     if (!m || !allowed) {
       await logDenied(user, run, "meeting_prep", "meeting", input.meetingId);
       return { error: "Meeting not found or outside your access." };

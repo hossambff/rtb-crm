@@ -7,6 +7,7 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
+import { banAuthUser, createAuthUser, revokeAuthUserSessions, setAuthUserRole, unbanAuthUser } from "@/lib/auth/admin-ops";
 import { emailDomainAllowed } from "@/lib/env";
 import { ForbiddenError, type AppUser } from "@/lib/rbac/server";
 import { requireAdmin, requireSuperAdmin } from "./guard";
@@ -68,8 +69,7 @@ export const preProvisionUser = action(preProvisionSchema, async (input, user) =
   await assertActiveUser(input.managerId, "Manager");
   let id: string;
   try {
-    const res = await auth.api.createUser({ body: { email: input.email, name: input.name }, headers: await headers() });
-    id = res.user.id;
+    id = (await createAuthUser({ email: input.email, name: input.name })).id;
   } catch (e) {
     authError(e);
   }
@@ -99,7 +99,7 @@ export const changeRole = action(changeRoleSchema, async (input, user) => {
   if (target.role === input.role) return { id: target.id };
   if (target.role === "super_admin" && (await countSuperAdmins(target.id)) === 0) throw new UserError("Keep at least one active Super Admin.");
   try {
-    await auth.api.setRole({ body: { userId: target.id, role: input.role as never }, headers: await headers() });
+    await setAuthUserRole(target.id, input.role);
   } catch (e) {
     authError(e);
   }
@@ -180,10 +180,8 @@ export const deactivateUser = action(deactivateSchema, async (input, user) => {
         ).length;
     });
   }
-  const h = await headers();
   try {
-    await auth.api.banUser({ body: { userId: target.id, banReason: input.reason || "Deactivated by admin" }, headers: h });
-    await auth.api.revokeUserSessions({ body: { userId: target.id }, headers: h });
+    await banAuthUser(target.id, input.reason || "Deactivated by admin");
   } catch (e) {
     authError(e);
   }
@@ -206,7 +204,7 @@ export const reactivateUser = action(userIdSchema, async (input, user) => {
   await guardTarget(user, target.role);
   if (isPlaceholderEmail(target.email)) throw new UserError("Placeholders can't be reactivated — claim them into a real user.");
   try {
-    await auth.api.unbanUser({ body: { userId: target.id }, headers: await headers() });
+    await unbanAuthUser(target.id);
   } catch (e) {
     authError(e);
   }
@@ -220,7 +218,7 @@ export const revokeSessions = action(userIdSchema, async (input, user) => {
   const target = await loadUser(input.userId);
   await guardTarget(user, target.role);
   try {
-    await auth.api.revokeUserSessions({ body: { userId: target.id }, headers: await headers() });
+    await revokeAuthUserSessions(target.id);
   } catch (e) {
     authError(e);
   }
