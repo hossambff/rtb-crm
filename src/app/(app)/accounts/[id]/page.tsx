@@ -107,7 +107,11 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <AccountActionsSlot account={{ id: a.id, name: a.name, domain: a.domain, type: a.type, ownerId: a.ownerId, restricted: a.restricted }} canEdit={data.canEdit} />
+          <AccountActionsSlot
+            account={{ id: a.id, name: a.name, domain: a.domain, type: a.type, ownerId: a.ownerId, restricted: a.restricted }}
+            canEdit={data.canEdit}
+            openPipelineKeys={open.map((d) => d.pipelineKey)}
+          />
           {data.canEdit ? <MergeAccountDialog account={{ id: a.id, name: a.name }} /> : null}
           {data.canEdit ? (
             <EditAccountDialog

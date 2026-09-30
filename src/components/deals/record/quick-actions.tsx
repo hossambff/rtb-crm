@@ -1,12 +1,15 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { AudioLines, FileText, ListPlus, Loader2, PhoneCall, Sparkles } from "lucide-react";
+import { AudioLines, FileText, ListPlus, Loader2, Mail, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { createDealTask, logDealActivity } from "@/lib/deals/actions";
 import { PRIORITY_LABELS, type ContactLite, type UserLite } from "@/lib/deals/types";
+import { CopilotButton } from "@/components/copilot";
+import { EmailComposer } from "@/components/inbox/email-composer";
+import { EnrichButton } from "@/components/scout/enrich-button";
 import { useRun } from "./use-run";
 
 function nowLocal() {
@@ -15,9 +18,12 @@ function nowLocal() {
   return d.toISOString().slice(0, 16);
 }
 
-/** CARD-1 quick actions: log call/note, add task, upload transcript, generate proposal, ask Copilot. */
+/** CARD-1 quick actions: log call/note, email, add task, upload transcript, generate proposal, find executives, ask Copilot. */
 export function QuickActions({
   dealId,
+  dealName,
+  email,
+  enrich,
   contacts,
   users,
   ownerId,
@@ -36,13 +42,23 @@ export function QuickActions({
   canTask: boolean;
   canUseAi: boolean;
   showProposal: boolean;
+  dealName?: string;
+  /** Gmail compose (EML-8): shown when the user has email access; `canSend` = gmail.send scope granted. */
+  email?: { to: string[]; canSend: boolean } | null;
+  /** Lead Scout enrichment for the deal's account (enrichment:create). */
+  enrich?: { accountId: string; motion: string } | null;
 }) {
-  const [dialog, setDialog] = React.useState<null | "log" | "task">(null);
+  const [dialog, setDialog] = React.useState<null | "log" | "task" | "email">(null);
   return (
     <div className="flex flex-wrap gap-2">
       {canLog ? (
         <Button size="sm" variant="secondary" onClick={() => setDialog("log")}>
           <PhoneCall /> Log activity
+        </Button>
+      ) : null}
+      {email ? (
+        <Button size="sm" variant="secondary" onClick={() => setDialog("email")}>
+          <Mail /> Email
         </Button>
       ) : null}
       {canTask ? (
@@ -62,18 +78,30 @@ export function QuickActions({
           </Link>
         </Button>
       ) : null}
-      {canUseAi ? (
-        <Button size="sm" variant="secondary" asChild>
-          <Link href={`/copilot?dealId=${dealId}`}>
-            <Sparkles /> Ask Copilot
-          </Link>
-        </Button>
-      ) : null}
+      {enrich ? <EnrichButton accountId={enrich.accountId} motion={enrich.motion} dealId={dealId} /> : null}
+      {canUseAi ? <CopilotButton context={{ dealId }} contextLabel={dealName} /> : null}
       {dialog === "log" ? <LogActivityDialog dealId={dealId} contacts={contacts} onClose={() => setDialog(null)} /> : null}
+      {dialog === "email" && email ? <EmailDialog dealId={dealId} to={email.to} canSend={email.canSend} onClose={() => setDialog(null)} /> : null}
       {dialog === "task" ? (
         <AddTaskDialog dealId={dealId} users={users} defaultAssignee={ownerId ?? currentUserId} onClose={() => setDialog(null)} />
       ) : null}
     </div>
+  );
+}
+
+function EmailDialog({ dealId, to, canSend, onClose }: { dealId: string; to: string[]; canSend: boolean; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Email</DialogTitle>
+          <DialogDescription>Sent from your Gmail and logged to this deal.</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <EmailComposer dealId={dealId} defaultTo={to} canSend={canSend} onSent={onClose} onCancel={onClose} />
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 

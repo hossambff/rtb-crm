@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ExternalLink, Rocket } from "lucide-react";
-import { requireUser } from "@/lib/rbac/server";
+import { AudioLines, ChevronLeft, ExternalLink, Rocket } from "lucide-react";
+import { can, requireUser } from "@/lib/rbac/server";
+import { getGoogleAccount } from "@/lib/integrations/google";
+import { GMAIL_SEND_SCOPE, hasScope } from "@/lib/integrations/core";
+import { listTranscripts } from "@/lib/transcripts/queries";
 import { audit } from "@/lib/audit";
 import { getDealDetail, getDealForUser } from "@/lib/deals/queries";
 import { ColorTick, StatusBadge } from "@/components/ui/badge";
@@ -34,6 +37,15 @@ export default async function DealPage({ params }: PageProps<"/deals/[id]">) {
   }
 
   const { deal, pipeline, value, perms } = d;
+  const [canEmail, canEnrich, googleAcct, transcripts] = await Promise.all([
+    can(user, "email", "view"),
+    can(user, "enrichment", "create"),
+    getGoogleAccount(user.id),
+    listTranscripts(user, { dealId: deal.id }, 20),
+  ]);
+  const primary = d.stakeholders.find((c) => c.isPrimary) ?? d.stakeholders.find((c) => c.email);
+  const emailTo = primary?.email ? [primary.email] : [];
+  const motion = ["NET", "SPT", "ENT", "R100"].includes(pipeline.key) ? pipeline.key : "NET";
   const isOpen = deal.status === "open";
   const overdueDays = deal.overdueDays;
   const movable = { id: deal.id, name: deal.name, filled: deal.filled, stageId: d.stage.id };
@@ -141,6 +153,9 @@ export default async function DealPage({ params }: PageProps<"/deals/[id]">) {
             canTask={perms.canCreateTask}
             canUseAi={perms.canUseAi}
             showProposal={["NET", "ENT", "SPT", "ADS"].includes(pipeline.key) && !d.hiddenFields.includes("revSharePct")}
+            dealName={deal.name}
+            email={canEmail ? { to: emailTo, canSend: hasScope(googleAcct?.scope, GMAIL_SEND_SCOPE) } : null}
+            enrich={canEnrich && d.account?.domain ? { accountId: d.account.id, motion } : null}
           />
           <dl className="flex flex-wrap gap-x-5 gap-y-1 text-[12px]">
             <KeyDate label="In stage" value={`${deal.daysInStage}d`} />
@@ -189,7 +204,7 @@ export default async function DealPage({ params }: PageProps<"/deals/[id]">) {
               </div>
             </dl>
             {d.migration ? (
-              <Link href="/onboarding" className="mt-3 flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[12px] text-secondary hover:border-border-strong hover:text-fg">
+              <Link href={`/onboarding?project=${d.migration.id}`} className="mt-3 flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[12px] text-secondary hover:border-border-strong hover:text-fg">
                 <Rocket className="size-3.5" /> Onboarding: {d.migration.stage.replace("_", " ")}
               </Link>
             ) : null}
@@ -227,6 +242,38 @@ export default async function DealPage({ params }: PageProps<"/deals/[id]">) {
           />
           <TasksPanel dealId={deal.id} tasks={d.tasks} users={d.users} defaultAssignee={deal.ownerId ?? d.currentUserId} canCreate={perms.canCreateTask} />
           <DocumentsPanel dealId={deal.id} documents={d.documents} canEdit={perms.canEdit} />
+          {transcripts ? (
+            <Panel
+              title="Transcripts"
+              count={transcripts.length}
+              action={
+                <Link href={`/calls/upload?dealId=${deal.id}`} className="text-xs text-secondary hover:text-fg">
+                  Upload
+                </Link>
+              }
+            >
+              {transcripts.length ? (
+                <ul className="space-y-2">
+                  {transcripts.map((t) => (
+                    <li key={t.id}>
+                      <Link href={`/calls/${t.id}`} className="flex items-start gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-surface-2">
+                        <AudioLines className="mt-0.5 size-3.5 shrink-0 text-muted" aria-hidden />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-body">{t.title ?? "Call transcript"}</span>
+                          <span className="block text-[11px] text-muted">
+                            {fmtDate(t.occurredAt ?? t.createdAt)} · {t.source}
+                            {t.appliedAt ? " · applied" : t.status === "ready" ? " · ready to review" : ` · ${t.status}`}
+                          </span>
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12px] text-muted">No calls linked yet. Upload a transcript or connect Granola / Zoom.</p>
+              )}
+            </Panel>
+          ) : null}
         </aside>
       </div>
     </div>
