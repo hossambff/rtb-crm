@@ -441,7 +441,13 @@ function AcceptDialog({ ids, onClose, rows, pipelines, users, currentUserId, sug
     <Dialog open={Boolean(ids)} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{suggestOnly ? "Suggest targets" : `Accept ${chosen.length} target${chosen.length === 1 ? "" : "s"}`}</DialogTitle>
+          <DialogTitle>
+            {outcomes
+              ? `${suggestOnly ? "Suggested" : "Accepted"} ${outcomes.filter((o) => o.ok).length} of ${outcomes.length} target${outcomes.length === 1 ? "" : "s"}`
+              : suggestOnly
+                ? "Suggest targets"
+                : `Accept ${chosen.length} target${chosen.length === 1 ? "" : "s"}`}
+          </DialogTitle>
           <DialogDescription>
             {suggestOnly
               ? "Your SVP approves suggested targets before they enter a pipeline."

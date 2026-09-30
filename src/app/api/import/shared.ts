@@ -3,8 +3,20 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ForbiddenError, getCurrentUser, type AppUser } from "@/lib/rbac/server";
 import { parseUpload, type ImportRequest } from "@/lib/import/server";
+import { IMPORT_LIMITS } from "@/lib/import/limits";
+import { sameOrigin } from "@/lib/integrations/secrets";
 
 export const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
+
+/**
+ * SEC M-13 / L-2: reject oversized multipart bodies before buffering them (Content-Length), and cross-site posts
+ * (the import routes are cookie-authenticated; Next's origin check only covers server actions).
+ */
+export function assertUploadRequest(req: Request) {
+  if (!sameOrigin(req)) throw new ForbiddenError("Cross-site request blocked.");
+  const len = Number(req.headers.get("content-length") ?? 0);
+  if (Number.isFinite(len) && len > IMPORT_LIMITS.maxUploadBytes + 256 * 1024) throw new Error("File is larger than 10 MB.");
+}
 
 /** Authenticate a route-handler request (same rules as server actions). */
 export async function authed(): Promise<AppUser | NextResponse> {
@@ -27,6 +39,7 @@ const formSchema = z.object({
 
 /** Parse the multipart body shared by /preview and /commit: file + sheet + header row + target + mapping JSON. */
 export async function readImportForm(req: Request): Promise<ImportRequest> {
+  assertUploadRequest(req);
   const form = await req.formData();
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Attach a file.");

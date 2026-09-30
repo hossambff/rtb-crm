@@ -92,6 +92,23 @@ describe("normalizeAiTranscriptAnalysis", () => {
     expect(n.sentiment).toBe(-1);
     expect(n.follow_up_email_draft.claims_check).toBe("unchecked");
   });
+  it("QA-11: a relative phrase in the quote wins over the model's date guess", () => {
+    const ai = transcriptAnalysisAiSchema.parse({
+      summary: ["a"],
+      decisions: [],
+      action_items: [{ owner: "them", task: "Review with CEO", due: "2026-10-02", evidence: "We'll review it with our CEO next week and get back to you.", timestamp: null }],
+      objections: [],
+      qualification: { muu_confirmed: null, decision_maker: null, current_stack: [], pain: [], timeline: null, rev_share_appetite: null, nda_status: null, migration_complexity: null },
+      competitors: [],
+      risks: [],
+      sentiment: 0,
+      suggested_stage: { stage: null, confidence: 0, reason: "" },
+      field_updates: [],
+      follow_up_email_draft: { subject: "s", body: "b" },
+    });
+    const n = normalizeAiTranscriptAnalysis(ai, TEXT, ctx, "openai/gpt-5-mini");
+    expect(n.action_items[0]!.due?.slice(0, 10)).toBe("2026-10-05"); // Monday of next week, not this Friday
+  });
   it("findTimestamp", () => {
     expect(findTimestamp(TEXT, "our CEO will need to approve")).toBe("00:03:00");
     expect(findTimestamp(TEXT, "nope nope")).toBeNull();

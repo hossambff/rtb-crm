@@ -4,7 +4,7 @@ import { cellText } from "@/lib/import/cells";
 import { IMPORT_TARGETS, columnIds, suggestMapping } from "@/lib/import/fields";
 import { loadTemplates, parseUpload } from "@/lib/import/server";
 import { detectHeaderRow, sheetTable } from "@/lib/import/workbook";
-import { authed, errorResponse, json } from "../shared";
+import { assertUploadRequest, authed, errorResponse, json } from "../shared";
 
 /** Step 1 of the wizard: read the upload, list sheets, detect header rows, suggest mappings per target. */
 export async function POST(req: Request) {
@@ -12,6 +12,7 @@ export async function POST(req: Request) {
   if (user instanceof NextResponse) return user;
   try {
     await assertCan(user, "import", "import");
+    assertUploadRequest(req);
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return json({ error: "Attach a .csv or .xlsx file." }, 400);

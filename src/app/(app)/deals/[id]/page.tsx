@@ -89,8 +89,8 @@ export default async function DealPage({ params }: PageProps<"/deals/[id]">) {
         <StagePath deal={movable} stages={d.stages} canEdit={perms.canEdit} picklists={picklists} hiddenFields={d.hiddenFields} canCreateContact={perms.canCreateContact} />
 
         {/* Value block + health + next step */}
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)_minmax(0,1fr)]">
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
+        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)_minmax(0,1fr)]">
+          <div className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4 lg:col-span-2 xl:col-span-1 xl:grid-cols-2 2xl:grid-cols-4">
             {pipeline.unit === "muu" ? (
               <>
                 <ValueCell label="MUU" value={fmtNumber(value.muu, { compact: true })} hint={deal.muu == null ? "Not set" : undefined} />
@@ -114,7 +114,7 @@ export default async function DealPage({ params }: PageProps<"/deals/[id]">) {
               </>
             )}
           </div>
-          <div className="rounded-lg border border-border bg-surface-1 px-4 py-3">
+          <div className="min-w-0 rounded-lg border border-border bg-surface-1 px-4 py-3">
             <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Health</p>
             {deal.healthScore != null ? (
               <>
@@ -128,7 +128,7 @@ export default async function DealPage({ params }: PageProps<"/deals/[id]">) {
               <p className="mt-1 text-[12px] text-muted">{deal.healthExplanation ?? "Not scored"}</p>
             )}
           </div>
-          <div className="rounded-lg border border-border bg-surface-1 px-4 py-3">
+          <div className="min-w-0 rounded-lg border border-border bg-surface-1 px-4 py-3">
             <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted">Next step</p>
             <NextStepEditor
               dealId={deal.id}
@@ -284,10 +284,18 @@ const HEALTH_WORD = { good: "Healthy", warning: "Watch", serious: "At risk", cri
 
 function ValueCell({ label, value, hint, muted }: { label: string; value: string; hint?: string; muted?: boolean }) {
   return (
-    <div className="bg-surface-1 px-4 py-3">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-muted">{label}</p>
-      <p className={muted ? "mt-1 text-sm text-muted" : "mt-0.5 font-display text-2xl leading-8 text-fg tabular"}>{value}</p>
-      {hint ? <p className="text-[11px] text-muted">{hint}</p> : null}
+    <div className="min-w-0 bg-surface-1 px-4 py-3">
+      <p className="truncate text-[11px] font-medium uppercase tracking-wider text-muted" title={label}>
+        {label}
+      </p>
+      <p className={muted ? "mt-1 truncate text-sm text-muted" : "mt-0.5 truncate font-display text-2xl leading-8 text-fg tabular"} title={value}>
+        {value}
+      </p>
+      {hint ? (
+        <p className="truncate text-[11px] text-muted" title={hint}>
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

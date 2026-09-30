@@ -8,6 +8,9 @@ import { fmtDate } from "@/lib/format";
 import { EmptyState } from "@/components/ui/misc";
 import { MaskControls } from "@/components/proposals/mask-controls";
 
+/** Approved claim alternative from the claims library (scripts/seed.ts) — the only wording collateral may use. */
+const PROFIT_FLOOR_CLAIM = "Profit floor guarantee subject to contract terms";
+
 export const metadata = { title: "Pro forma one-pager" };
 
 /** $000s with thousands separators, as in the RTB pro forma template. No dashes in client copy (language rule). */
@@ -52,6 +55,8 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
     ...(o.gaAbsorbed > 0 ? [{ label: "Corporate overhead, G&A (share)", amount: o.gaAbsorbed }] : []),
   ];
   const treatment = (pct: number) => (pct >= 1 ? "Roundtable funds" : pct <= 0 ? "Retained" : `${Math.round((1 - pct) * 100)}% retained`);
+  // QA-23: guarantee copy uses the approved claim wording (claims library: "Guaranteed to make at least what you make
+  // today" is restricted → "Profit floor guarantee subject to contract terms").
   const guaranteeText =
     i.guaranteeType === "none"
       ? "No fee to join"
@@ -59,9 +64,9 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
         ? "TBD"
         : i.guaranteeType === "profit_floor"
           ? i.guaranteeAmount > 0
-            ? `${m(floor)} per year`
-            : "100% of today's profit"
-          : `${m(i.guaranteeAmount)} per month`;
+            ? `${m(floor)} per year profit floor, subject to contract terms`
+            : PROFIT_FLOOR_CLAIM
+          : `${m(i.guaranteeAmount)} per month, subject to contract terms`;
 
   return (
     <div>
@@ -108,7 +113,7 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
         <section className="mt-5 grid grid-cols-4 gap-3">
           <HeroCard label="Cost Roundtable takes on" value={m(o.rtbFundedTotal)} />
           <HeroCard label="EBITDA before revenue share" value={o.ebitdaMultiple ? `${o.ebitdaMultiple.toFixed(2)}x` : m(o.clientEbitdaAfter)} />
-          <HeroCard label="Baseline guaranteed" value={guaranteeText} />
+          <HeroCard label={i.guaranteeType === "profit_floor" ? "Profit floor" : "Guarantee"} value={guaranteeText} />
           <HeroCard label="Managed migration" value="~30 days" />
         </section>
 
@@ -175,7 +180,7 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
               label="EBITDA after revenue share"
               a={k(o.clientEbitdaBefore)}
               b={hide("revShare") ? (i.guaranteeType === "profit_floor" && !hide("guarantee") ? `≥ ${k(floor)}` : "TBD") : k(o.clientNetAfterShare)}
-              t={i.guaranteeType === "profit_floor" ? "Guaranteed not below today" : ""}
+              t={i.guaranteeType === "profit_floor" ? PROFIT_FLOOR_CLAIM : ""}
             />
           </tbody>
         </table>
@@ -188,7 +193,8 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
         </div>
         {i.guaranteeType === "profit_floor" ? (
           <p className="mt-3 font-display text-sm italic text-white/90">
-            You keep your {k(o.clientEbitdaBefore)} and your share of the {k(o.uplift)}. The guarantee is the floor, not the expectation.
+            You keep your {k(o.clientEbitdaBefore)} and your share of the {k(o.uplift)}. The floor is a protection, not the expectation.{" "}
+            {PROFIT_FLOOR_CLAIM} (trailing twelve months of digital operating profit).
           </p>
         ) : null}
 

@@ -44,9 +44,20 @@ export async function requestApproval(input: {
     .select({ id: s.user.id })
     .from(s.user)
     .where(inArray(s.user.role, [row!.approverRole, ...(row!.approverRole === "executive" ? [] : ["executive"])]));
+  // SEC M-5: approvers are notified by role, and most are not on a restricted deal's access list — for restricted deals
+  // the notification is neutral (no deal name, no free-text note); the approvals inbox labels it permission-aware.
+  let title = input.title ?? `Approval requested: ${input.kind.replace(/_/g, " ")}`;
+  let body = input.note ?? null;
+  if (input.entity === "deal") {
+    const [d] = await db.select({ restricted: s.deals.restricted }).from(s.deals).where(eq(s.deals.id, input.entityId));
+    if (d?.restricted) {
+      title = `Approval requested: ${input.kind.replace(/_/g, " ")} on a restricted deal`;
+      body = null;
+    }
+  }
   await notifyMany(
     approvers.map((a) => a.id).filter((id) => id !== input.requestedBy),
-    { kind: "approval", title: input.title ?? `Approval requested: ${input.kind.replace(/_/g, " ")}`, body: input.note ?? null, href: "/tasks?tab=approvals" },
+    { kind: "approval", title, body, href: "/tasks?tab=approvals" },
   );
   return row!;
 }

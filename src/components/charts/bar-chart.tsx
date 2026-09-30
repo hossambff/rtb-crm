@@ -189,7 +189,8 @@ export function BarChart({
                 </>
               ) : (
                 <>
-                  <XAxis type="category" {...catAxisProps} />
+                  {/* QA-25: many categories → angled labels so none are dropped or overlap */}
+                  <XAxis type="category" {...catAxisProps} {...(data.length > 6 ? { angle: -35, textAnchor: "end" as const, height: 64 } : {})} />
                   <YAxis type="number" width={52} {...valAxisProps} />
                 </>
               )}

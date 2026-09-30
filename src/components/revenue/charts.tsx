@@ -2,7 +2,7 @@
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CHART_AXIS, PIPELINE_COLORS, VIZ_OTHER } from "@/lib/palette";
 import { fmtPct, fmtUsd } from "@/lib/format";
-import { ChartFrame, SimpleTable, TooltipBox } from "@/components/r100/charts";
+import { ChartFrame, INITIAL_DIM, shortLabel, SimpleTable, TooltipBox } from "@/components/r100/charts";
 
 const tick = { fill: CHART_AXIS.tick, fontSize: 12 };
 const ADS = PIPELINE_COLORS.ADS!;
@@ -12,10 +12,10 @@ const usd = (cents: number) => fmtUsd(cents, { cents: true, compact: true });
 export function AgingChart({ data }: { data: { bucket: string; count: number; cents: number }[] }) {
   return (
     <ChartFrame table={<SimpleTable head={["Days past due", "Invoices", "Amount"]} rows={data.map((d) => [d.bucket, d.count, fmtUsd(d.cents, { cents: true })])} />}>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={220} initialDimension={{ width: INITIAL_DIM.width, height: 220 }}>
         <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap="30%">
           <CartesianGrid stroke={CHART_AXIS.grid} vertical={false} />
-          <XAxis dataKey="bucket" tick={tick} axisLine={{ stroke: CHART_AXIS.stroke }} tickLine={false} />
+          <XAxis dataKey="bucket" tick={tick} axisLine={{ stroke: CHART_AXIS.stroke }} tickLine={false} interval={0} />
           <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={(v: number) => usd(v)} width={64} />
           <Tooltip content={<TooltipBox format={(v) => fmtUsd(v, { cents: true })} />} cursor={{ fill: "#1A1A1A" }} />
           <Bar isAnimationActive={false} name="Overdue" dataKey="cents" fill={ADS} barSize={18} radius={[4, 4, 0, 0]} />
@@ -30,11 +30,11 @@ export function ConcentrationChart({ data }: { data: { name: string; cents: numb
   const rows = data.map((d) => ({ ...d, fill: d.name === "Other" ? VIZ_OTHER : ADS }));
   return (
     <ChartFrame table={<SimpleTable head={["Account", "Annualized", "Share"]} rows={data.map((d) => [d.name, fmtUsd(d.cents, { cents: true }), fmtPct(d.share, 1)])} />}>
-      <ResponsiveContainer width="100%" height={Math.max(140, rows.length * 28 + 16)}>
+      <ResponsiveContainer width="100%" height={Math.max(140, rows.length * 28 + 16)} initialDimension={{ width: INITIAL_DIM.width, height: Math.max(140, rows.length * 28 + 16) }}>
         <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 16, bottom: 0, left: 8 }}>
           <CartesianGrid stroke={CHART_AXIS.grid} horizontal={false} />
           <XAxis type="number" tick={tick} axisLine={false} tickLine={false} tickFormatter={(v: number) => usd(v)} />
-          <YAxis type="category" dataKey="name" tick={tick} axisLine={false} tickLine={false} width={130} />
+          <YAxis type="category" dataKey="name" tick={tick} axisLine={false} tickLine={false} width={130} interval={0} tickFormatter={shortLabel(18)} />
           <Tooltip content={<TooltipBox format={(v) => fmtUsd(v, { cents: true })} />} cursor={{ fill: "#1A1A1A" }} />
           <Bar isAnimationActive={false} name="Annualized" dataKey="cents" barSize={12} radius={[0, 4, 4, 0]}>
             {rows.map((r) => (

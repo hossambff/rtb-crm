@@ -12,7 +12,7 @@ export function Sidebar({ items }: { items: NavItem[] }) {
     items: items.filter((i) => i.group === g),
   }));
   return (
-    <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface-1 md:flex">
+    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col self-start border-r border-border bg-surface-1 md:flex">
       <Link href="/home" className="flex h-14 items-center gap-2.5 border-b border-border px-5">
         <Logo />
         <span className="font-display text-[17px] font-medium tracking-tight text-fg">Roundtable</span>

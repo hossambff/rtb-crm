@@ -27,6 +27,8 @@ export type StoredEmailAnalysis = EmailAnalysis & {
   /** index in commitments[] → created task id */
   taskIds?: Record<string, string>;
   nextStepUpdated?: boolean;
+  /** SEC M-11: next step proposed from an inbound (untrusted) email — shown for the user to apply, never auto-applied. */
+  nextStepSuggestion?: { text: string; due: string } | null;
 };
 
 /** Run AI (fast tier) with heuristic fallback. Email text is always wrapped as untrusted. */
@@ -91,7 +93,9 @@ export async function createCommitmentTask(opts: {
 /**
  * Analyze one stored message and apply results per autonomy settings (§11.4):
  * - task_from_commitment ≥2 → tasks created automatically (+ in-app notification); 1 → suggestions shown in Inbox.
- * - next_step_update ≥2 → our dated commitment becomes the deal's next step when the deal has none / it is overdue.
+ * - next_step_update ≥2 → our dated commitment becomes the deal's next step when the deal has none / it is overdue —
+ *   only for OUTBOUND mail we wrote. SEC M-11: inbound mail is untrusted external content (PRD §11.5 caps it at
+ *   "suggest"), so a next step derived from it is only stored as a suggestion (`nextStepSuggestion`).
  * - stage suggestions are stored only; never applied here.
  */
 export async function analyzeStoredMessage(messageRowId: string): Promise<StoredEmailAnalysis | null> {
@@ -143,8 +147,12 @@ export async function analyzeStoredMessage(messageRowId: string): Promise<Stored
     }
   }
 
-  if (row.t.dealId && autonomyLevel(autonomy, "next_step_update") >= 2) {
-    const ours = analysis.commitments.find((c) => c.by === "us" && c.due);
+  const oursNext = analysis.commitments.find((c) => c.by === "us" && c.due);
+  if (row.t.dealId && oursNext && row.m.direction !== "outbound" && autonomyLevel(autonomy, "next_step_update") >= 1) {
+    stored.nextStepSuggestion = { text: oursNext.text.slice(0, 240), due: oursNext.due! };
+  }
+  if (row.t.dealId && row.m.direction === "outbound" && autonomyLevel(autonomy, "next_step_update") >= 2) {
+    const ours = oursNext;
     if (ours) {
       const updated = await db
         .update(s.deals)

@@ -9,6 +9,7 @@ import { audit } from "@/lib/audit";
 import { assertCan, canSeeRestricted, ForbiddenError, inScope, type AppUser } from "@/lib/rbac/server";
 import { moveDealToStage } from "@/lib/deals/stage-service";
 import { INTERVIEW_STATUSES, mergeR100, parseInterviews, type Interview, type R100Json } from "./calc";
+import { canEditR100Bonus, changedBonusFields, R100_BONUS_FORBIDDEN } from "./bonus-policy";
 
 /** Load an R100 deal the user may edit (module scope + record scope + restricted list). */
 async function editableR100Deal(user: AppUser, dealId: string) {
@@ -47,6 +48,8 @@ const patchSchema = z.object({
 export const updateR100 = action(patchSchema, async ({ dealId, patch }, user) => {
   const deal = await editableR100Deal(user, dealId);
   const before = (deal.r100 ?? {}) as R100Json;
+  // SEC M-14: the bonus is the commission base — reps can't set it on their own deals.
+  if (changedBonusFields(before as Record<string, unknown>, patch).length && !canEditR100Bonus(user.role)) throw new ForbiddenError(R100_BONUS_FORBIDDEN);
   const clean: Partial<R100Json> = { ...patch };
   if (patch.firstPostDate === "") clean.firstPostDate = null;
   if (patch.profileUrl === "") clean.profileUrl = null;

@@ -9,7 +9,7 @@ import { Input, NativeSelect } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/misc";
 import { Pager, ServerTable, type ColumnUi, type ListFeatures } from "@/components/accounts/server-table";
 import { useQueryParams } from "@/components/accounts/use-query-params";
-import { fmtRelative } from "@/lib/format";
+import { RelativeTime } from "@/components/ui/relative-time";
 
 export type ContactRowDto = {
   id: string;
@@ -53,7 +53,7 @@ const columns = h.columns([
   h.accessor("email", { header: "Email", cell: (c) => (c.getValue() ? <a href={`mailto:${c.getValue()}`} className="text-secondary hover:text-fg">{c.getValue()}</a> : <span className="text-muted">{c.row.original.phone ?? "—"}</span>) }),
   h.accessor("relationshipOwner", { header: "Relationship", cell: (c) => <span className="text-secondary">{c.getValue() ?? "—"}</span> }),
   h.accessor("status", { header: "Status", cell: (c) => <Badge>{c.getValue() === "left_company" ? "Left company" : "Active"}</Badge> }),
-  h.accessor("lastContactedAt", { header: "Last contacted", cell: (c) => <span className="text-xs text-muted">{fmtRelative(c.getValue())}</span> }),
+  h.accessor("lastContactedAt", { header: "Last contacted", cell: (c) => <RelativeTime value={c.getValue()} className="text-xs text-muted" /> }),
 ]);
 
 const UI: Record<string, ColumnUi> = {

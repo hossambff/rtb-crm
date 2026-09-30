@@ -3,6 +3,7 @@ import { and, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
+import { isAuthorizedCron } from "@/lib/alerts/cron";
 import { resumeRun } from "@/lib/scout/dispatch";
 import { startScoutRunFor } from "@/lib/scout/service";
 
@@ -17,8 +18,8 @@ const MAX_SEARCHES_PER_TICK = 5;
  * Auth: Authorization: Bearer ${CRON_SECRET}.
  */
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // SEC L-1: constant-time secret comparison, fail closed when CRON_SECRET is unset (shared helper).
+  if (!isAuthorizedCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const now = Date.now();
   const weekAgo = new Date(now - 7 * 86_400_000);

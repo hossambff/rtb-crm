@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/misc";
 import { ACCOUNT_TYPES, LIFECYCLES, MUU_RANGES, PRIORITIES, labelOf } from "@/lib/accounts/constants";
 import { PIPELINE_COLORS } from "@/lib/palette";
-import { fmtRelative } from "@/lib/format";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { MuuValue } from "./muu-value";
 import { Pager, ServerTable, type ColumnUi, type ListFeatures } from "./server-table";
 import { useQueryParams } from "./use-query-params";
@@ -75,7 +75,7 @@ const columns = h.columns([
     },
   }),
   h.accessor("ownerName", { header: "Owner", cell: (c) => <span className="truncate text-secondary">{c.getValue() ?? "—"}</span> }),
-  h.accessor("updatedAt", { header: "Updated", cell: (c) => <span className="whitespace-nowrap text-xs text-muted">{fmtRelative(c.getValue())}</span> }),
+  h.accessor("updatedAt", { header: "Updated", cell: (c) => <RelativeTime value={c.getValue()} className="whitespace-nowrap text-xs text-muted" /> }),
 ]);
 
 const UI: Record<string, ColumnUi> = {

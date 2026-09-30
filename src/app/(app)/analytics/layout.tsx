@@ -5,20 +5,13 @@ import { requireUser } from "@/lib/rbac/server";
 import { parseFilters } from "@/lib/analytics/filters";
 import { analyticsContext, ownerOptions } from "@/lib/analytics/scope";
 import { PageHeader } from "@/components/ui/misc";
-import { NoAccess } from "@/components/admin/admin-nav";
+import { forbidden } from "next/navigation";
 import { AnalyticsShell, type AnalyticsTab } from "@/components/analytics/shell";
 
 export default async function AnalyticsLayout({ children }: LayoutProps<"/analytics">) {
   const user = await requireUser();
   const ctx = await analyticsContext(user, parseFilters({}));
-  if (!ctx) {
-    return (
-      <>
-        <PageHeader title="Analytics" />
-        <NoAccess message="Your role doesn't include analytics." />
-      </>
-    );
-  }
+  if (!ctx) forbidden(); // QA-09: real 403
   const [pipes, owners] = await Promise.all([
     db.select({ key: pipelines.key, name: pipelines.name }).from(pipelines).where(eq(pipelines.active, true)).orderBy(asc(pipelines.sortOrder)),
     ownerOptions(ctx),

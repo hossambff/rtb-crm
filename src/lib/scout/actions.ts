@@ -121,6 +121,8 @@ export const previewSearchRun = action(z.object({ searchId: uuid.optional(), cri
   if (input.searchId) {
     const [row] = await db.select().from(s.scoutSearches).where(eq(s.scoutSearches.id, input.searchId));
     if (!row) throw new UserError("Search not found.");
+    // SEC L-15: only the owner (or someone who may edit their searches) can price someone's search.
+    if (row.ownerId !== user.id && !(await canEditSearch(user, row.ownerId))) throw new ForbiddenError();
     criteria = criteriaSchema.parse(row.criteria);
     entityId = row.id;
   }
@@ -149,6 +151,8 @@ export const runSearch = action(z.object({ searchId: uuid }), async ({ searchId 
 export const requestMoreBudget = action(
   z.object({ entity: z.enum(["scout_search", "account"]), entityId: z.string().min(1).max(64), amountCents: z.number().int().min(1).max(100_000), reason: z.string().trim().max(500).optional() }),
   async (input, user) => {
+    // SEC L-15: only people who can run scout searches / enrichment may ask for budget (no approval/notification spam).
+    await assertCan(user, input.entity === "account" ? "enrichment" : "scout", "create");
     const pending = await pendingBudgetRequest(user.id, input.entity, input.entityId);
     if (pending) return { id: pending.id, duplicate: true };
     const [row] = await db

@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui/misc";
 export default function HomeLoading() {
   return (
     <div className="space-y-6" aria-busy="true" aria-label="Loading My Day">
-      <Skeleton className="h-9 w-72" />
+      <Skeleton className="h-9 w-72 max-w-full" />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {Array.from({ length: 4 }, (_, i) => (
           <Skeleton key={i} className="h-28" />

@@ -94,7 +94,9 @@ function SettingRow({
   const initialStr = toInput(kind, initial);
   const [value, setValue] = React.useState(initialStr);
   const { run, pending, errors } = useAction(updateSetting, { success: `${SETTINGS_REGISTRY[settingKey].label} saved` });
-  const label = `${SETTINGS_REGISTRY[settingKey].label}${unit && kind !== "select" ? ` (${unit})` : ""}`;
+  const base = SETTINGS_REGISTRY[settingKey].label;
+  // QA-27: registry labels may already carry the unit ("Email backfill (days)") — don't print it twice.
+  const label = `${base}${unit && kind !== "select" && !base.includes(`(${unit})`) ? ` (${unit})` : ""}`;
   return (
     <form
       className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"

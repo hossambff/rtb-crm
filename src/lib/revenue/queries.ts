@@ -107,8 +107,10 @@ export async function getRevenueData(user: AppUser) {
     renewalAt: d.renewalAt,
     accountId: d.accountId,
     accountName: d.accountName ?? d.name,
+    nextPaymentCents: d.nextPaymentCents,
+    nextPaymentAt: d.nextPaymentAt,
   }));
-  const invForCalc = invRows.map((i) => ({ status: i.status, dueAt: i.dueAt, amountCents: i.amountCents }));
+  const invForCalc = invRows.map((i) => ({ status: i.status, dueAt: i.dueAt, amountCents: i.amountCents, dealId: i.dealId }));
 
   const invoices: InvoiceRow[] = invRows.map((i) => ({
     id: i.id,

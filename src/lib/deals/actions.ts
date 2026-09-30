@@ -7,14 +7,15 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { normalizeDomain } from "@/lib/domain";
+import { assertCan, can, dealAccessWhere, dealModule, ForbiddenError, ownedEntityWhere, scopeFor } from "@/lib/rbac/server";
+import { SCOPE_RANK } from "@/lib/rbac/model";
 import { parseUserDate } from "@/lib/time";
-import { assertCan, can, dealModule, ForbiddenError, ownedEntityWhere, scopeFor } from "@/lib/rbac/server";
 import { notifyMany } from "@/lib/notifications/notify";
 import { toCsv } from "./csv";
 import { stageSlice } from "./board-shape";
 import { filledKeys, gateFieldMeta, missingFields } from "./gates";
 import { getPipelineByKey, getStagesByPipeline, listActiveUsers, listDealsForBoard } from "./queries";
-import { extractMentions, overrideAutoApproved, validateSplits } from "./rules";
+import { extractMentions, overrideAutoApproved, splitsChanged, validateSplits } from "./rules";
 import {
   canAssignTo,
   executiveIds,
@@ -25,6 +26,10 @@ import {
   recomputeDealHealth,
 } from "./service";
 import { buildDealSummary } from "./summary";
+import { getVisibleAccount } from "@/lib/accounts/queries";
+import { contactVisibilityWhere } from "@/lib/contacts/queries";
+import { assertNotSelfDecision } from "@/lib/approvals/sod";
+import { canEditR100Bonus, changedBonusFields, R100_BONUS_FORBIDDEN } from "@/lib/r100/bonus-policy";
 import { assertContactUsable, createContactForDeal, moveSchema, performStageMove, stageById } from "./stage-service";
 
 export type { MoveResult } from "./stage-service";
@@ -72,8 +77,9 @@ export const bulkMoveStage = action(
         if (r.moved) moved.push(id);
         else if (r.pendingApproval) skipped.push({ id, name: ctx.deal.name, reason: "Stage needs approval — request sent" });
       } catch (e) {
-        const [d] = await db.select({ name: s.deals.name }).from(s.deals).where(eq(s.deals.id, id));
-        skipped.push({ id, name: d?.name ?? id, reason: e instanceof Error ? e.message : "Failed" });
+        // SEC (CODE_REVIEW S-01): only name deals the caller can see; restricted/out-of-scope ones stay anonymous.
+        const [d] = await db.select({ name: s.deals.name }).from(s.deals).where(and(eq(s.deals.id, id), await dealAccessWhere(user, "view")));
+        skipped.push({ id, name: d?.name ?? "Deal", reason: e instanceof Error ? e.message : "Failed" });
       }
     }
     await audit({ actorId: user.id, action: "deal.bulk_stage_change", entity: "deal", after: { toStageId: input.toStageId, moved: moved.length, skipped: skipped.length } });
@@ -169,23 +175,37 @@ export const createDeal = action(createSchema, async (input, user) => {
   const [owner] = await db.select({ id: s.user.id, teamId: s.user.teamId }).from(s.user).where(eq(s.user.id, ownerId));
   if (!owner) throw new UserError("Unknown owner.");
 
-  // Account: existing (visible) or create-with-dedupe by normalized domain
+  // Account: existing (visible) or create-with-dedupe by normalized domain (or exact name when there's no domain).
+  // QA-07: nothing is written until the stage gate has passed; the new account and the deal are inserted in one
+  // transaction so a rejected create can't leave an orphan account behind.
   let accountId = input.accountId ?? null;
   let accountName = "";
   let accountMuu: number | null = null;
   let linkedExisting = false;
+  let createAccount: { name: string; domain: string | null } | null = null;
   if (accountId) {
-    const where = await ownedEntityWhere(user, "accounts", "view", s.accounts.ownerId);
-    const [acc] = await db.select().from(s.accounts).where(and(eq(s.accounts.id, accountId), isNull(s.accounts.deletedAt), where));
+    // SEC M-1: scope + restricted (MNPI) access list — never echo the name of an account the caller can't see.
+    const acc = await getVisibleAccount(user, accountId);
     if (!acc) throw new UserError("That account isn't available.");
     accountName = acc.name;
     accountMuu = acc.muu;
   } else if (input.newAccount) {
     const domain = input.newAccount.domain ? normalizeDomain(input.newAccount.domain) : null;
     if (input.newAccount.domain && !domain) throw new UserError("That domain doesn't look valid.");
-    const existing = domain
+    let existing = domain
       ? (await db.select().from(s.accounts).where(and(isNull(s.accounts.deletedAt), or(eq(s.accounts.domain, domain), sql`${domain} = any(${s.accounts.altDomains})`))))[0]
       : undefined;
+    if (!existing && !domain) {
+      // Domain-less: reuse a visible account with exactly the same name instead of creating a duplicate.
+      const where = await ownedEntityWhere(user, "accounts", "view", s.accounts.ownerId);
+      existing = (
+        await db
+          .select()
+          .from(s.accounts)
+          .where(and(isNull(s.accounts.deletedAt), where, sql`lower(trim(${s.accounts.name})) = lower(${input.newAccount.name.trim()})`))
+          .limit(1)
+      )[0];
+    }
     if (existing) {
       if (existing.restricted && user.role !== "super_admin") throw new UserError("An account with that domain already exists. Ask an admin for access.");
       accountId = existing.id;
@@ -194,13 +214,8 @@ export const createDeal = action(createSchema, async (input, user) => {
       linkedExisting = true;
     } else {
       await assertCan(user, "accounts", "create");
-      const [acc] = await db
-        .insert(s.accounts)
-        .values({ name: input.newAccount.name, domain, website: domain ? `https://${domain}` : null, ownerId: user.id, createdBy: user.id, source: "deal_create", lifecycle: "prospect" })
-        .returning();
-      accountId = acc!.id;
-      accountName = acc!.name;
-      await audit({ actorId: user.id, action: "account.create", entity: "account", entityId: acc!.id, after: { name: acc!.name, domain } });
+      createAccount = { name: input.newAccount.name, domain };
+      accountName = input.newAccount.name;
     }
   }
 
@@ -211,7 +226,24 @@ export const createDeal = action(createSchema, async (input, user) => {
   if (missing.length) throw new UserError(`${stage.name} requires ${missing.map((k) => gateFieldMeta(k).label).join(", ")} — start in an earlier stage and move it once filled.`);
 
   const name = input.name?.trim() || `${accountName}${pipeline.key === "R100" ? " — RTB100" : ""}`;
-  const dealId = await db.transaction(async (tx) => {
+  const { dealId, createdAccountId } = await db.transaction(async (tx) => {
+    let createdAccountId: string | null = null;
+    if (createAccount) {
+      const [acc] = await tx
+        .insert(s.accounts)
+        .values({
+          name: createAccount.name,
+          domain: createAccount.domain,
+          website: createAccount.domain ? `https://${createAccount.domain}` : null,
+          ownerId: user.id,
+          createdBy: user.id,
+          source: "deal_create",
+          lifecycle: "prospect",
+        })
+        .returning({ id: s.accounts.id });
+      createdAccountId = acc!.id;
+      accountId = acc!.id;
+    }
     const [deal] = await tx
       .insert(s.deals)
       .values({
@@ -234,8 +266,10 @@ export const createDeal = action(createSchema, async (input, user) => {
       .returning({ id: s.deals.id });
     await tx.insert(s.dealStageHistory).values({ dealId: deal!.id, fromStageId: null, toStageId: stage.id, changedBy: user.id, reason: "created" });
     await logActivity({ type: "system", subject: "Deal created", body: `Created in ${stage.name}`, actorId: user.id, dealId: deal!.id, accountId }, tx);
-    return deal!.id;
+    return { dealId: deal!.id, createdAccountId };
   });
+  if (createdAccountId && createAccount)
+    await audit({ actorId: user.id, action: "account.create", entity: "account", entityId: createdAccountId, after: { name: createAccount.name, domain: createAccount.domain } });
   await audit({ actorId: user.id, action: "deal.create", entity: "deal", entityId: dealId, after: { name, pipeline: pipeline.key, stage: stage.key, ownerId, accountId } });
   await recomputeDealHealth(dealId);
   if (ownerId !== user.id) await notifyMany([ownerId], { kind: "system", title: `${user.name} assigned you ${name}`, href: `/deals/${dealId}` });
@@ -351,6 +385,8 @@ const r100Schema = z.object({
 export const updateR100 = action(r100Schema, async ({ dealId, r100 }, user) => {
   const ctx = await loadDealForWrite(user, dealId, "edit");
   if (ctx.pipeline.key !== "R100") throw new UserError("Not a Roundtable 100 deal.");
+  // SEC M-14: the bonus is the commission base — reps can't set it on their own deals.
+  if (changedBonusFields(ctx.deal.r100 as Record<string, unknown> | null, r100).length && !canEditR100Bonus(user.role)) throw new ForbiddenError(R100_BONUS_FORBIDDEN);
   const next = { ...(ctx.deal.r100 ?? {}), ...r100, profileUrl: r100.profileUrl === "" ? null : (r100.profileUrl ?? ctx.deal.r100?.profileUrl ?? null) };
   await db.update(s.deals).set({ r100: next }).where(eq(s.deals.id, dealId));
   await audit({ actorId: user.id, action: "deal.update_r100", entity: "deal", entityId: dealId, before: ctx.deal.r100, after: next });
@@ -366,12 +402,17 @@ export const setSplits = action(
     const ctx = await loadDealForWrite(user, dealId, "edit");
     const err = validateSplits(splits);
     if (err) throw new UserError(err);
-    const current = new Set(ctx.splitUserIds);
-    const newcomers = splits.map((x) => x.userId).filter((id) => !current.has(id) && id !== user.id);
-    if (newcomers.length) {
-      await assertCan(user, dealModule(ctx.pipeline.key), "assign");
-      for (const id of newcomers) if (!(await canAssignTo(user, ctx.pipeline.key, id))) throw new ForbiddenError("You can't add that person to the split.");
+    // SEC M-8: splits decide commission recipients and grant "own" access, so ANY change (membership, %, role —
+    // including adding yourself) needs the assign permission in scope for this deal; won deals are locked to Finance.
+    const currentRows = await db.select({ userId: s.dealSplits.userId, pct: s.dealSplits.pct, role: s.dealSplits.role }).from(s.dealSplits).where(eq(s.dealSplits.dealId, dealId));
+    if (!splitsChanged(currentRows, splits)) return { ok: true };
+    if (ctx.stage.category === "won" && !(await can(user, "commissions", "configure"))) {
+      throw new UserError("Splits are locked on won deals — ask Finance to change them.");
     }
+    await loadDealForWrite(user, dealId, "assign");
+    const current = new Set(ctx.splitUserIds);
+    const newcomers = splits.map((x) => x.userId).filter((id) => !current.has(id));
+    for (const id of newcomers) if (!(await canAssignTo(user, ctx.pipeline.key, id))) throw new ForbiddenError("You can't add that person to the split.");
     const users = await db.select({ id: s.user.id }).from(s.user).where(inArray(s.user.id, splits.map((x) => x.userId)));
     if (users.length !== splits.length) throw new UserError("Unknown user in splits.");
     await db.transaction(async (tx) => {
@@ -663,6 +704,12 @@ export const decideProbabilityOverride = action(z.object({ dealId: uuid, approve
   if (!overrideAutoApproved(user.role)) throw new ForbiddenError("Only executives can approve overrides.");
   const ctx = await loadDealForWrite(user, dealId, "view");
   if (ctx.deal.overrideStatus !== "pending") throw new UserError("No pending override on this deal.");
+  // SEC M-9: the requester of the override can't approve it (super_admin only with the explicit opt-in setting).
+  const pendingReqs = await db
+    .select({ by: s.approvals.requestedBy })
+    .from(s.approvals)
+    .where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entityId, dealId), eq(s.approvals.status, "pending")));
+  for (const r of pendingReqs) await assertNotSelfDecision(user, r.by);
   await db.transaction(async (tx) => {
     await tx
       .update(s.deals)
@@ -723,7 +770,11 @@ export const exportDealsCsv = action(
   async ({ pipelineKey, filters, dealIds }, user) => {
     const pipeline = await getPipelineByKey(pipelineKey);
     if (!pipeline) throw new UserError("Unknown pipeline.");
-    const exportScope = await assertCan(user, dealModule(pipelineKey), "export");
+    // QA-19: pipeline export grant, or the org-wide Export permission (Appendix B — e.g. Finance). Rows are still limited
+    // to what the user can view (listDealsForBoard) and restricted deals never leave.
+    const [pipeExport, globalExport] = await Promise.all([scopeFor(user, dealModule(pipelineKey), "export"), scopeFor(user, "export", "export")]);
+    const exportScope = SCOPE_RANK[pipeExport] >= SCOPE_RANK[globalExport] ? pipeExport : globalExport;
+    if (exportScope === "none") throw new ForbiddenError("Your role can't export deals.");
     const stagesBy = await getStagesByPipeline();
     const hidden = await hiddenDealFields(user.role);
     const stageName = new Map((stagesBy[pipeline.id] ?? []).map((st) => [st.id, st.name]));
@@ -770,7 +821,8 @@ export const exportDealsCsv = action(
 export const getDealContacts = action(z.object({ dealId: uuid }), async ({ dealId }, user) => {
   const ctx = await loadDealForWrite(user, dealId, "view");
   if (!ctx.deal.accountId) return [];
-  const where = await ownedEntityWhere(user, "contacts", "view", s.contacts.ownerId);
+  // SEC L-12: same visibility rule as the Contacts module (scope + restricted-account access list).
+  const where = await contactVisibilityWhere(user);
   return db
     .select({ id: s.contacts.id, name: s.contacts.fullName, title: s.contacts.title, email: s.contacts.email })
     .from(s.contacts)

@@ -39,6 +39,8 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
   if (!pipeline) notFound();
   const perms = await pipelinePerms(user, key);
   if (!perms.canView) notFound();
+  // QA-19 (Appendix B "Export" row): the org-wide export grant (e.g. Finance) also covers board CSV export.
+  const canExport = perms.canExport || (await can(user, "export", "export"));
 
   const sp = await searchParams;
   const { filters, lane, view } = parseBoardParams(sp);
@@ -108,7 +110,7 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
         users={ownerOptions}
         assignable={assignable}
         categories={categories}
-        perms={{ canEdit: perms.canEdit, canAssign: perms.canAssign, canExport: perms.canExport }}
+        perms={{ canEdit: perms.canEdit, canAssign: perms.canAssign, canExport }}
         picklists={{ lost_reason: lost, hold_reason: hold }}
         hiddenFields={[...hidden]}
         canCreateContact={canCreateContact}

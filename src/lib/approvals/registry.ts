@@ -8,6 +8,7 @@ import { SCOPE_RANK } from "@/lib/rbac/model";
 import { UserError } from "@/lib/actions";
 import { applyRegistrationDecision } from "@/lib/commissions/registration-service";
 import { acceptCandidatesAs } from "@/lib/scout/accept";
+import { mayDecideOwn } from "./sod";
 
 export type ApprovalRow = typeof s.approvals.$inferSelect;
 export type ApprovalDecision = "approved" | "rejected";
@@ -58,7 +59,8 @@ export async function defaultCanDecide(user: AppUser, approval: ApprovalRow): Pr
 /** Separation of duties + handler-specific rule. */
 export async function canDecide(user: AppUser, approval: ApprovalRow): Promise<boolean> {
   if (approval.status !== "pending") return false;
-  if (approval.requestedBy === user.id && user.role !== "super_admin") return false;
+  // SEC M-9 / QA-14: requesters never decide their own request (super_admin only with the explicit opt-in setting).
+  if (!(await mayDecideOwn(user, approval.requestedBy))) return false;
   const h = getApprovalHandler(approval.kind);
   return (h.canDecide ?? defaultCanDecide)(user, approval);
 }
@@ -116,6 +118,8 @@ registerApprovalHandler("probability_override", {
         ? { overrideStatus: "approved", overrideApprovedBy: user.id }
         : { overrideStatus: "rejected", overrideApprovedBy: user.id, probabilityOverride: null };
     for (const before of befores) {
+      // Skip deals already decided elsewhere (e.g. from the deal page) or withdrawn — matters for bulk requests.
+      if (before.overrideStatus !== "pending") continue;
       const [after] = await tx.update(s.deals).set(set).where(eq(s.deals.id, before.id)).returning();
       await audit(
         {

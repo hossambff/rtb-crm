@@ -20,6 +20,8 @@ export function Comments({ dealId, comments, users }: { dealId: string; comments
   const [active, setActive] = React.useState(0);
   const ref = React.useRef<HTMLTextAreaElement>(null);
   const [run, pending] = useRun();
+  // QA-18: the comment shows up immediately (optimistic) and is replaced by the server copy on refresh.
+  const [shown, addShown] = React.useOptimistic(comments, (list: Comment[], c: Comment) => [...list, c]);
 
   const matches = query != null ? users.filter((u) => u.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6) : [];
 
@@ -50,27 +52,37 @@ export function Comments({ dealId, comments, users }: { dealId: string; comments
   };
 
   const submit = () => {
-    if (!body.trim()) return;
-    run(() => addComment({ dealId, body: body.trim(), mentionIds }), {
-      success: (d) => (d.notified ? `Comment posted · ${d.notified} notified` : "Comment posted"),
-      onOk: () => {
-        setBody("");
-        setMentionIds([]);
+    const text = body.trim();
+    if (!text) return;
+    const ids = mentionIds;
+    setBody("");
+    setMentionIds([]);
+    run(
+      async () => {
+        addShown({ id: `pending-${Date.now()}`, body: text, createdAt: new Date().toISOString(), authorName: "You", authorImage: null });
+        return addComment({ dealId, body: text, mentionIds: ids });
       },
-    });
+      {
+        success: (d) => (d.notified ? `Comment posted · ${d.notified} notified` : "Comment posted"),
+        onError: () => {
+          setBody(text); // give the text back so nothing is lost
+          setMentionIds(ids);
+        },
+      },
+    );
   };
 
   return (
     <section id="comments" aria-labelledby="comments-h" className="rounded-lg border border-border bg-surface-1">
       <div className="border-b border-border px-4 py-3">
         <h2 id="comments-h" className="font-display text-lg text-fg">
-          Comments <span className="font-sans text-xs text-muted tabular">{comments.length}</span>
+          Comments <span className="font-sans text-xs text-muted tabular">{shown.length}</span>
         </h2>
       </div>
-      {comments.length ? (
+      {shown.length ? (
         <ul className="space-y-3 px-4 py-3">
-          {comments.map((c) => (
-            <li key={c.id} className="flex gap-2.5">
+          {shown.map((c) => (
+            <li key={c.id} className={c.id.startsWith("pending-") ? "flex gap-2.5 opacity-60" : "flex gap-2.5"}>
               <Avatar name={c.authorName} src={c.authorImage} size={24} />
               <div className="min-w-0">
                 <p className="text-[11px] text-muted">

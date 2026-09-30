@@ -14,6 +14,7 @@ import { sql } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { scriptDb } from "./_db";
 import * as s from "../src/db/schema";
+import { CLAIM_PATTERNS } from "../src/lib/claims-patterns";
 
 const DEV_PASSWORD = "rtb-dev-only-2026";
 
@@ -168,8 +169,8 @@ const PRODUCTS = [
 ] as const;
 
 const CLAIMS: { text: string; pattern: string; status: "approved" | "restricted" | "banned"; alt?: string; evidence?: string }[] = [
-  { text: "Paid in 8 seconds / powered by Coinbase", pattern: "(paid in \\d+ seconds|powered by coinbase|coinbase[- ]custod)", status: "banned", alt: "Real-time payouts are in beta; early settlement is available through the Media Liquidity Pool (beta).", evidence: "Clear Street DD tracker 5 Sep 2026 flagged as material securities-accuracy issue." },
-  { text: "$100M audited revenue", pattern: "\\$?100\\s?m(illion)?\\s+(of\\s+)?audited", status: "banned", alt: "~$100M annualized revenue run-rate across the partner network (unaudited).", evidence: "Figure is an annualized unaudited run-rate." },
+  { text: "Paid in 8 seconds / powered by Coinbase", pattern: CLAIM_PATTERNS.paidInSeconds, status: "banned", alt: "Real-time payouts are in beta; early settlement is available through the Media Liquidity Pool (beta).", evidence: "Clear Street DD tracker 5 Sep 2026 flagged as material securities-accuracy issue." },
+  { text: "$100M audited revenue", pattern: CLAIM_PATTERNS.auditedRevenue100m, status: "banned", alt: "~$100M annualized revenue run-rate across the partner network (unaudited).", evidence: "Figure is an annualized unaudited run-rate." },
   { text: "Replaces all 17 vendors", pattern: "(replace[sd]?|eliminate[sd]?) (all )?17 (software )?vendors", status: "restricted", alt: "Replaces up to 17 categories of vendor tools (CMS, video, ad stack…) — list available on request.", evidence: "Vendor list and savings math not yet verified per publisher." },
   { text: "500M audience reach", pattern: "500\\s?m(illion)?\\s+(audience|reach|users)", status: "restricted", alt: "Syndication reach via partners (Yahoo, MSN, Apple News); direct platform MUU is reported separately.", evidence: "500M includes syndication reach, not direct users." },
   { text: "Guaranteed to make at least what you make today", pattern: "guarantee[d]? .{0,40}(today|current) (profit|revenue)", status: "restricted", alt: "Profit floor guarantee subject to contract terms (trailing-12-month digital operating profit).", evidence: "Guarantee mechanics defined per contract." },

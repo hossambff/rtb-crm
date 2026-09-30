@@ -35,11 +35,16 @@ export function fmtRelative(d: Date | string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? "—" : formatDistanceToNowStrict(date, { addSuffix: true });
 }
 
+/** Avatar initials. Parenthesized qualifiers and non-letters are ignored (QA-27): "Erik (placeholder)" → "E", "Ana María" → "AM". */
 export function initials(name: string | null | undefined): string {
-  return (name ?? "?")
+  const words = (name ?? "")
+    .replace(/\([^)]*\)/g, " ")
     .split(/\s+/)
-    .filter(Boolean)
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter(Boolean);
+  const out = words
     .slice(0, 2)
-    .map((p) => p[0]!.toUpperCase())
+    .map((w) => w[0]!.toUpperCase())
     .join("");
+  return out || "?";
 }

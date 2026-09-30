@@ -248,7 +248,7 @@ function SplitsDialog({
               <span className={total === 100 ? "text-xs text-muted tabular" : "text-xs text-critical tabular"}>Total {Math.round(total * 100) / 100}%</span>
             </div>
             {rows.map((r, i) => (
-              <div key={i} className="grid grid-cols-[1fr_110px_84px_32px] items-center gap-2">
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)_132px_72px_32px] items-center gap-2">
                 <NativeSelect aria-label="Split user" value={r.userId} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, userId: e.target.value } : x)))}>
                   {!pickable.some((u) => u.id === r.userId) ? <option value={r.userId}>{nameOf(r.userId)}</option> : null}
                   {pickable.map((u) => (

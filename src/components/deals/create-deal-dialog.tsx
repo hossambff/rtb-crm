@@ -7,6 +7,7 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Button } from "@/components/ui/button";
 import { Input, Label, NativeSelect } from "@/components/ui/input";
 import { createDeal, searchAccounts } from "@/lib/deals/actions";
+import { gateFieldMeta } from "@/lib/deals/gates";
 import { fmtNumber } from "@/lib/format";
 import { PRIORITY_LABELS, type PipelineDTO, type StageDTO, type UserLite } from "@/lib/deals/types";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,13 @@ function CreateDealDialog({
 
   const owners = assignable[pipeline.key] ?? [];
   const stage = pipeline.stages.find((s) => s.id === stageId);
+  // QA-07: evaluate the stage gate before submitting (the server re-checks before writing anything).
+  const createFilled = new Set<string>(["nextStep", "nextStepDueAt"]);
+  if (pipeline.unit === "muu" && (muu.trim() || account?.muu)) createFilled.add("muu");
+  if (pipeline.unit === "usd" && contractValue.trim()) createFilled.add("contractValueCents");
+  const fillable = new Set<string>(pipeline.unit === "muu" ? ["muu"] : pipeline.unit === "usd" ? ["contractValueCents"] : []);
+  const gateMissing = stage ? stage.requiredFields.filter((k) => !createFilled.has(k)) : [];
+  const gateBlocked = gateMissing.some((k) => !fillable.has(k));
 
   const submit = () => {
     setErrors({});
@@ -157,7 +165,19 @@ function CreateDealDialog({
                     </option>
                   ))}
                 </NativeSelect>
-                {stage?.requiredFields.length ? <p className="text-[11px] text-muted">Requires: {stage.requiredFields.join(", ")}</p> : null}
+                {stage?.requiredFields.length ? (
+                  <p className="text-[11px] text-muted">Requires: {stage.requiredFields.map((k) => gateFieldMeta(k).label).join(", ")}</p>
+                ) : null}
+                {gateBlocked ? (
+                  <p role="alert" className="text-[11px] text-secondary">
+                    {stage?.name} needs {gateMissing.filter((k) => !fillable.has(k)).map((k) => gateFieldMeta(k).label).join(", ")}, which
+                    can&apos;t be set here — start in an earlier stage and move the deal once it&apos;s filled.
+                  </p>
+                ) : gateMissing.length ? (
+                  <p role="alert" className="text-[11px] text-secondary">
+                    Fill {gateMissing.map((k) => gateFieldMeta(k).label).join(", ")} below to start in {stage?.name}.
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-1">
                 <Label htmlFor="cd-owner">Owner</Label>
@@ -220,7 +240,7 @@ function CreateDealDialog({
             <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={pending || (!account && !newAccount?.name) || nextStep.trim().length < 3 || !due}>
+            <Button type="submit" variant="primary" disabled={pending || gateMissing.length > 0 || (!account && !newAccount?.name) || nextStep.trim().length < 3 || !due}>
               {pending ? <Loader2 className="animate-spin" /> : null} Create deal
             </Button>
           </DialogFooter>

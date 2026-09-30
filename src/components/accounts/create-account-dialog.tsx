@@ -153,9 +153,11 @@ export function CreateAccountDialog({ categories, owners, currentUserId }: { cat
                       <span className="min-w-0 truncate">
                         <span className="text-fg">{d.name}</span> <span className="text-xs text-muted">{d.domain ?? "no domain"}</span>
                       </span>
-                      <Button asChild size="sm" variant="secondary">
-                        <Link href={`/accounts/${d.id}`}>Open existing</Link>
-                      </Button>
+                      {d.hidden ? null : (
+                        <Button asChild size="sm" variant="secondary">
+                          <Link href={`/accounts/${d.id}`}>Open existing</Link>
+                        </Button>
+                      )}
                     </li>
                   ))}
                 </ul>

@@ -16,8 +16,13 @@ export type HealthInput = {
   nextStepWaitingReason?: string | null;
   stakeholderRoles: (string | null)[];
   overdueTaskCount: number;
+  /** Deal came from the spreadsheet migration (tag "imported"). With no logged activity it needs review (QA-17). */
+  imported?: boolean;
   extraPenalties?: { points: number; reason: string }[];
 };
+
+/** Imported deals nobody has touched since the migration are capped here ("needs review"). */
+export const IMPORTED_REVIEW_CAP = 60;
 
 export type HealthFactor = { key: string; points: number; reason: string };
 export type HealthResult = { score: number | null; explanation: string; factors: HealthFactor[] };
@@ -39,15 +44,19 @@ export function computeHealth(input: HealthInput): HealthResult {
     if (points > 0) factors.push({ key, points, reason });
   };
 
-  // 1. Recency of last activity vs stage SLA
-  const ageDays = daysBetween(input.createdAt, input.now);
+  // 1. Recency of last activity vs stage SLA. With no activity at all, the deal's age is the idle time (QA-17):
+  // a never-touched deal is never "on track".
   if (input.lastActivityAt) {
     const idle = daysBetween(input.lastActivityAt, input.now);
     if (idle > 2 * sla) add("recency", 30, `No activity for ${idle} days (SLA ${sla})`);
     else if (idle > sla) add("recency", 20, `No activity for ${idle} days (SLA ${sla})`);
     else if (idle > sla / 2) add("recency", 10, `Last activity ${idle} days ago`);
-  } else if (ageDays > 3) {
-    add("recency", 20, "No activity logged yet");
+  } else {
+    const since = input.createdAt.getTime() < input.stageEnteredAt.getTime() ? input.createdAt : input.stageEnteredAt;
+    const age = Math.max(0, daysBetween(since, input.now));
+    if (age > 2 * sla) add("recency", 30, `No activity logged in ${age} days (SLA ${sla})`);
+    else if (age > sla) add("recency", 20, `No activity logged in ${age} days (SLA ${sla})`);
+    else add("recency", 10, "No activity logged yet");
   }
 
   // 2. Next step present / overdue (DEAL-3)
@@ -76,6 +85,12 @@ export function computeHealth(input: HealthInput): HealthResult {
   }
 
   for (const p of input.extraPenalties ?? []) add("signal", Math.max(0, p.points), p.reason);
+
+  // 6. Imported and never worked since the migration → needs review (score ≤ 60).
+  if (input.imported && !input.lastActivityAt) {
+    const before = 100 - factors.reduce((a, f) => a + f.points, 0);
+    if (before > IMPORTED_REVIEW_CAP) add("imported_review", before - IMPORTED_REVIEW_CAP, "Imported with no activity logged since — needs review");
+  }
 
   const total = factors.reduce((a, f) => a + f.points, 0);
   const score = Math.max(0, Math.min(100, 100 - total));

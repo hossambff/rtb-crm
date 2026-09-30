@@ -53,6 +53,9 @@ export function BoardToolbar({
 
   const n = activeFilterCount(filters);
 
+  // QA-15: owners/categories can repeat (split owners, case variants) → duplicate React keys. Dedupe once.
+  const uniqueUsers = [...new Map(users.map((u) => [u.id, u])).values()];
+  const uniqueCategories = [...new Set(categories)];
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative w-full sm:w-56">
@@ -63,7 +66,7 @@ export function BoardToolbar({
         <option value="">All owners</option>
         <option value="me">Me</option>
         <option value="none">Unassigned</option>
-        {users.map((u) => (
+        {uniqueUsers.map((u) => (
           <option key={u.id} value={u.id}>
             {u.name}
           </option>
@@ -81,7 +84,7 @@ export function BoardToolbar({
       {categories.length ? (
         <FilterSelect label="Category" value={filters.category ?? ""} onChange={(v) => go("category", v)}>
           <option value="">All categories</option>
-          {categories.map((c) => (
+          {uniqueCategories.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>

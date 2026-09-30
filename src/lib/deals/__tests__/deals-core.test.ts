@@ -64,6 +64,21 @@ describe("computeHealth", () => {
     expect(worst.score).toBe(0);
     expect(worst.factors[0]!.points).toBe(40);
   });
+  it("QA-17: no activity ever → penalized by deal age vs SLA, never 'on track'", () => {
+    const fresh = computeHealth({ ...base, createdAt: now, stageEnteredAt: now, lastActivityAt: null, stakeholderRoles: [] });
+    expect(fresh.score).toBe(75); // 10 (no activity yet) + 15 (no stakeholders)
+    expect(fresh.explanation).toMatch(/No activity logged yet/);
+    expect(computeHealth({ ...base, lastActivityAt: null, createdAt: daysAgo(15), stageEnteredAt: daysAgo(2) }).score).toBe(80);
+    expect(computeHealth({ ...base, lastActivityAt: null, createdAt: daysAgo(30), stageEnteredAt: daysAgo(2) }).score).toBe(70);
+  });
+  it("QA-17: imported deals with no activity are capped at 60 (needs review)", () => {
+    const imp = computeHealth({ ...base, createdAt: daysAgo(1), stageEnteredAt: daysAgo(1), lastActivityAt: null, imported: true });
+    expect(imp.score).toBe(60);
+    expect(imp.explanation).toMatch(/needs review/);
+    // already below the cap → unchanged; with real activity → scored normally
+    expect(computeHealth({ ...base, lastActivityAt: null, stakeholderRoles: [], nextStep: null, nextStepDueAt: null, imported: true }).score).toBe(35);
+    expect(computeHealth({ ...base, imported: true }).score).toBe(100);
+  });
   it("uses a default SLA when the stage has none", () => {
     expect(computeHealth({ ...base, slaDays: null, lastActivityAt: daysAgo(10) }).score).toBe(90);
   });

@@ -45,20 +45,23 @@ export function Topbar({
           </button>
         </div>
       ) : null}
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-bg/95 px-4 backdrop-blur md:px-6">
+      <header className="sticky top-0 z-30 flex h-14 min-w-0 items-center gap-2 border-b border-border bg-bg/95 px-4 backdrop-blur md:px-6">
         <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
           <Menu />
         </Button>
         <button
           onClick={() => setPaletteOpen(true)}
-          className="flex h-9 w-full max-w-md items-center gap-2 rounded-md border border-border bg-surface-1 px-3 text-sm text-muted hover:border-border-strong"
+          className="hidden h-9 min-w-0 flex-1 max-w-md items-center gap-2 rounded-md border border-border bg-surface-1 px-3 text-sm text-muted hover:border-border-strong sm:flex"
           aria-label="Search or run a command"
         >
-          <Search className="size-4" strokeWidth={1.5} />
-          <span className="truncate">Search deals, accounts, contacts, or ask Copilot…</span>
-          <kbd className="ml-auto hidden rounded border border-border-strong px-1.5 text-[10px] text-muted sm:inline">⌘K</kbd>
+          <Search className="size-4 shrink-0" strokeWidth={1.5} />
+          <span className="min-w-0 truncate">Search deals, accounts, contacts, or ask Copilot…</span>
+          <kbd className="ml-auto hidden rounded border border-border-strong px-1.5 text-[10px] text-muted md:inline">⌘K</kbd>
         </button>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="icon" className="sm:hidden" aria-label="Search or run a command" onClick={() => setPaletteOpen(true)}>
+            <Search strokeWidth={1.5} />
+          </Button>
           <Button variant="ghost" size="icon" asChild aria-label={`Notifications (${unread} unread)`}>
             <Link href="/tasks?tab=notifications" className="relative">
               <Bell strokeWidth={1.5} />
@@ -70,7 +73,7 @@ export function Topbar({
             </Link>
           </Button>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-surface-2" aria-label="Account menu">
+            <DropdownMenuTrigger className="flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-surface-2 sm:px-2" aria-label="Account menu">
               <Avatar name={user.name} src={user.image} size={28} />
               <span className="hidden text-left leading-tight lg:block">
                 <span className="block text-sm font-medium text-fg">{user.name}</span>

@@ -9,8 +9,11 @@ import { R100Table } from "@/components/r100/r100-table";
 
 export const metadata = { title: "Roundtable 100" };
 
-export default async function R100Page() {
+export default async function R100Page({ searchParams }: PageProps<"/r100">) {
   const user = await requireUser();
+  const sp = await searchParams;
+  const initialQuery = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
+  const initialStage = typeof sp.stage === "string" ? sp.stage.slice(0, 60) : "all";
   const data = await getR100Program(user);
   if (!data) return <EmptyState title="Roundtable 100 pipeline is not configured" description="Ask an admin to run the seed for pipelines." />;
   const progress = Math.min(1, data.liveCount / Math.max(1, data.goal));
@@ -93,7 +96,7 @@ export default async function R100Page() {
           </div>
         </CardHeader>
         <CardContent>
-          <R100Table rows={data.rows} stages={data.stages} />
+          <R100Table rows={data.rows} stages={data.stages} initialQuery={initialQuery} initialStage={initialStage} />
         </CardContent>
       </Card>
     </div>
