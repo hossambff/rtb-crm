@@ -38,14 +38,18 @@ export async function recordSweep(at = new Date()) {
     .onConflictDoUpdate({ target: s.appSettings.key, set: { value: at.toISOString() as never } });
 }
 
+const JOB_TIMEOUT_MS = 280_000; // stay inside the page's maxDuration (300s); a hung job must not pin the guard
+
 async function runGuarded(tag: string, fn: () => Promise<unknown>) {
   if (running.has(tag)) return;
   running.add(tag);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await fn();
+    await Promise.race([fn(), new Promise((_, reject) => (timer = setTimeout(() => reject(new Error("timed out")), JOB_TIMEOUT_MS)))]);
   } catch (e) {
     console.error(`[background] ${tag.split(":")[0]} failed`, e instanceof Error ? e.message.slice(0, 200) : "error");
   } finally {
+    if (timer) clearTimeout(timer);
     running.delete(tag);
   }
 }
