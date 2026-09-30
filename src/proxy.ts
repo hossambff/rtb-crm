@@ -11,7 +11,10 @@ export function proxy(request: NextRequest) {
     const url = new URL("/sign-in", request.url);
     return NextResponse.redirect(url);
   }
-  return NextResponse.next();
+  // Expose the path to server layouts (e.g. admin section guards need it to answer 403 before streaming).
+  const headers = new Headers(request.headers);
+  headers.set("x-rso-pathname", request.nextUrl.pathname);
+  return NextResponse.next({ request: { headers } });
 }
 
 export const config = {

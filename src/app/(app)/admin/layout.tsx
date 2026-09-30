@@ -1,6 +1,7 @@
 import { requireUser, can } from "@/lib/rbac/server";
 import { PageHeader } from "@/components/ui/misc";
 import { forbidden } from "next/navigation";
+import { headers } from "next/headers";
 import { AdminNav, type AdminNavItem } from "@/components/admin/admin-nav";
 
 const CONFIG_ITEMS: AdminNavItem[] = [
@@ -19,6 +20,10 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   const user = await requireUser();
   const [configure, auditView] = await Promise.all([can(user, "admin", "configure"), can(user, "audit", "view")]);
   if (!configure && !auditView) forbidden(); // QA-09: real 403
+  // NEW-1: audit-only users (executive, finance) get a real 403 on config sub-pages — decided here, before the
+  // section's loading boundary starts streaming. Pages keep their own checks as defense in depth.
+  const path = (await headers()).get("x-rso-pathname") ?? "";
+  if (!configure && path !== "/admin" && path !== "/admin/audit" && !path.startsWith("/admin/audit/")) forbidden();
   const items = [...(configure ? CONFIG_ITEMS : []), ...(auditView ? [{ href: "/admin/audit", label: "Audit log" }] : [])];
   return (
     <>
