@@ -12,6 +12,8 @@ const nextConfig: NextConfig = {
   // Never echo server-action arguments (email bodies, API keys) into dev logs.
   logging: { serverFunctions: false },
   poweredByHeader: false,
+  // forbidden() / forbidden.tsx → real HTTP 403 for pages a role can't open (QA-09, AT-02).
+  experimental: { authInterrupts: true },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

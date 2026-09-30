@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { forbidden } from "next/navigation";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/misc";
@@ -13,7 +13,7 @@ export const metadata = { title: "Contacts" };
 
 export default async function ContactsPage(props: PageProps<"/contacts">) {
   const user = await requireUser();
-  if (!(await can(user, "contacts", "view"))) notFound();
+  if (!(await can(user, "contacts", "view"))) forbidden();
   const sp = await props.searchParams;
   const params = parseContactListParams(sp);
   const [list, owners, canCreate, canExport] = await Promise.all([listContacts(user, params), assignableUsers(), can(user, "contacts", "create"), can(user, "export", "export")]);

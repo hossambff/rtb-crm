@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { forbidden } from "next/navigation";
 import { Download } from "lucide-react";
 import { PageHeader } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ export const metadata = { title: "Accounts" };
 
 export default async function AccountsPage(props: PageProps<"/accounts">) {
   const user = await requireUser();
-  if (!(await can(user, "accounts", "view"))) notFound();
+  if (!(await can(user, "accounts", "view"))) forbidden();
   const sp = await props.searchParams;
   const params = parseAccountListParams(sp);
   const [list, opts, canCreate, canExport] = await Promise.all([
