@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { env } from "@/lib/env";
@@ -86,15 +86,28 @@ function publicAppUrl(): string | null {
   }
 }
 
-/** In-process guard so one instance doesn't execute the same run twice concurrently. */
-const active = new Set<string>();
+/**
+ * Run lease (M-12): a DB lease on enrichment_runs.lease_until, so a resume, the Apify webhook and the cron on
+ * DIFFERENT instances can't advance the same run at once (double actor starts = real spend). The lease outlives the
+ * longest invocation (maxDuration 300 s) and is released at the end; a crashed holder's lease simply expires.
+ */
+const LEASE_MS = 6 * 60_000;
 export async function withRunLock<T>(runId: string, fn: () => Promise<T>): Promise<T | null> {
-  if (active.has(runId)) return null;
-  active.add(runId);
+  const until = new Date(Date.now() + LEASE_MS);
+  const [got] = await db
+    .update(s.enrichmentRuns)
+    .set({ leaseUntil: until })
+    .where(and(eq(s.enrichmentRuns.id, runId), or(isNull(s.enrichmentRuns.leaseUntil), lt(s.enrichmentRuns.leaseUntil, new Date()))))
+    .returning({ id: s.enrichmentRuns.id });
+  if (!got) return null;
   try {
     return await fn();
   } finally {
-    active.delete(runId);
+    await db
+      .update(s.enrichmentRuns)
+      .set({ leaseUntil: null })
+      .where(and(eq(s.enrichmentRuns.id, runId), eq(s.enrichmentRuns.leaseUntil, until)))
+      .catch(() => {});
   }
 }
 

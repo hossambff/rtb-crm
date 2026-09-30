@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { snoozePreset } from "@/lib/tasks/core";
+import { parseUserDate, toDateTimeInput } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 function browserTz() {
@@ -14,8 +15,12 @@ function browserTz() {
   }
 }
 
-/** `<input type="datetime-local">` value for a Date (browser local time). */
-export function toLocalInput(d: Date | string | null | undefined): string {
+/**
+ * `<input type="datetime-local">` value for a Date: wall time in `tz` (the user's PROFILE zone, QA-12) when given,
+ * else browser local time.
+ */
+export function toLocalInput(d: Date | string | null | undefined, tz?: string): string {
+  if (tz) return toDateTimeInput(d, tz);
   if (!d) return "";
   const date = new Date(d);
   if (Number.isNaN(date.getTime())) return "";
@@ -38,6 +43,7 @@ export function ReasonDialog({
   confirmLabel,
   reasonLabel = "Reason",
   reasonRequired = true,
+  tz,
   onSubmit,
 }: {
   open: boolean;
@@ -48,6 +54,8 @@ export function ReasonDialog({
   confirmLabel: string;
   reasonLabel?: string;
   reasonRequired?: boolean;
+  /** The user's profile time zone: presets and the picker use it (not the browser's), QA-12. */
+  tz?: string;
   onSubmit: Submit;
 }) {
   const [reason, setReason] = useState("");
@@ -81,7 +89,8 @@ export function ReasonDialog({
             if (reasonRequired && reason.trim().length < 3) return setError("Please give a short reason (3+ characters).");
             if (withUntil && !until) return setError("Pick when it should come back.");
             setBusy(true);
-            const err = await onSubmit({ reason: reason.trim(), until: withUntil ? new Date(until).toISOString() : undefined });
+            const untilIso = withUntil ? (tz ? parseUserDate(until, tz) : new Date(until))?.toISOString() : undefined;
+            const err = await onSubmit({ reason: reason.trim(), until: untilIso });
             setBusy(false);
             if (err) setError(err);
             else reset(false);
@@ -103,7 +112,7 @@ export function ReasonDialog({
                       aria-pressed={preset === p.key}
                       onClick={() => {
                         setPreset(p.key);
-                        setUntil(toLocalInput(snoozePreset(p.key, new Date(), browserTz())));
+                        setUntil(toLocalInput(snoozePreset(p.key, new Date(), tz ?? browserTz()), tz));
                       }}
                       className={cn(
                         "rounded-md border px-2.5 py-1 text-xs transition-colors duration-150",

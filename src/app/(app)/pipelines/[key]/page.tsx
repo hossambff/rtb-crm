@@ -11,7 +11,10 @@ import {
   getStagesByPipeline,
   listActiveUsers,
   listDealsForBoard,
+  listDealsPage,
   pipelinePerms,
+  type DealListPage,
+  type ListSort,
 } from "@/lib/deals/queries";
 import { hiddenDealFields } from "@/lib/deals/service";
 import { parseBoardParams } from "@/lib/deals/filters";
@@ -39,10 +42,14 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
   // QA-19 (Appendix B "Export" row): the org-wide export grant (e.g. Finance) also covers board CSV export.
   const canExport = perms.canExport || (await can(user, "export", "export"));
 
-  const { filters, lane, view } = parseBoardParams(await searchParams);
-  const [stagesBy, deals, users, assignable, categories, lost, hold, hidden, createProps, canCreateContact] = await allLimited([
+  const sp = await searchParams;
+  const { filters, lane, view } = parseBoardParams(sp);
+  const one = (k: string) => (Array.isArray(sp[k]) ? sp[k]![0] : (sp[k] as string | undefined));
+  // List view: one server-sorted page of 100 rows + SQL totals (M-20). Board: all cards, trimmed per column below.
+  const listOpts = { page: Number(one("page") ?? 1), sort: one("sort") as ListSort | undefined, dir: one("dir") === "asc" ? ("asc" as const) : ("desc" as const) };
+  const [stagesBy, loaded, users, assignable, categories, lost, hold, hidden, createProps, canCreateContact] = await allLimited([
     () => getStagesByPipeline(),
-    () => listDealsForBoard(user, key, filters),
+    () => (view === "list" ? listDealsPage(user, key, filters, listOpts) : listDealsForBoard(user, key, filters)),
     () => listActiveUsers(),
     () => assignableUsers(user, key),
     () => boardCategories(user, pipeline.id),
@@ -53,15 +60,21 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
     () => can(user, "contacts", "create"),
   ], 2);
   const stages = stagesBy[pipeline.id] ?? [];
+  const listPage: DealListPage | null = Array.isArray(loaded) ? null : loaded;
+  const deals = Array.isArray(loaded) ? loaded : loaded.deals;
   const open = deals.filter((d) => d.status === "open");
   const sum = (f: (d: (typeof deals)[number]) => number) => open.reduce((a, d) => a + f(d), 0);
-  const hasNet = open.every((d) => d.netUsd !== undefined);
-  // Board ships only the first N cards per column (+ totals over everything); list view needs all rows for sorting.
+  const hasNet = !hidden.has("revSharePct") && open.every((d) => d.netUsd !== undefined);
+  const kpi = listPage
+    ? { openDeals: listPage.kpis.openDeals, muu: listPage.kpis.muu, gross: listPage.kpis.gross, net: listPage.kpis.net, weighted: listPage.kpis.weighted, won: listPage.kpis.won }
+    : { openDeals: open.length, muu: sum((d) => d.muu), gross: sum((d) => d.grossUsd), net: sum((d) => d.netUsd ?? 0), weighted: sum((d) => d.weightedUsd), won: deals.filter((d) => d.status === "won").length };
+  // Board ships only the first N cards per column (+ totals over everything); the list view is paginated server-side.
   const totals = columnTotals(deals);
-  const shown = view === "list" ? deals : trimPerStage(deals);
+  const shown = listPage ? deals : trimPerStage(deals);
   // Owner filter: active users + anyone who owns a deal on this board (e.g. imported placeholder owners).
   const ownerOptions = [...users];
-  for (const d of deals) for (const o of d.owners) if (!ownerOptions.some((u) => u.id === o.id)) ownerOptions.push({ id: o.id, name: o.name, image: o.image });
+  const dealOwners = listPage ? listPage.owners : deals.flatMap((d) => d.owners);
+  for (const o of dealOwners) if (!ownerOptions.some((u) => u.id === o.id)) ownerOptions.push({ id: o.id, name: o.name, image: o.image });
   ownerOptions.sort((a, b) => a.name.localeCompare(b.name));
 
   return (
@@ -77,18 +90,19 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
           </h1>
         </div>
         <dl className="flex flex-wrap gap-x-6 gap-y-1 text-right tabular">
-          <Kpi label="Open deals" value={fmtNumber(open.length)} />
-          {pipeline.unit === "muu" ? <Kpi label="MUU" value={fmtNumber(sum((d) => d.muu), { compact: true })} /> : null}
-          {pipeline.unit !== "activation" ? <Kpi label={pipeline.unit === "muu" ? "Gross / yr" : "Value"} value={fmtUsd(sum((d) => d.grossUsd), { compact: true })} /> : null}
-          {pipeline.unit === "muu" && hasNet ? <Kpi label="RTB net" value={fmtUsd(sum((d) => d.netUsd ?? 0), { compact: true })} /> : null}
-          {pipeline.unit !== "activation" ? <Kpi label="Weighted" value={fmtUsd(sum((d) => d.weightedUsd), { compact: true })} /> : null}
-          {pipeline.unit === "activation" ? <Kpi label="Live" value={fmtNumber(deals.filter((d) => d.status === "won").length)} /> : null}
+          <Kpi label="Open deals" value={fmtNumber(kpi.openDeals)} />
+          {pipeline.unit === "muu" ? <Kpi label="MUU" value={fmtNumber(kpi.muu, { compact: true })} /> : null}
+          {pipeline.unit !== "activation" ? <Kpi label={pipeline.unit === "muu" ? "Gross / yr" : "Value"} value={fmtUsd(kpi.gross, { compact: true })} /> : null}
+          {pipeline.unit === "muu" && hasNet ? <Kpi label="RTB net" value={fmtUsd(kpi.net, { compact: true })} /> : null}
+          {pipeline.unit !== "activation" ? <Kpi label="Weighted" value={fmtUsd(kpi.weighted, { compact: true })} /> : null}
+          {pipeline.unit === "activation" ? <Kpi label="Live" value={fmtNumber(kpi.won)} /> : null}
         </dl>
       </div>
       <PipelineBoard
         pipeline={pipeline}
         stages={stages}
         deals={shown}
+        listPage={listPage ? { page: listPage.page, pageSize: listPage.pageSize, total: listPage.total, sort: listPage.sort, dir: listPage.dir } : undefined}
         totals={totals}
         filters={filters}
         lane={lane}

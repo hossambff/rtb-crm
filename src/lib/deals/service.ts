@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
-import { db } from "@/db";
+import { db, type Executor, type Tx as DbTx } from "@/db";
 import * as s from "@/db/schema";
 import type { Role } from "@/lib/rbac/model";
 import { assertCan, dealAccessWhere, dealModule, ForbiddenError, getHiddenFields, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
@@ -8,8 +8,8 @@ import { UserError } from "@/lib/actions";
 import { computeHealth } from "./health";
 import { ensureMigrationProject } from "@/lib/onboarding/service";
 
-export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export type DbOrTx = typeof db | Tx;
+export type Tx = DbTx;
+export type DbOrTx = Executor;
 
 /* ───────────── Field-level security ───────────── */
 
@@ -187,13 +187,7 @@ export async function recomputeHealthForDeals(opts: { pipelineId?: string; limit
   return rows.length;
 }
 
-/* ───────────── Notifications ───────────── */
-
-export async function notify(userIds: string[], n: { kind: string; title: string; body?: string | null; href?: string | null }, tx: DbOrTx = db) {
-  const ids = Array.from(new Set(userIds)).filter(Boolean);
-  if (!ids.length) return;
-  await tx.insert(s.notifications).values(ids.map((userId) => ({ userId, kind: n.kind, title: n.title, body: n.body ?? null, href: n.href ?? null })));
-}
+/* ───────────── Notifications: use notify/notifyMany from @/lib/notifications/notify (never throws). ───────────── */
 
 /** For restricted deals, only users on the access list (or super admins) may be notified about it. */
 export async function filterRecipientsForDeal(deal: { id: string; restricted: boolean }, userIds: string[]): Promise<string[]> {
@@ -208,6 +202,8 @@ export async function filterRecipientsForDeal(deal: { id: string; restricted: bo
 }
 
 /* ───────────── Won side-effects (DEAL-7) ───────────── */
+
+export const wonInvoiceKey = (dealId: string) => `won:${dealId}`;
 
 /** NET/ENT/SPT won → migration project (once). ADS won → invoice from next payment (once per due date). */
 export async function onDealWon(ctx: { deal: typeof s.deals.$inferSelect; pipelineKey: string; actorId: string }, tx: DbOrTx) {
@@ -225,13 +221,19 @@ export async function onDealWon(ctx: { deal: typeof s.deals.$inferSelect; pipeli
     if (res?.created) created.push("migration_project");
   }
   if (pipelineKey === "ADS" && deal.nextPaymentCents && deal.nextPaymentAt) {
+    // Legacy rows (before invoices.source_key) are matched by due date; new rows carry the idempotency key "won:<dealId>"
+    // (unique), so a double-submitted won move can never seed a second invoice (H-11).
     const [existing] = await tx
       .select({ id: s.invoices.id })
       .from(s.invoices)
       .where(and(eq(s.invoices.dealId, deal.id), eq(s.invoices.dueAt, deal.nextPaymentAt)));
     if (!existing) {
-      await tx.insert(s.invoices).values({ dealId: deal.id, amountCents: deal.nextPaymentCents, dueAt: deal.nextPaymentAt, status: "scheduled" });
-      created.push("invoice");
+      const inserted = await tx
+        .insert(s.invoices)
+        .values({ dealId: deal.id, amountCents: deal.nextPaymentCents, dueAt: deal.nextPaymentAt, status: "scheduled", sourceKey: wonInvoiceKey(deal.id) })
+        .onConflictDoNothing()
+        .returning({ id: s.invoices.id });
+      if (inserted.length) created.push("invoice");
     }
   }
   return created;

@@ -1,6 +1,6 @@
 import "server-only";
 import { headers } from "next/headers";
-import { db } from "@/db";
+import { db, type Executor } from "@/db";
 import { auditLog } from "@/db/schema";
 
 export async function audit(entry: {
@@ -11,7 +11,7 @@ export async function audit(entry: {
   entityId?: string;
   before?: unknown;
   after?: unknown;
-}) {
+}, q: Executor = db) {
   let ip: string | null = null;
   try {
     const h = await headers();
@@ -19,7 +19,9 @@ export async function audit(entry: {
   } catch {
     // outside a request (cron/scripts)
   }
-  await db.insert(auditLog).values({
+  // Pass `q` (the transaction) when auditing inside one: the entry then commits/rolls back with the work, and the
+  // insert doesn't need a second pooled connection while the transaction holds the first.
+  await q.insert(auditLog).values({
     actorId: entry.actorId,
     actorKind: entry.actorKind ?? "user",
     action: entry.action,

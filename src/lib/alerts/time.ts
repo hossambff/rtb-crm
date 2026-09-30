@@ -125,6 +125,15 @@ export function addBusinessDays(d: Date, n: number, tz: string): Date {
   return fromWall(wall, tz);
 }
 
+/**
+ * Have `n` business days passed since `from` (in tz), keeping the wall-clock time? (M-09) — "created Mon 23:30,
+ * 1 business day" is due Tue 23:30, not at Tue 00:00 like counting midnights would say. n ≤ 0 → true.
+ */
+export function businessDaysPassed(from: Date, to: Date, n: number, tz: string): boolean {
+  if (n <= 0) return to >= from;
+  return addBusinessDays(from, n, tz).getTime() <= to.getTime();
+}
+
 /** Days left in the local calendar month of `d` (the last day of the month → 0). */
 export function daysLeftInMonth(d: Date, tz: string): number {
   const w = toWall(d, tz);

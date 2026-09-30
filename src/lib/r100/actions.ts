@@ -7,8 +7,9 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { assertCan, canSeeRestricted, ForbiddenError, inScope, type AppUser } from "@/lib/rbac/server";
+import { moveDealToStage } from "@/lib/deals/stage-service";
+import { INTERVIEW_STATUSES, mergeR100, parseInterviews, type Interview, type R100Json } from "./calc";
 import { canEditR100Bonus, changedBonusFields, R100_BONUS_FORBIDDEN } from "./bonus-policy";
-import { INTERVIEW_STATUSES, isLive, mergeR100, parseInterviews, type Interview, type R100Json } from "./calc";
 
 /** Load an R100 deal the user may edit (module scope + record scope + restricted list). */
 async function editableR100Deal(user: AppUser, dealId: string) {
@@ -59,47 +60,32 @@ export const updateR100 = action(patchSchema, async ({ dealId, patch }, user) =>
   return after;
 });
 
-export const setR100Stage = action(z.object({ dealId: z.uuid(), stageId: z.uuid() }), async ({ dealId, stageId }, user) => {
-  const deal = await editableR100Deal(user, dealId);
-  if (deal.stageId === stageId) return { changed: false };
-  const [stage] = await db.select().from(s.stages).where(and(eq(s.stages.id, stageId), eq(s.stages.pipelineId, deal.pipelineId)));
-  if (!stage) throw new UserError("That stage is not part of the Roundtable 100 pipeline.");
-  const now = new Date();
-  const r100 = { ...((deal.r100 ?? {}) as R100Json) };
-  if (isLive(stage) && !r100.firstPostDate) r100.firstPostDate = now.toISOString().slice(0, 10);
-  const status = stage.category;
-  const patch = {
-    stageId,
-    status,
-    stageEnteredAt: now,
-    r100,
-    wonAt: status === "won" ? (deal.wonAt ?? now) : deal.wonAt,
-    lostAt: status === "lost" ? now : null,
-  };
-  await db.transaction(async (tx) => {
-    await tx.update(s.deals).set(patch).where(eq(s.deals.id, dealId));
-    await tx.insert(s.dealStageHistory).values({ dealId, fromStageId: deal.stageId, toStageId: stageId, changedBy: user.id, reason: "r100 program board" });
-    await tx.insert(s.activities).values({
-      type: "stage_change",
-      source: "manual",
-      subject: `Stage → ${stage.name}`,
-      actorId: user.id,
-      dealId,
-      accountId: deal.accountId,
-      metadata: { fromStageId: deal.stageId, toStageId: stageId, module: "r100" },
-    });
-  });
-  await audit({
-    actorId: user.id,
-    action: "deal.stage_change",
-    entity: "deal",
-    entityId: dealId,
-    before: { stageId: deal.stageId, status: deal.status, r100: deal.r100 },
-    after: { stageId, status, r100 },
-  });
-  revalidatePath("/r100");
-  return { changed: true, firstPostDate: r100.firstPostDate ?? null };
-});
+/**
+ * R100 board stage change (H-12): goes through the ONE shared stage service (gates / required fields, lost & hold
+ * reasons, approval-gated stages, won automation, first-post stamp, history, activity, audit, health, row lock).
+ * Optional gate values / reason are passed through; a missing one comes back as the service's field message.
+ */
+export const setR100Stage = action(
+  z.object({
+    dealId: z.uuid(),
+    stageId: z.uuid(),
+    fields: z.record(z.string().max(60), z.string().max(2000)).optional(),
+    reasonCode: z.string().max(120).optional(),
+    reasonText: z.string().trim().max(2000).optional(),
+  }),
+  async ({ dealId, stageId, fields, reasonCode, reasonText }, user) => {
+    const deal = await editableR100Deal(user, dealId);
+    if (deal.stageId === stageId) return { changed: false };
+    const [stage] = await db.select({ id: s.stages.id }).from(s.stages).where(and(eq(s.stages.id, stageId), eq(s.stages.pipelineId, deal.pipelineId)));
+    if (!stage) throw new UserError("That stage is not part of the Roundtable 100 pipeline.");
+    const res = await moveDealToStage(user, dealId, { id: stageId }, { fields, reasonCode, reasonText }, { via: "r100" });
+    if (res.pendingApproval) throw new UserError(`${res.stageName} needs approval — a request was sent; the deal moves once it is approved.`);
+    const [after] = await db.select({ r100: s.deals.r100 }).from(s.deals).where(eq(s.deals.id, dealId));
+    revalidatePath("/r100");
+    revalidatePath(`/deals/${dealId}`);
+    return { changed: res.moved, firstPostDate: ((after?.r100 ?? {}) as R100Json).firstPostDate ?? null };
+  },
+);
 
 const interviewSchema = z.object({
   dealId: z.uuid(),

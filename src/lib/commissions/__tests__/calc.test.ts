@@ -51,7 +51,7 @@ describe("rule math", () => {
   });
   it("normalizes untrusted rules JSON", () => {
     const r = normalizeRules([{ trigger: "deal_won", rateType: "bogus", rate: "5" }, { trigger: "nope" }, null]);
-    expect(r).toEqual([{ trigger: "deal_won", pipelineKeys: undefined, rateType: "flat", rate: 5, capCents: undefined, clawbackDays: undefined }]);
+    expect(r).toEqual([{ id: expect.stringMatching(/^h/), trigger: "deal_won", pipelineKeys: undefined, rateType: "flat", rate: 5, capCents: undefined, clawbackDays: undefined }]);
   });
   it("period and note keys", () => {
     expect(periodOf(new Date("2026-01-31T23:00:00Z"))).toBe("2026-01");

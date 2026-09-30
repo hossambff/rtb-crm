@@ -126,6 +126,7 @@ export function AlertList({
         title="Snooze alert"
         description={dlg?.alert.title}
         withUntil
+        tz={tz}
         confirmLabel="Snooze"
         onSubmit={async ({ reason, until }) => {
           const res = await snoozeAlert({ id: dlg!.alert.id, reason, until: until! });

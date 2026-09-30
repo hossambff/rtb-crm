@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { db } from "@/db";
+import { db, type Tx } from "@/db";
 import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { canSeeRestricted, dealModule, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
@@ -13,11 +13,23 @@ import { mayDecideOwn } from "./sod";
 export type ApprovalRow = typeof s.approvals.$inferSelect;
 export type ApprovalDecision = "approved" | "rejected";
 
+export type ApplyContext = { approval: ApprovalRow; decision: ApprovalDecision; user: AppUser; note: string | null };
+
+/**
+ * Side effects of a decision (H-13). A handler implements ONE of three modes:
+ * - `apply` (atomic, preferred): runs inside the transaction that flips the approval's status; use `tx` for EVERY
+ *   query. Either both commit or neither (bulk overrides are all-or-nothing).
+ * - `applyWithClaim`: the handler runs its own service transaction (stage move, registration decision) and MUST call
+ *   `claim(tx)` inside it, so the status flip commits with the work.
+ * - `applyAfter` (best effort, multi-record work that can't share one transaction): runs after the status flipped.
+ * On failure the approval is left in status "failed" with the reason in `note` (never silently back to pending).
+ */
 export type ApprovalHandler = {
   /** Who may decide. Default: approverRole match or admin/super_admin. */
   canDecide?: (user: AppUser, approval: ApprovalRow) => Promise<boolean>;
-  /** Side effects of the decision (the approvals row itself is updated by the caller). Runs before the status update. */
-  apply?: (ctx: { approval: ApprovalRow; decision: ApprovalDecision; user: AppUser; note: string | null }) => Promise<void>;
+  apply?: (ctx: ApplyContext & { tx: Tx }) => Promise<void>;
+  applyWithClaim?: (ctx: ApplyContext & { claim: (tx: Tx) => Promise<void> }) => Promise<void>;
+  applyAfter?: (ctx: ApplyContext) => Promise<void>;
   /** Human label for the approval's subject, permission-aware (return null to hide). */
   label?: (user: AppUser, approval: ApprovalRow) => Promise<string | null>;
   /** Alerts to auto-resolve once decided (rule + entity + entityIds). */
@@ -96,24 +108,30 @@ async function dealLabel(user: AppUser, a: ApprovalRow) {
 registerApprovalHandler("probability_override", {
   canDecide: (user, a) => canApproveDeals(user, dealIdsOf(a), "all"),
   label: dealLabel,
-  apply: async ({ approval, decision, user }) => {
-    for (const id of dealIdsOf(approval)) {
-      const [before] = await db.select().from(s.deals).where(eq(s.deals.id, id));
+  // All-or-nothing: every deal of a bulk request is updated in the approval's transaction (rows locked in id order).
+  apply: async ({ approval, decision, user, tx }) => {
+    const ids = [...dealIdsOf(approval)].sort();
+    if (!ids.length) return;
+    const befores = await tx.select().from(s.deals).where(inArray(s.deals.id, ids)).orderBy(s.deals.id).for("update");
+    const set =
+      decision === "approved"
+        ? { overrideStatus: "approved", overrideApprovedBy: user.id }
+        : { overrideStatus: "rejected", overrideApprovedBy: user.id, probabilityOverride: null };
+    for (const before of befores) {
       // Skip deals already decided elsewhere (e.g. from the deal page) or withdrawn — matters for bulk requests.
-      if (!before || before.overrideStatus !== "pending") continue;
-      const set =
-        decision === "approved"
-          ? { overrideStatus: "approved", overrideApprovedBy: user.id }
-          : { overrideStatus: "rejected", overrideApprovedBy: user.id, probabilityOverride: null };
-      const [after] = await db.update(s.deals).set(set).where(eq(s.deals.id, id)).returning();
-      await audit({
-        actorId: user.id,
-        action: `deal.probability_override_${decision}`,
-        entity: "deal",
-        entityId: id,
-        before: { probabilityOverride: before.probabilityOverride, overrideStatus: before.overrideStatus },
-        after: { probabilityOverride: after?.probabilityOverride, overrideStatus: after?.overrideStatus, approvalId: approval.id },
-      });
+      if (before.overrideStatus !== "pending") continue;
+      const [after] = await tx.update(s.deals).set(set).where(eq(s.deals.id, before.id)).returning();
+      await audit(
+        {
+          actorId: user.id,
+          action: `deal.probability_override_${decision}`,
+          entity: "deal",
+          entityId: before.id,
+          before: { probabilityOverride: before.probabilityOverride, overrideStatus: before.overrideStatus },
+          after: { probabilityOverride: after?.probabilityOverride, overrideStatus: after?.overrideStatus, approvalId: approval.id },
+        },
+        tx,
+      );
     }
   },
   resolvesAlerts: (a) => ({ ruleCode: "NS-18", entity: "deal", entityIds: dealIdsOf(a) }),
@@ -128,8 +146,8 @@ registerApprovalHandler("stage_gate", {
     const to = typeof a.payload?.toStage === "string" ? a.payload.toStage : typeof a.payload?.toStageKey === "string" ? a.payload.toStageKey : null;
     return base && to ? `${base} → ${to}` : base;
   },
-  apply: async ({ approval, decision, user }) => {
-    if (decision !== "approved") return;
+  applyWithClaim: async ({ approval, decision, user, claim }) => {
+    if (decision !== "approved") return void (await db.transaction(claim));
     const p = approval.payload ?? {};
     const toStageId = typeof p.toStageId === "string" ? p.toStageId : null;
     if (!toStageId) throw new UserError("This request has no target stage.");
@@ -137,14 +155,14 @@ registerApprovalHandler("stage_gate", {
     const fields = p.fields && typeof p.fields === "object" ? (p.fields as Record<string, string>) : undefined;
     const nc = p.newContact && typeof p.newContact === "object" ? (p.newContact as { fullName: string; email?: string; title?: string }) : undefined;
     const { moveDealToStage } = await import("@/lib/deals/stage-service"); // lazy: deals → approvals → deals cycle
-    const r = await moveDealToStage(
+    // The move and the approval's status flip commit together; "already in that stage" is success (idempotent).
+    await moveDealToStage(
       user,
       approval.entityId,
       { id: toStageId },
       { fields, newContact: nc, reasonCode: str(p.reasonCode), reasonText: str(p.reasonText) ?? str(p.reason) },
-      { approved: true, via: "approval" },
+      { approved: true, via: "approval", withinTx: claim },
     );
-    if (!r.moved) throw new UserError("The deal is already in that stage.");
   },
 });
 
@@ -168,15 +186,15 @@ registerApprovalHandler("proposal", {
     const name = d.restricted && !(await canSeeRestricted(user, "deal", d.id)) ? "Restricted deal" : d.name;
     return `Proposal v${p.version} · ${name}`;
   },
-  apply: async ({ approval, decision, user, note }) => {
-    const [before] = await db.select().from(s.proposals).where(eq(s.proposals.id, approval.entityId));
+  apply: async ({ approval, decision, user, note, tx }) => {
+    const [before] = await tx.select().from(s.proposals).where(eq(s.proposals.id, approval.entityId)).for("update");
     if (!before) return;
-    const [after] = await db
+    const [after] = await tx
       .update(s.proposals)
       .set(decision === "approved" ? { status: "approved", approvedBy: user.id } : { status: "draft", approvalReason: note ?? before.approvalReason })
       .where(eq(s.proposals.id, approval.entityId))
       .returning();
-    await audit({ actorId: user.id, action: `proposal.${decision}`, entity: "proposal", entityId: approval.entityId, before, after });
+    await audit({ actorId: user.id, action: `proposal.${decision}`, entity: "proposal", entityId: approval.entityId, before, after }, tx);
   },
   resolvesAlerts: (a) => ({ ruleCode: "NS-29", entity: "proposal", entityIds: [a.entityId] }),
 });
@@ -193,8 +211,8 @@ registerApprovalHandler("lead_registration", {
       .where(eq(s.leadRegistrations.id, a.entityId));
     return r ? `Registration · ${r.account}` : null;
   },
-  apply: async ({ approval, decision, user, note }) => {
-    await applyRegistrationDecision(user, approval.entityId, decision, note, { syncApproval: false });
+  applyWithClaim: async ({ approval, decision, user, note, claim }) => {
+    await applyRegistrationDecision(user, approval.entityId, decision, note, { syncApproval: false, withinTx: claim });
   },
 });
 
@@ -215,14 +233,14 @@ registerApprovalHandler("scout_budget", {
     const what = a.entity === "account" ? "enrichment" : "Lead Scout run";
     return `Scout budget${cents != null ? ` · $${(cents / 100).toFixed(2)}` : ""} for ${what}${who ? ` · ${who}` : ""}`;
   },
-  apply: async ({ approval, decision, user }) => {
+  apply: async ({ approval, decision, user, tx }) => {
     if (decision !== "approved") return;
     const target = typeof approval.payload?.userId === "string" ? approval.payload.userId : approval.requestedBy;
     const cents = approval.payload?.monthlyCents;
     if (typeof cents !== "number" || !Number.isFinite(cents) || cents < 0) return; // one-time override: status is enough
-    const [before] = await db.select({ c: s.user.monthlyScoutBudgetCents }).from(s.user).where(eq(s.user.id, target));
-    await db.update(s.user).set({ monthlyScoutBudgetCents: Math.round(cents) }).where(eq(s.user.id, target));
-    await audit({ actorId: user.id, action: "user.scout_budget_set", entity: "user", entityId: target, before, after: { c: Math.round(cents) } });
+    const [before] = await tx.select({ c: s.user.monthlyScoutBudgetCents }).from(s.user).where(eq(s.user.id, target));
+    await tx.update(s.user).set({ monthlyScoutBudgetCents: Math.round(cents) }).where(eq(s.user.id, target));
+    await audit({ actorId: user.id, action: "user.scout_budget_set", entity: "user", entityId: target, before, after: { c: Math.round(cents) } }, tx);
   },
 });
 
@@ -241,7 +259,8 @@ registerApprovalHandler("scout_accept", {
     if (!domains.length) return "Suggested Lead Scout targets";
     return `Suggested targets · ${domains.slice(0, 3).join(", ")}${domains.length > 3 ? ` +${domains.length - 3}` : ""}`;
   },
-  apply: async ({ approval, decision, user }) => {
+  // Per-candidate transactions (account + deal each), so this runs after the approval is marked approved.
+  applyAfter: async ({ approval, decision, user }) => {
     if (decision !== "approved") return;
     const ids = Array.isArray(approval.payload?.candidateIds) ? (approval.payload.candidateIds as unknown[]).filter((x): x is string => typeof x === "string") : [];
     if (!ids.length) throw new UserError("No candidates on this request.");

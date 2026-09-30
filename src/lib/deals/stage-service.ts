@@ -1,10 +1,11 @@
 import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@/db";
+import { db, type Executor, type Tx } from "@/db";
 import * as s from "@/db/schema";
 import { UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
+import { logServerError } from "@/lib/errors";
 import { requestApproval } from "@/lib/approvals/service";
 import { SCOPE_RANK } from "@/lib/rbac/model";
 import { assertCan, dealModule, ForbiddenError, inScope, ownedEntityWhere, scopeFor, type AppUser } from "@/lib/rbac/server";
@@ -47,17 +48,27 @@ export type MoveOptions = {
   /** Skip the requiresApproval gate (the stage_gate approval handler, after an approver said yes). */
   approved?: boolean;
   /** Where the move came from (stored on the activity + audit). */
-  via?: "board" | "call_review" | "copilot" | "approval" | "bulk";
+  via?: "board" | "call_review" | "copilot" | "approval" | "bulk" | "r100";
+  /**
+   * Extra writes that must commit atomically with the move (e.g. the stage_gate approval flipping its own status).
+   * Runs inside the move's transaction, after the deal row is locked; use `tx` for every query. Throwing rolls back the move.
+   */
+  withinTx?: (tx: Tx) => Promise<void>;
 };
 
 export async function createContactForDeal(user: AppUser, deal: { accountId: string | null }, c: NonNullable<MoveInput["newContact"]>) {
   await assertCan(user, "contacts", "create");
+  return insertContactForDeal(db, user, deal, c);
+}
+
+/** Insert (no permission check — callers assert contacts.create first) + audit, on `q` (pass the move's transaction). */
+async function insertContactForDeal(q: Executor, user: AppUser, deal: { accountId: string | null }, c: NonNullable<MoveInput["newContact"]>) {
   const [first, ...rest] = c.fullName.split(/\s+/);
-  const [row] = await db
+  const [row] = await q
     .insert(s.contacts)
     .values({ accountId: deal.accountId, fullName: c.fullName, firstName: first ?? null, lastName: rest.join(" ") || null, email: c.email || null, title: c.title || null, ownerId: user.id, origin: "manual" })
     .returning({ id: s.contacts.id });
-  await audit({ actorId: user.id, action: "contact.create", entity: "contact", entityId: row!.id, after: { fullName: c.fullName, accountId: deal.accountId } });
+  await audit({ actorId: user.id, action: "contact.create", entity: "contact", entityId: row!.id, after: { fullName: c.fullName, accountId: deal.accountId } }, q);
   return row!.id;
 }
 
@@ -76,10 +87,14 @@ export async function assertContactUsable(user: AppUser, accountId: string | nul
 export async function performStageMove(user: AppUser, ctx: DealWriteContext, input: MoveInput, opts: MoveOptions = {}): Promise<MoveResult> {
   const target = await stageById(input.toStageId);
   if (!target || target.pipelineId !== ctx.deal.pipelineId) throw new UserError("That stage belongs to a different pipeline.");
-  if (target.id === ctx.deal.stageId) return { moved: false, stageId: target.id, status: ctx.deal.status, created: [], health: ctx.deal.healthScore };
+  if (target.id === ctx.deal.stageId) {
+    if (opts.withinTx) await db.transaction(opts.withinTx);
+    return { moved: false, stageId: target.id, status: ctx.deal.status, created: [], health: ctx.deal.healthScore };
+  }
 
   // 1. Apply gate-dialog field values
   const patch: Record<string, unknown> = {};
+  const customPatch: Record<string, unknown> = {};
   const custom: Record<string, unknown> = { ...(ctx.deal.customFields ?? {}) };
   for (const [key, raw] of Object.entries(input.fields ?? {})) {
     if (!raw.trim()) continue;
@@ -91,10 +106,10 @@ export async function performStageMove(user: AppUser, ctx: DealWriteContext, inp
       patch.primaryContactId = raw;
       continue;
     }
-    const parsed = parseGateValue(meta.kind, raw);
+    const parsed = parseGateValue(meta.kind, raw, user.timezone);
     if (parsed === undefined) throw new UserError(`${meta.label} is invalid.`);
     if (key in GATE_FIELDS) patch[key] = meta.kind === "number" && ["muu", "rampMonths"].includes(key) ? Math.round(parsed as number) : parsed;
-    else custom[key] = parsed instanceof Date ? parsed.toISOString() : parsed;
+    else custom[key] = customPatch[key] = parsed instanceof Date ? parsed.toISOString() : parsed;
   }
   if (input.newContact) await assertCan(user, "contacts", "create");
 
@@ -153,17 +168,18 @@ export async function performStageMove(user: AppUser, ctx: DealWriteContext, inp
     return { moved: false, stageId: ctx.stage.id, status: ctx.deal.status, created: [], health: ctx.deal.healthScore, pendingApproval: true };
   }
 
-  // 3. Write
-  if (input.newContact) patch.primaryContactId = await createContactForDeal(user, ctx.deal, input.newContact);
+  // 3. Write — ONE transaction: lock the deal row, re-check it is still where the user saw it (H-11: a double submit or
+  // a concurrent move becomes a no-op / a "reload" error instead of running won side-effects twice), then write.
   const now = new Date();
   const from = ctx.stage;
   const update: Partial<typeof s.deals.$inferInsert> = {
     ...(patch as Partial<typeof s.deals.$inferInsert>),
-    customFields: custom,
     stageId: target.id,
     stageEnteredAt: now,
     status: target.category,
   };
+  // wonAt is cleared when a deal leaves a won stage (won analytics read status + wonAt); the original win stays in
+  // deal_stage_history, which the commissions clawback reads (H-02).
   update.wonAt = target.category === "won" ? (ctx.deal.wonAt ?? now) : null; // re-opened deals no longer count as won
   if (target.category === "lost") {
     update.lostAt = now;
@@ -174,16 +190,25 @@ export async function performStageMove(user: AppUser, ctx: DealWriteContext, inp
     update.lostAt = null;
     update.holdReason = null;
   }
-  // R100: reaching a live/won stage stamps the first-post date once (same rule as the R100 program board).
-  if (ctx.pipeline.key === "R100" && isLive(target)) {
-    const r100 = { ...((ctx.deal.r100 ?? {}) as NonNullable<typeof ctx.deal.r100>) };
-    if (!r100.firstPostDate) {
-      r100.firstPostDate = now.toISOString().slice(0, 10);
-      update.r100 = r100;
+  const result = await db.transaction(async (tx) => {
+    const [locked] = await tx.select().from(s.deals).where(and(eq(s.deals.id, ctx.deal.id), isNull(s.deals.deletedAt))).for("update");
+    if (!locked) throw new UserError("Deal not found.");
+    if (locked.stageId === target.id) {
+      await opts.withinTx?.(tx);
+      return { noop: true as const, deal: locked };
     }
-  }
-
-  const created = await db.transaction(async (tx) => {
+    if (locked.stageId !== ctx.deal.stageId) throw new UserError("This deal was moved by someone else in the meantime. Reload and try again.");
+    // JSON columns: merge onto the LOCKED row (not the snapshot the checks ran on), so concurrent edits aren't lost.
+    update.customFields = Object.keys(customPatch).length ? { ...(locked.customFields ?? {}), ...customPatch } : locked.customFields;
+    // R100: reaching a live/won stage stamps the first-post date once (same rule as the R100 program board).
+    if (ctx.pipeline.key === "R100" && isLive(target)) {
+      const r100 = { ...((locked.r100 ?? {}) as NonNullable<typeof locked.r100>) };
+      if (!r100.firstPostDate) {
+        r100.firstPostDate = now.toISOString().slice(0, 10);
+        update.r100 = r100;
+      }
+    }
+    if (input.newContact) patch.primaryContactId = update.primaryContactId = await insertContactForDeal(tx, user, ctx.deal, input.newContact);
     const [updated] = await tx.update(s.deals).set(update).where(eq(s.deals.id, ctx.deal.id)).returning();
     await tx.insert(s.dealStageHistory).values({ dealId: ctx.deal.id, fromStageId: from.id, toStageId: target.id, changedBy: user.id, reason });
     if (patch.primaryContactId) {
@@ -202,19 +227,32 @@ export async function performStageMove(user: AppUser, ctx: DealWriteContext, inp
       },
       tx,
     );
-    return target.category === "won" ? onDealWon({ deal: updated!, pipelineKey: ctx.pipeline.key, actorId: user.id }, tx) : [];
+    // Won side-effects are idempotent on their own too (unique migration_projects(deal_id), invoices.source_key).
+    const created = target.category === "won" ? await onDealWon({ deal: updated!, pipelineKey: ctx.pipeline.key, actorId: user.id }, tx) : [];
+    await audit(
+      {
+        actorId: user.id,
+        action: "deal.stage_change",
+        entity: "deal",
+        entityId: ctx.deal.id,
+        before: { stageId: from.id, stage: from.name, status: ctx.deal.status },
+        after: { stageId: target.id, stage: target.name, status: target.category, reason, fields: Object.keys(patch), created, via: opts.via ?? "board" },
+      },
+      tx,
+    );
+    await opts.withinTx?.(tx);
+    return { noop: false as const, created };
   });
+  if (result.noop) return { moved: false, stageId: target.id, status: result.deal.status, created: [], health: result.deal.healthScore };
 
-  await audit({
-    actorId: user.id,
-    action: "deal.stage_change",
-    entity: "deal",
-    entityId: ctx.deal.id,
-    before: { stageId: from.id, stage: from.name, status: ctx.deal.status },
-    after: { stageId: target.id, stage: target.name, status: target.category, reason, fields: Object.keys(patch), created, via: opts.via ?? "board" },
-  });
-  const h = await recomputeDealHealth(ctx.deal.id);
-  return { moved: true, stageId: target.id, status: target.category, created, health: h?.score ?? null };
+  // After commit: never throw (the move succeeded; an error here would invite a retry).
+  let health: number | null = null;
+  try {
+    health = (await recomputeDealHealth(ctx.deal.id))?.score ?? null;
+  } catch (e) {
+    logServerError("stage-move.health", e);
+  }
+  return { moved: true, stageId: target.id, status: target.category, created: result.created, health };
 }
 
 /** Approve scope ≥ own on the deal's pipeline with the deal in scope → the user may pass an approval-gated stage directly. */

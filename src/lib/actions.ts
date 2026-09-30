@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { logServerError } from "@/lib/errors";
 import { ForbiddenError, getCurrentUser, type AppUser } from "@/lib/rbac/server";
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string; fieldErrors?: Record<string, string[]> };
@@ -22,8 +23,9 @@ export function action<S extends z.ZodType, T>(schema: S, handler: (input: z.inf
     } catch (e) {
       if (e instanceof ForbiddenError) return { ok: false, error: e.message };
       if (e instanceof UserError) return { ok: false, error: e.message };
-      console.error("[action] unexpected error", e);
-      return { ok: false, error: "Something went wrong. Please try again." };
+      // Logged with a ref (no query params / secrets); the ref is shown so a report can be matched to the log line.
+      const ref = logServerError("action", e);
+      return { ok: false, error: `Something went wrong. Please try again. (Ref ${ref})` };
     }
   };
 }

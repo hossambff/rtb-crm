@@ -24,17 +24,20 @@ export function TaskDialog({
   task,
   users,
   defaults,
+  tz,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   task?: TaskView | null;
   users: UserOption[];
   defaults?: Defaults;
+  /** The user's profile zone for the due-date picker (QA-12). */
+  tz?: string;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
-        {open ? <TaskForm task={task} users={users} defaults={defaults} onDone={() => onOpenChange(false)} /> : null}
+        {open ? <TaskForm task={task} users={users} defaults={defaults} tz={tz} onDone={() => onOpenChange(false)} /> : null}
       </DialogContent>
     </Dialog>
   );
@@ -52,11 +55,11 @@ function initialRelated(task: TaskView | null | undefined, defaults: Defaults | 
 }
 
 /** Mounted fresh each time the dialog opens, so state initializes from props (no reset effect). */
-function TaskForm({ task, users, defaults, onDone }: { task?: TaskView | null; users: UserOption[]; defaults?: Defaults; onDone: () => void }) {
+function TaskForm({ task, users, defaults, tz, onDone }: { task?: TaskView | null; users: UserOption[]; defaults?: Defaults; tz?: string; onDone: () => void }) {
   const router = useRouter();
   const formId = useId();
   const [title, setTitle] = useState(task?.title ?? "");
-  const [due, setDue] = useState(() => toLocalInput(task?.dueAt));
+  const [due, setDue] = useState(() => toLocalInput(task?.dueAt, tz));
   const [assigneeId, setAssigneeId] = useState(task?.assigneeId ?? users[0]?.id ?? "");
   const [priority, setPriority] = useState<Priority>((task?.priority as Priority) || "medium");
   const [description, setDescription] = useState(task?.description ?? "");
@@ -73,7 +76,8 @@ function TaskForm({ task, users, defaults, onDone }: { task?: TaskView | null; u
       id: task?.id,
       title,
       description: description || null,
-      dueAt: due ? new Date(due).toISOString() : null,
+      // zone-less wall time: the server resolves it in the user's profile zone (QA-12)
+      dueAt: due || null,
       assigneeId: assigneeId || null,
       priority,
       dealId: idOf("deal"),

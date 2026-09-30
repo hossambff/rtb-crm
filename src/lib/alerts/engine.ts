@@ -15,6 +15,7 @@ import {
   closeDatePassed,
   dataQualityGaps,
   docExpiring,
+  escalationChain,
   docUnsigned,
   emailUnanswered,
   escalationDue,
@@ -41,7 +42,11 @@ import {
   type RuleParams,
   type Severity,
 } from "./rules";
-import { businessDaysBetween, isBusinessDay } from "./time";
+import { businessDaysPassed, isBusinessDay } from "./time";
+import { DEFAULT_RESOLVE_COOLDOWN_H, indexSuppressions, SUPPRESSING_RESOLUTION_PREFIXES, suppressionDecision } from "./suppression";
+
+/** Closed rows that record a user decision (dismissal, or resolved by a person — not auto-resolved/merged). */
+const SUPPRESSING_SQL = sql`(${s.alerts.state} = 'dismissed' or ${s.alerts.resolution} similar to ${`(${SUPPRESSING_RESOLUTION_PREFIXES.join("|")})%`})`;
 
 /* ───────────── Types ───────────── */
 
@@ -123,7 +128,7 @@ class Ctx {
   isActive(userId: string | null | undefined): userId is string {
     return Boolean(userId && this.users.get(userId)?.active);
   }
-  /** Manager for escalation: user.managerId, else the user's team lead. */
+  /** Manager for escalation: user.managerId, else the user's team lead (null when neither is set). */
   managerOf(userId: string): string | null {
     const u = this.users.get(userId);
     if (!u) return null;
@@ -131,6 +136,14 @@ class Ctx {
     const lead = u.teamId ? this.teamLead.get(u.teamId) : null;
     if (lead && lead !== userId && this.isActive(lead)) return lead;
     return null;
+  }
+  /**
+   * Who an escalation about `userId` goes to (QA-04): their manager, else their team lead, else every active
+   * sales leader, else every active executive — never the user themselves. Escalation is never a silent no-op
+   * while the org has a leader.
+   */
+  escalationTargets(userId: string): string[] {
+    return escalationChain({ self: userId, manager: this.managerOf(userId), salesLeaders: this.byRoles(["sales_leader"]), executives: this.byRoles(["executive"]) });
   }
   byRoles(roles: Role[]): string[] {
     const key = roles.join(",");
@@ -406,8 +419,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     const out: AlertCandidate[] = [];
     for (const d of await ctx.openDeals()) {
       if (!ctx.isActive(d.ownerId) || !healthCritical(d.healthScore, floor)) continue;
-      for (const r of [d.ownerId!, ctx.managerOf(d.ownerId!)]) {
-        if (!r) continue;
+      for (const r of [d.ownerId!, ...ctx.escalationTargets(d.ownerId!)]) {
         out.push({
           ruleCode: rule.code,
           entity: "deal",
@@ -552,7 +564,7 @@ const EVALUATORS: Record<string, Evaluator> = {
       .innerJoin(s.stages, eq(s.stages.id, s.deals.stageId))
       .where(and(isNull(s.deals.deletedAt), eq(s.pipelines.key, "R100"), eq(s.stages.category, "won")));
     return rows
-      .filter((d) => ctx.isActive(d.ownerId) && r100ParticipationLapsing(d.r100, ctx.now, { tz: ctx.tz(d.ownerId), windowDays: num(P(rule), "windowDays", 7) }))
+      .filter((d) => ctx.isActive(d.ownerId) && r100ParticipationLapsing(d.r100, ctx.now, { tz: ctx.tz(d.ownerId), windowDays: num(P(rule), "windowDays", 7), months: num(P(rule), "months", 3) }))
       .map((d) => ({
         ruleCode: rule.code,
         entity: "deal",
@@ -655,17 +667,17 @@ const EVALUATORS: Record<string, Evaluator> = {
     for (const u of ctx.users.values()) {
       if (!u.active || !SALES_ROLES.includes(u.role)) continue;
       if (!repInactive(lastBy.get(u.id) ?? null, u.createdAt, ctx.now, { businessDays: days, tz: u.timezone })) continue;
-      const mgr = ctx.managerOf(u.id);
-      if (!mgr) continue;
-      out.push({
-        ruleCode: rule.code,
-        entity: "user",
-        entityId: u.id,
-        recipientId: mgr,
-        title: `${u.name}: no activity in ${days}+ business days`,
-        detail: lastBy.get(u.id) ? `Last logged activity ${lastBy.get(u.id)!.toISOString().slice(0, 10)}.` : "No logged activity yet.",
-        suggestedAction: "Check in with the rep.",
-      });
+      for (const mgr of ctx.escalationTargets(u.id))
+        out.push({
+          ruleCode: rule.code,
+          entity: "user",
+          entityId: u.id,
+          recipientId: mgr,
+          dedupe: "recipient",
+          title: `${u.name}: no activity in ${days}+ business days`,
+          detail: lastBy.get(u.id) ? `Last logged activity ${lastBy.get(u.id)!.toISOString().slice(0, 10)}.` : "No logged activity yet.",
+          suggestedAction: "Check in with the rep.",
+        });
     }
     return out;
   },
@@ -679,8 +691,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     const out: AlertCandidate[] = [];
     for (const t of rows) {
       if (!t.assigneeId || !snoozedTooOften(t, threshold)) continue;
-      const c = ns26Candidate(ctx, t, rule.code);
-      if (c) out.push(c);
+      out.push(...ns26Candidates(ctx, t, rule.code));
     }
     return out;
   },
@@ -715,7 +726,7 @@ const EVALUATORS: Record<string, Evaluator> = {
       .where(and(eq(s.proposals.status, "pending_approval"), isNull(s.deals.deletedAt)));
     const out: AlertCandidate[] = [];
     for (const p of rows) {
-      if (businessDaysBetween(p.createdAt, ctx.now, DEFAULT_TZ) < days) continue;
+      if (!businessDaysPassed(p.createdAt, ctx.now, days, DEFAULT_TZ)) continue;
       for (const r of approvers)
         out.push({
           ruleCode: rule.code,
@@ -763,7 +774,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     const svps = ctx.byRoles(["sales_leader"]);
     const out: AlertCandidate[] = [];
     for (const r of rows) {
-      if (!r.oldest || businessDaysBetween(r.oldest, ctx.now, ctx.tz(r.ownerId)) < days) continue;
+      if (!r.oldest || !businessDaysPassed(r.oldest, ctx.now, days, ctx.tz(r.ownerId))) continue;
       const recips = ctx.isActive(r.ownerId) ? [r.ownerId] : svps;
       for (const u of recips)
         out.push({
@@ -799,7 +810,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     const out: AlertCandidate[] = [];
     for (const r of rows) {
       if (!r.ownerId) {
-        if (businessDaysBetween(r.reviewedAt!, ctx.now, DEFAULT_TZ) < unassignedDays) continue;
+        if (!businessDaysPassed(r.reviewedAt!, ctx.now, unassignedDays, DEFAULT_TZ)) continue;
         for (const u of svps)
           out.push({
             ruleCode: rule.code,
@@ -811,7 +822,7 @@ const EVALUATORS: Record<string, Evaluator> = {
             detail: `${r.domain} was accepted from Lead Scout but has no owner.`,
             suggestedAction: "Assign an owner.",
           });
-      } else if (!r.touched && ctx.isActive(r.ownerId) && businessDaysBetween(r.reviewedAt!, ctx.now, ctx.tz(r.ownerId)) >= noTouchDays) {
+      } else if (!r.touched && ctx.isActive(r.ownerId) && businessDaysPassed(r.reviewedAt!, ctx.now, noTouchDays, ctx.tz(r.ownerId))) {
         out.push({
           ruleCode: rule.code,
           entity: "account",
@@ -893,20 +904,20 @@ async function internalDomains(): Promise<string[]> {
   return Array.from(new Set([...env.allowedDomains, ...rows.map((r) => r.d.toLowerCase())]));
 }
 
-function ns26Candidate(ctx: Ctx, t: { id: string; title: string; assigneeId: string | null; snoozeCount: number }, code = "NS-26"): AlertCandidate | null {
-  if (!t.assigneeId) return null;
-  const mgr = ctx.managerOf(t.assigneeId);
-  if (!mgr) return null;
+/** NS-26 goes to the assignee's escalation targets (manager → team lead → sales leaders → executives, QA-04). */
+function ns26Candidates(ctx: Ctx, t: { id: string; title: string; assigneeId: string | null; snoozeCount: number }, code = "NS-26"): AlertCandidate[] {
+  if (!t.assigneeId) return [];
   const who = ctx.users.get(t.assigneeId)?.name ?? "A rep";
-  return {
+  return ctx.escalationTargets(t.assigneeId).map((mgr) => ({
     ruleCode: code,
     entity: "task",
     entityId: t.id,
     recipientId: mgr,
+    dedupe: "recipient" as const,
     title: `${who} snoozed "${t.title}" ${t.snoozeCount}×`,
     detail: "Repeated snoozes usually mean the task is blocked or unclear.",
     suggestedAction: "Check in, reassign, or cancel the task.",
-  };
+  }));
 }
 
 /** SEC H-07: is `entity` (a deal, or a proposal on a deal) restricted and `recipientId` neither on its access list nor super_admin? */
@@ -996,8 +1007,9 @@ export async function raiseAlert(c: AlertCandidate): Promise<boolean> {
 export async function raiseSnoozeAlert(task: { id: string; title: string; assigneeId: string | null; snoozeCount: number }) {
   const ctx = new Ctx();
   await ctx.load();
-  const c = ns26Candidate(ctx, task);
-  return c ? raiseAlert(c) : false;
+  let raised = false;
+  for (const c of ns26Candidates(ctx, task)) raised = (await raiseAlert(c)) || raised;
+  return raised;
 }
 
 /**
@@ -1044,11 +1056,22 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
   const byTriple = new Map<string, AlertRow[]>();
   for (const a of existing) byTriple.set(alertTriple(a), [...(byTriple.get(alertTriple(a)) ?? []), a]);
 
+  // 2b) user decisions (H-05): dismissed / user-resolved alerts whose condition hasn't cleared since. They suppress
+  // re-raising (dismissed: until the condition clears and re-occurs; resolved: for a cool-down), and the sweep lifts
+  // them once the condition is gone (see suppression.ts).
+  const suppressions = await db
+    .select({ id: s.alerts.id, ruleCode: s.alerts.ruleCode, entity: s.alerts.entity, entityId: s.alerts.entityId, recipientId: s.alerts.recipientId, state: s.alerts.state, resolution: s.alerts.resolution, resolvedAt: s.alerts.resolvedAt })
+    .from(s.alerts)
+    .where(and(inArray(s.alerts.state, ["dismissed", "resolved"]), isNull(s.alerts.snoozedUntil), SUPPRESSING_SQL));
+  const supIndex = indexSuppressions(suppressions);
+  const liftedIds = new Set<string>();
+
   // 3) upsert (batched: updates in small parallel groups, inserts in chunks)
   const created: AlertRow[] = [];
+  const quiet: AlertRow[] = []; // re-raised after a cool-down: the condition never changed → no new notification
   const seenTriples = new Set<string>();
   const seenKeys = new Set<string>();
-  const toInsert: (AlertCandidate & { severity: Severity })[] = [];
+  const toInsert: (AlertCandidate & { severity: Severity; quiet?: boolean })[] = [];
   const toUpdate: { id: string; c: AlertCandidate & { severity: Severity } }[] = [];
   for (const c of candidates) {
     const key = alertKey(c);
@@ -1060,6 +1083,14 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
     if (!match && (c.dedupe ?? "entity") === "entity" && (byTriple.get(alertTriple(c)) ?? []).length) continue;
     if (match) {
       if (match.title !== c.title || match.detail !== (c.detail ?? null) || match.severity !== c.severity) toUpdate.push({ id: match.id, c });
+      continue;
+    }
+    const sup = supIndex.find(c, c.dedupe ?? "entity");
+    if (sup) {
+      const cooldownMs = num(ruleBy.get(c.ruleCode)?.params, "cooldownHours", DEFAULT_RESOLVE_COOLDOWN_H) * 3_600_000;
+      if (suppressionDecision(sup, ctx.now, cooldownMs) === "suppress") continue;
+      liftedIds.add(sup.id); // cool-down over and the condition still holds: raise again, quietly
+      toInsert.push({ ...c, quiet: true });
       continue;
     }
     toInsert.push(c);
@@ -1092,9 +1123,17 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
       )
       .onConflictDoNothing()
       .returning();
-    created.push(...rows);
+    const quietKeys = new Set(group.filter((c) => c.quiet).map((c) => alertKey(c)));
+    for (const r of rows) (quietKeys.has(alertKey(r)) ? quiet : created).push(r);
   }
-  stats.created = created.length;
+  stats.created = created.length + quiet.length;
+
+  // 3b) lift suppressions whose condition cleared (rule evaluated OK and no candidate for it this sweep): if the
+  // condition comes back later, it is a new occurrence and alerts again.
+  for (const sup of suppressions)
+    if (evaluated.has(sup.ruleCode) && !seenTriples.has(alertTriple(sup)) && !seenKeys.has(alertKey(sup))) liftedIds.add(sup.id);
+  for (const ids of chunks([...liftedIds], 500))
+    await db.update(s.alerts).set({ snoozedUntil: ctx.now }).where(and(inArray(s.alerts.id, ids), inArray(s.alerts.state, ["dismissed", "resolved"])));
 
   // 4) auto-resolve alerts whose condition no longer holds (only for rules evaluated successfully) or whose rule is off
   const toResolve = existing.filter(
@@ -1128,32 +1167,34 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
     const u = ctx.users.get(a.recipientId);
     if (!rule || !u) continue;
     if (!escalationDue({ ...a, state }, rule.escalateAfterHours, ctx.now, { tz: u.timezone, startHour: u.workStartHour, endHour: u.workEndHour })) continue;
-    const mgr = ctx.managerOf(a.recipientId);
+    // manager → team lead → sales leaders → executives (QA-04); guarded by state so a just-resolved alert isn't re-escalated
+    const targets = ctx.escalationTargets(a.recipientId);
     await db
       .update(s.alerts)
-      .set(mgr ? { state: "escalated", escalatedAt: ctx.now } : { escalatedAt: ctx.now })
-      .where(eq(s.alerts.id, a.id));
-    if (!mgr) continue;
-    // SEC H-07: the manager may not be on a restricted deal's access list — never copy its name/detail to them.
-    const hideFromMgr = await restrictedForRecipient(a.entity, a.entityId, mgr);
-    const copy = await insertAlert(
-      {
-        ruleCode: a.ruleCode,
-        entity: a.entity,
-        entityId: a.entityId,
-        recipientId: mgr,
-        severity: a.severity,
-        title: hideFromMgr ? `Escalated: ${a.ruleCode} alert on a restricted deal` : `Escalated: ${a.title}`,
-        detail: hideFromMgr
-          ? `Unresolved by ${u.name} for ${rule.escalateAfterHours}h+ of business time.`
-          : `Unresolved by ${u.name} for ${rule.escalateAfterHours}h+ of business time. ${a.detail ?? ""}`.trim(),
-        suggestedAction: a.suggestedAction,
-      },
-      { escalatedAt: ctx.now },
-    );
-    if (copy) {
-      created.push(copy);
-      stats.escalated++;
+      .set(targets.length ? { state: "escalated", escalatedAt: ctx.now } : { escalatedAt: ctx.now })
+      .where(and(eq(s.alerts.id, a.id), inArray(s.alerts.state, [...OPEN_STATES])));
+    for (const mgr of targets) {
+      // SEC H-07: the manager may not be on a restricted deal's access list — never copy its name/detail to them.
+      const hideFromMgr = await restrictedForRecipient(a.entity, a.entityId, mgr);
+      const copy = await insertAlert(
+        {
+          ruleCode: a.ruleCode,
+          entity: a.entity,
+          entityId: a.entityId,
+          recipientId: mgr,
+          severity: a.severity,
+          title: hideFromMgr ? `Escalated: ${a.ruleCode} alert on a restricted deal` : `Escalated: ${a.title}`,
+          detail: hideFromMgr
+            ? `Unresolved by ${u.name} for ${rule.escalateAfterHours}h+ of business time.`
+            : `Unresolved by ${u.name} for ${rule.escalateAfterHours}h+ of business time. ${a.detail ?? ""}`.trim(),
+          suggestedAction: a.suggestedAction,
+        },
+        { escalatedAt: ctx.now },
+      );
+      if (copy) {
+        created.push(copy);
+        stats.escalated++;
+      }
     }
   }
 

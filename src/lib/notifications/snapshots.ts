@@ -5,8 +5,9 @@ import * as s from "@/db/schema";
 import { aggregateSnapshot, type SnapshotDeal } from "./snapshot-core";
 
 /**
- * Nightly pipeline snapshot (cron /api/cron/snapshot, 23:55 UTC): per pipeline × stage counts, MUU, gross,
- * weighted and override-weighted cents → rso.pipeline_snapshots, upserted by (takenOn, pipeline, stage).
+ * Nightly pipeline snapshot (cron /api/cron/snapshot, 23:55 UTC): per pipeline × OPEN stage counts, MUU, gross,
+ * weighted (stage probability) and override-weighted (approved overrides) cents → rso.pipeline_snapshots, upserted
+ * by (takenOn, pipeline, stage). Won/lost/hold stages are not pipeline and are not snapshotted (H-01/M-10).
  * SEC H-4 / M-7: restricted (MNPI) deals are excluded — snapshots feed the weekly digest and the executive trend,
  * whose audiences are not on the restricted access lists.
  */
@@ -28,16 +29,17 @@ export async function takePipelineSnapshot(now = new Date()): Promise<{ takenOn:
         stageProbability: s.stages.probability,
         probabilityOverride: s.deals.probabilityOverride,
         overrideStatus: s.deals.overrideStatus,
+        stageCategory: s.stages.category,
       })
       .from(s.deals)
       .innerJoin(s.stages, eq(s.stages.id, s.deals.stageId))
       .innerJoin(s.pipelines, eq(s.pipelines.id, s.deals.pipelineId))
-      .where(and(isNull(s.deals.deletedAt), eq(s.deals.restricted, false))),
+      .where(and(isNull(s.deals.deletedAt), eq(s.deals.restricted, false), eq(s.stages.category, "open"))),
     db
-      .select({ pipelineKey: s.pipelines.key, stageKey: s.stages.key })
+      .select({ pipelineKey: s.pipelines.key, stageKey: s.stages.key, category: s.stages.category })
       .from(s.stages)
       .innerJoin(s.pipelines, eq(s.pipelines.id, s.stages.pipelineId))
-      .where(eq(s.pipelines.active, true)),
+      .where(and(eq(s.pipelines.active, true), eq(s.stages.category, "open"))),
   ]);
   const rows = aggregateSnapshot(deals as SnapshotDeal[], stages);
   if (rows.length) {

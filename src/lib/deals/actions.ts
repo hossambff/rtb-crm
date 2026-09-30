@@ -9,6 +9,8 @@ import { audit } from "@/lib/audit";
 import { normalizeDomain } from "@/lib/domain";
 import { assertCan, can, dealAccessWhere, dealModule, ForbiddenError, ownedEntityWhere, scopeFor } from "@/lib/rbac/server";
 import { SCOPE_RANK } from "@/lib/rbac/model";
+import { parseUserDate } from "@/lib/time";
+import { notifyMany } from "@/lib/notifications/notify";
 import { toCsv } from "./csv";
 import { stageSlice } from "./board-shape";
 import { filledKeys, gateFieldMeta, missingFields } from "./gates";
@@ -21,7 +23,6 @@ import {
   hiddenDealFields,
   loadDealForWrite,
   logActivity,
-  notify,
   recomputeDealHealth,
 } from "./service";
 import { buildDealSummary } from "./summary";
@@ -34,18 +35,17 @@ import { assertContactUsable, createContactForDeal, moveSchema, performStageMove
 export type { MoveResult } from "./stage-service";
 
 const uuid = z.string().uuid();
+/**
+ * Date inputs stay strings through validation and are resolved in the USER's time zone by `userDate` (M-06):
+ * a date-only "YYYY-MM-DD" becomes 17:00 local on that day (src/lib/time.ts), not 00:00 UTC (8 pm ET the day before).
+ */
 const optDate = z
-  .union([z.string(), z.null()])
+  .union([z.string().max(40), z.null()])
   .optional()
-  .transform((v, ctx) => {
-    if (v == null || v === "") return v === undefined ? undefined : null;
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) {
-      ctx.addIssue({ code: "custom", message: "Invalid date" });
-      return z.NEVER;
-    }
-    return d;
-  });
+  .refine((v) => v == null || v === "" || parseUserDate(v, "UTC") !== undefined, "Invalid date");
+/** undefined = not provided; null = cleared. */
+const userDate = (v: string | null | undefined, user: { timezone: string }, dateOnlyHour?: number): Date | null | undefined =>
+  v === undefined ? undefined : (parseUserDate(v, user.timezone, { dateOnlyHour }) ?? null);
 const priorityEnum = z.enum(["top10", "high", "medium", "low"]);
 
 function revalidateDeal(dealId: string, pipelineKey?: string) {
@@ -112,7 +112,7 @@ export const bulkReassign = action(z.object({ dealIds: z.array(uuid).min(1).max(
     }
   }
   if (moved.length && target.id !== user.id) {
-    await notify([target.id], { kind: "system", title: `${user.name} assigned you ${moved.length} deal${moved.length === 1 ? "" : "s"}`, href: pipelineKey ? `/pipelines/${pipelineKey}?owner=me` : "/pipelines" });
+    await notifyMany([target.id], { kind: "system", title: `${user.name} assigned you ${moved.length} deal${moved.length === 1 ? "" : "s"}`, href: pipelineKey ? `/pipelines/${pipelineKey}?owner=me` : "/pipelines" });
   }
   if (pipelineKey) revalidatePath(`/pipelines/${pipelineKey}`);
   return { moved, skipped };
@@ -164,8 +164,8 @@ export const createDeal = action(createSchema, async (input, user) => {
   const stage = await stageById(input.stageId);
   if (!stage || stage.pipelineId !== pipeline.id) throw new UserError("Pick a stage in this pipeline.");
   if (stage.category !== "open") throw new UserError("New deals must start in an open stage.");
-  const due = new Date(input.nextStepDueAt);
-  if (Number.isNaN(due.getTime())) throw new UserError("Next step due date is invalid.");
+  const due = parseUserDate(input.nextStepDueAt, user.timezone);
+  if (!due) throw new UserError("Next step due date is invalid.");
 
   const ownerId = input.ownerId || user.id;
   if (ownerId !== user.id) {
@@ -272,7 +272,7 @@ export const createDeal = action(createSchema, async (input, user) => {
     await audit({ actorId: user.id, action: "account.create", entity: "account", entityId: createdAccountId, after: { name: createAccount.name, domain: createAccount.domain } });
   await audit({ actorId: user.id, action: "deal.create", entity: "deal", entityId: dealId, after: { name, pipeline: pipeline.key, stage: stage.key, ownerId, accountId } });
   await recomputeDealHealth(dealId);
-  if (ownerId !== user.id) await notify([ownerId], { kind: "system", title: `${user.name} assigned you ${name}`, href: `/deals/${dealId}` });
+  if (ownerId !== user.id) await notifyMany([ownerId], { kind: "system", title: `${user.name} assigned you ${name}`, href: `/deals/${dealId}` });
   revalidatePath(`/pipelines/${pipeline.key}`);
   revalidatePath("/pipelines");
   return { id: dealId, linkedExisting, accountName };
@@ -300,10 +300,10 @@ export const updateDealQuick = action(quickSchema, async ({ dealId, patch }, use
   const upd: Partial<typeof s.deals.$inferInsert> = {};
   if (patch.name !== undefined) upd.name = patch.name;
   if (patch.nextStep !== undefined) upd.nextStep = patch.nextStep || null;
-  if (patch.nextStepDueAt !== undefined) upd.nextStepDueAt = patch.nextStepDueAt;
+  if (patch.nextStepDueAt !== undefined) upd.nextStepDueAt = userDate(patch.nextStepDueAt, user);
   if (patch.nextStepWaitingReason !== undefined) upd.nextStepWaitingReason = patch.nextStepWaitingReason || null;
   if (patch.priority !== undefined) upd.priority = patch.priority;
-  if (patch.expectedCloseDate !== undefined) upd.expectedCloseDate = patch.expectedCloseDate;
+  if (patch.expectedCloseDate !== undefined) upd.expectedCloseDate = userDate(patch.expectedCloseDate, user);
   if (patch.source !== undefined) upd.source = patch.source || null;
   if (patch.ownerId !== undefined && patch.ownerId !== ctx.deal.ownerId) {
     await assertCan(user, dealModule(ctx.pipeline.key), "assign");
@@ -322,7 +322,7 @@ export const updateDealQuick = action(quickSchema, async ({ dealId, patch }, use
   await db.update(s.deals).set(upd).where(eq(s.deals.id, dealId));
   const before = Object.fromEntries(Object.keys(upd).map((k) => [k, (ctx.deal as Record<string, unknown>)[k]]));
   await audit({ actorId: user.id, action: "deal.update", entity: "deal", entityId: dealId, before, after: upd });
-  if (upd.ownerId && upd.ownerId !== user.id) await notify([upd.ownerId], { kind: "system", title: `${user.name} assigned you ${next.name}`, href: `/deals/${dealId}` });
+  if (upd.ownerId && upd.ownerId !== user.id) await notifyMany([upd.ownerId], { kind: "system", title: `${user.name} assigned you ${next.name}`, href: `/deals/${dealId}` });
   await recomputeDealHealth(dealId);
   revalidateDeal(dealId, ctx.pipeline.key);
   return { ok: true };
@@ -358,6 +358,7 @@ export const updateDealValues = action(valueSchema, async ({ dealId, patch }, us
     if (ctx.hidden.has(col)) throw new ForbiddenError(`Your role can't edit ${gateFieldMeta(col).label}.`);
     if (col.endsWith("Cents")) upd[col] = v == null ? null : Math.round((v as number) * 100);
     else if (col === "revSharePct") upd[col] = v == null ? null : (v as number) / 100;
+    else if (col === "nextPaymentAt" || col === "renewalAt") upd[col] = userDate(v as string | null, user);
     else upd[col] = v;
   }
   if (!Object.keys(upd).length) return { ok: true };
@@ -447,7 +448,7 @@ export const logDealActivity = action(
       type: input.type,
       subject: input.subject || null,
       body: input.body || null,
-      occurredAt: input.occurredAt ?? new Date(),
+      occurredAt: userDate(input.occurredAt, user, 12) ?? new Date(),
       durationMin: input.durationMin ?? null,
       contactId: input.contactId || null,
       direction: input.direction ?? null,
@@ -499,7 +500,7 @@ export const createDealTask = action(
       .values({
         title: input.title,
         description: input.description || null,
-        dueAt: input.dueAt ?? null,
+        dueAt: userDate(input.dueAt, user) ?? null,
         assigneeId,
         createdBy: user.id,
         dealId: ctx.deal.id,
@@ -512,7 +513,7 @@ export const createDealTask = action(
     await audit({ actorId: user.id, action: "task.create", entity: "task", entityId: t!.id, after: { dealId: ctx.deal.id, title: input.title, assigneeId } });
     if (assigneeId !== user.id) {
       const recipients = await filterRecipientsForDeal(ctx.deal, [assigneeId]);
-      await notify(recipients, { kind: "system", title: `New task: ${input.title}`, body: ctx.deal.name, href: `/deals/${ctx.deal.id}` });
+      await notifyMany(recipients, { kind: "system", title: `New task: ${input.title}`, body: ctx.deal.name, href: `/deals/${ctx.deal.id}` });
     }
     await recomputeDealHealth(ctx.deal.id);
     revalidateDeal(ctx.deal.id, ctx.pipeline.key);
@@ -606,8 +607,8 @@ export const addDocument = action(
         url: input.url || null,
         status: input.status,
         version: (prev?.v ?? 0) + 1,
-        signedAt: input.signedAt ?? (input.status === "signed" ? new Date() : null),
-        expiresAt: input.expiresAt ?? null,
+        signedAt: userDate(input.signedAt, user, 12) ?? (input.status === "signed" ? new Date() : null),
+        expiresAt: userDate(input.expiresAt, user) ?? null,
         uploadedBy: user.id,
       })
       .returning({ id: s.documents.id });
@@ -640,7 +641,7 @@ export const addComment = action(z.object({ dealId: uuid, body: z.string().trim(
   const ids = Array.from(new Set([...parsed, ...(input.mentionIds ?? []).filter((id) => users.some((u) => u.id === id) && input.body.includes(`@${users.find((u) => u.id === id)!.name}`))]));
   const [c] = await db.insert(s.comments).values({ entity: "deal", entityId: ctx.deal.id, authorId: user.id, body: input.body, mentions: ids }).returning({ id: s.comments.id });
   const recipients = await filterRecipientsForDeal(ctx.deal, ids.filter((id) => id !== user.id));
-  await notify(recipients, { kind: "mention", title: `${user.name} mentioned you on ${ctx.deal.name}`, body: input.body.slice(0, 280), href: `/deals/${ctx.deal.id}#comments` });
+  await notifyMany(recipients, { kind: "mention", title: `${user.name} mentioned you on ${ctx.deal.name}`, body: input.body.slice(0, 280), href: `/deals/${ctx.deal.id}#comments` });
   await audit({ actorId: user.id, action: "comment.create", entity: "deal", entityId: ctx.deal.id, after: { commentId: c!.id, mentions: ids } });
   revalidateDeal(ctx.deal.id);
   return { id: c!.id, notified: recipients.length };
@@ -677,7 +678,7 @@ export const requestProbabilityOverride = action(
     });
     if (!auto) {
       const recipients = await filterRecipientsForDeal(ctx.deal, await executiveIds());
-      await notify(recipients, { kind: "approval", title: `Probability override needs approval: ${ctx.deal.name}`, body: `${Math.round(ctx.stage.probability * 100)}% → ${pct}% — ${reason}`, href: `/deals/${dealId}` });
+      await notifyMany(recipients, { kind: "approval", title: `Probability override needs approval: ${ctx.deal.name}`, body: `${Math.round(ctx.stage.probability * 100)}% → ${pct}% — ${reason}`, href: `/deals/${dealId}` });
     }
     await audit({ actorId: user.id, action: auto ? "deal.override_set" : "deal.override_requested", entity: "deal", entityId: dealId, before: { probabilityOverride: ctx.deal.probabilityOverride, overrideStatus: ctx.deal.overrideStatus }, after: { probabilityOverride: probability, reason, status: auto ? "approved" : "pending" } });
     await logActivity({ type: "field_change", subject: `Probability override ${auto ? "set" : "requested"}: ${pct}%`, body: reason, actorId: user.id, dealId, accountId: ctx.deal.accountId });
@@ -720,7 +721,7 @@ export const decideProbabilityOverride = action(z.object({ dealId: uuid, approve
       .where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entityId, dealId), eq(s.approvals.status, "pending")));
   });
   const [req] = await db.select({ requestedBy: s.approvals.requestedBy }).from(s.approvals).where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entityId, dealId))).orderBy(sql`${s.approvals.createdAt} desc`).limit(1);
-  if (req && req.requestedBy !== user.id) await notify([req.requestedBy], { kind: "approval", title: `Override ${approve ? "approved" : "rejected"}: ${ctx.deal.name}`, body: note ?? null, href: `/deals/${dealId}` });
+  if (req && req.requestedBy !== user.id) await notifyMany([req.requestedBy], { kind: "approval", title: `Override ${approve ? "approved" : "rejected"}: ${ctx.deal.name}`, body: note ?? null, href: `/deals/${dealId}` });
   await audit({ actorId: user.id, action: approve ? "deal.override_approved" : "deal.override_rejected", entity: "deal", entityId: dealId, after: { note } });
   revalidateDeal(dealId, ctx.pipeline.key);
   return { ok: true };

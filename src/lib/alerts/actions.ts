@@ -36,7 +36,7 @@ export const resolveAlert = action(z.object({ id, note: z.string().trim().max(50
   const before = await loadActionable(user, id);
   const [after] = await db
     .update(s.alerts)
-    .set({ state: "resolved", resolvedAt: new Date(), resolution: note ? `Done: ${note}` : `Done by ${user.name}` })
+    .set({ state: "resolved", resolvedAt: new Date(), snoozedUntil: null, resolution: note ? `Done: ${note}` : `Done by ${user.name}` }) // live suppression (suppression.ts)
     .where(eq(s.alerts.id, id))
     .returning();
   await audit({ actorId: user.id, action: "alert.resolve", entity: "alert", entityId: id, before, after });
@@ -72,7 +72,7 @@ export const dismissAlert = action(z.object({ id, reason: z.string().trim().min(
   const before = await loadActionable(user, id);
   const [after] = await db
     .update(s.alerts)
-    .set({ state: "dismissed", resolvedAt: new Date(), resolution: `Dismissed: ${reason}` })
+    .set({ state: "dismissed", resolvedAt: new Date(), snoozedUntil: null, resolution: `Dismissed: ${reason}` }) // live suppression (suppression.ts)
     .where(eq(s.alerts.id, id))
     .returning();
   await audit({ actorId: user.id, action: "alert.dismiss", entity: "alert", entityId: id, before, after: { ...after, reason } });

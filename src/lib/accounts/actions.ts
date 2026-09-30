@@ -169,14 +169,21 @@ export const mergeAccountInto = action(z.object({ targetId: z.string().uuid(), s
   if (input.targetId === input.sourceId) throw new UserError("Pick a different account to merge.");
   const target = await loadEditable(user, input.targetId);
   const source = await loadEditable(user, input.sourceId);
-  const res = await mergeAccounts(db, { targetId: target.id, sourceId: source.id });
-  await audit({
-    actorId: user.id,
-    action: "account.merge",
-    entity: "account",
-    entityId: target.id,
-    before: { target: res.targetBefore, source: { id: source.id, name: source.name, domain: source.domain, ...res.sourceBefore } },
-    after: { mergedFrom: source.id, moved: Object.fromEntries(Object.entries(res.moved).map(([k, v]) => [k, v.length])) },
+  // One transaction (H-10): row-locked merge + its audit entry commit together.
+  const res = await db.transaction(async (tx) => {
+    const r = await mergeAccounts(tx, { targetId: target.id, sourceId: source.id });
+    await audit(
+      {
+        actorId: user.id,
+        action: "account.merge",
+        entity: "account",
+        entityId: target.id,
+        before: { target: r.targetBefore, source: { id: source.id, name: source.name, domain: source.domain, ...r.sourceBefore } },
+        after: { mergedFrom: source.id, moved: Object.fromEntries(Object.entries(r.moved).map(([k, v]) => [k, v.length])) },
+      },
+      tx,
+    );
+    return r;
   });
   revalidatePath(`/accounts/${target.id}`);
   revalidatePath("/accounts");

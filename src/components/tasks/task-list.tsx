@@ -240,20 +240,21 @@ export function TaskList({
           </section>
         ))}
 
-      <TaskDialog open={Boolean(editing)} onOpenChange={(o) => !o && setEditing(null)} task={editing} users={users} />
+      <TaskDialog open={Boolean(editing)} onOpenChange={(o) => !o && setEditing(null)} task={editing} users={users} tz={tz} />
       <ReasonDialog
         open={Boolean(snoozing)}
         onOpenChange={(o) => !o && setSnoozing(null)}
         title="Snooze task"
-        description={snoozing ? `${snoozing.title}${snoozing.snoozeCount >= 2 ? " — a 3rd snooze notifies your manager." : ""}` : undefined}
+        description={snoozing ? `${snoozing.title}${snoozing.snoozeCount >= 2 ? " — a 3rd snooze notifies your manager (or your team lead / sales leaders if you have none)." : ""}` : undefined}
         withUntil
+        tz={tz}
         confirmLabel="Snooze"
         onSubmit={async ({ reason, until }) => {
           const target = snoozing!;
           const res = await snoozeTask({ id: target.id, reason, until: until! });
           if (!res.ok) return res.fieldErrors?.reason?.[0] ?? res.fieldErrors?.until?.[0] ?? res.error;
           setLocal((m) => ({ ...m, [target.id]: { snoozed: true, from: fingerprint(target) } }));
-          toast.success(res.data.escalated ? "Snoozed — your manager was notified (3+ snoozes)" : "Task snoozed");
+          toast.success(res.data.escalated ? "Snoozed — your manager (or sales leadership) was notified (3+ snoozes)" : "Task snoozed");
           router.refresh();
           return null;
         }}
