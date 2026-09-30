@@ -16,9 +16,18 @@ import type { R100Row } from "@/lib/r100/queries";
 
 type Stage = { id: string; key: string; name: string; category: string };
 
-export function R100Table({ rows, stages }: { rows: R100Row[]; stages: Stage[] }) {
-  const [q, setQ] = React.useState("");
-  const [stageFilter, setStageFilter] = React.useState("all");
+export function R100Table({ rows, stages, initialQuery = "", initialStage = "all" }: { rows: R100Row[]; stages: Stage[]; initialQuery?: string; initialStage?: string }) {
+  const [q, setQ] = React.useState(initialQuery);
+  const [stageFilter, setStageFilter] = React.useState(initialStage);
+  // QA-25: keep ?q= / ?stage= in the URL (shareable, survives reload) without a server round-trip.
+  React.useEffect(() => {
+    const url = new URL(window.location.href);
+    if (q.trim()) url.searchParams.set("q", q.trim());
+    else url.searchParams.delete("q");
+    if (stageFilter !== "all") url.searchParams.set("stage", stageFilter);
+    else url.searchParams.delete("stage");
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url);
+  }, [q, stageFilter]);
   const [open, setOpen] = React.useState<string | null>(null);
   const [limit, setLimit] = React.useState(100);
   const filtered = rows.filter((r) => {

@@ -7,6 +7,25 @@ import { fmtNumber } from "@/lib/format";
 const R100 = PIPELINE_COLORS.R100!;
 const tick = { fill: CHART_AXIS.tick, fontSize: 12 };
 
+/**
+ * QA-25: render the SVG on the server / first paint at a sensible size (then it re-measures) instead of an empty card
+ * until hydration; every category label is kept (interval 0) and long ones are shortened with the full name in the
+ * tooltip / table.
+ */
+export const INITIAL_DIM = { width: 560, height: 240 };
+export const shortLabel = (max: number) => (v: string) => (typeof v === "string" && v.length > max ? `${v.slice(0, max - 1)}…` : v);
+
+/** 0 → goal in 4 even steps (goal on the axis); if actuals pass the goal, round the top up to the next step. */
+export function goalTicks(goal: number, maxValue: number): number[] {
+  const g = Math.max(1, goal);
+  const step = Math.max(1, Math.ceil(g / 4));
+  const top = Math.max(g, Math.ceil(maxValue / step) * step);
+  const ticks: number[] = [];
+  for (let v = 0; v <= top; v += step) ticks.push(v);
+  if (!ticks.includes(g)) ticks.push(g);
+  return ticks.sort((a, b) => a - b);
+}
+
 export function TooltipBox({
   active,
   payload,
@@ -40,14 +59,14 @@ function LegendText(value: string) {
 /** Burn-up of live accounts (butter) vs the dashed goal line. */
 export function BurnUpChart({ data, goal }: { data: { label: string; live: number }[]; goal: number }) {
   const rows = data.map((d) => ({ ...d, goal }));
-  const max = Math.max(goal, ...data.map((d) => d.live)) * 1.08;
+  const ticks = goalTicks(goal, Math.max(0, ...data.map((d) => d.live)));
   return (
     <ChartFrame table={<SimpleTable head={["Month", "Live", "Goal"]} rows={data.map((d) => [d.label, fmtNumber(d.live), fmtNumber(goal)])} />}>
-      <ResponsiveContainer width="100%" height={240}>
+      <ResponsiveContainer width="100%" height={240} initialDimension={INITIAL_DIM}>
         <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
           <CartesianGrid stroke={CHART_AXIS.grid} vertical={false} />
           <XAxis dataKey="label" tick={tick} axisLine={{ stroke: CHART_AXIS.stroke }} tickLine={false} />
-          <YAxis tick={tick} axisLine={false} tickLine={false} domain={[0, Math.ceil(max)]} allowDecimals={false} />
+          <YAxis tick={tick} axisLine={false} tickLine={false} domain={[0, ticks[ticks.length - 1]!]} ticks={ticks} interval={0} allowDecimals={false} />
           <Tooltip content={<TooltipBox />} cursor={{ stroke: CHART_AXIS.stroke }} />
           <Legend formatter={LegendText} iconType="plainline" wrapperStyle={{ paddingTop: 4 }} />
           <Line name="Goal" dataKey="goal" stroke={VIZ_OTHER} strokeDasharray="4 4" strokeWidth={1.5} dot={false} activeDot={false} isAnimationActive={false} />
@@ -62,11 +81,11 @@ export function BurnUpChart({ data, goal }: { data: { label: string; live: numbe
 export function FunnelChart({ data }: { data: { name: string; count: number; live: boolean }[] }) {
   return (
     <ChartFrame table={<SimpleTable head={["Stage", "Companies"]} rows={data.map((d) => [d.name, fmtNumber(d.count)])} />}>
-      <ResponsiveContainer width="100%" height={Math.max(160, data.length * 26 + 20)}>
+      <ResponsiveContainer width="100%" height={Math.max(160, data.length * 26 + 20)} initialDimension={{ width: INITIAL_DIM.width, height: Math.max(160, data.length * 26 + 20) }}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, bottom: 0, left: 8 }} barCategoryGap={2}>
           <CartesianGrid stroke={CHART_AXIS.grid} horizontal={false} />
           <XAxis type="number" tick={tick} axisLine={false} tickLine={false} allowDecimals={false} />
-          <YAxis type="category" dataKey="name" tick={tick} axisLine={false} tickLine={false} width={150} />
+          <YAxis type="category" dataKey="name" tick={tick} axisLine={false} tickLine={false} width={150} interval={0} tickFormatter={shortLabel(22)} />
           <Tooltip content={<TooltipBox />} cursor={{ fill: "#1A1A1A" }} />
           <Bar isAnimationActive={false} name="Companies" dataKey="count" fill={R100} barSize={12} radius={[0, 4, 4, 0]} />
         </BarChart>
