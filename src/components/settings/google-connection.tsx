@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { Suspense, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Calendar, Mail, Pause, Play, RefreshCw } from "lucide-react";
+import { Calendar, Mail, Pause, Play, RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
@@ -19,16 +19,11 @@ type GoogleState = {
   calendarConn: ConnectionView | null;
 };
 
-/** Gmail + Calendar via incremental Google authorization (Better Auth linkSocial with extra scopes). */
-export function GoogleConnection({ state, scopes, required }: { state: GoogleState; scopes: string[]; required: boolean }) {
+/** Handles the `?connected=` return from Google's consent screen. Isolated so the card itself never suspends. */
+function ConnectCallback() {
   const router = useRouter();
   const params = useSearchParams();
-  const [busy, setBusy] = useState(false);
-  const [pending, start] = useTransition();
   const confirmed = useRef(false);
-  const connected = state.gmailRead && state.calendar;
-  const paused = state.gmail?.status === "revoked";
-
   useEffect(() => {
     const flag = params.get("connected");
     if (!flag || confirmed.current) return;
@@ -45,6 +40,15 @@ export function GoogleConnection({ state, scopes, required }: { state: GoogleSta
       router.refresh();
     });
   }, [params, router]);
+  return null;
+}
+
+/** Gmail + Calendar via incremental Google authorization (Better Auth linkSocial with extra scopes). Always rendered. */
+export function GoogleConnection({ state, scopes, required }: { state: GoogleState; scopes: string[]; required: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [pending, start] = useTransition();
+  const connected = state.gmailRead && state.calendar;
+  const paused = state.gmail?.status === "revoked";
 
   async function connect() {
     setBusy(true);
@@ -58,6 +62,9 @@ export function GoogleConnection({ state, scopes, required }: { state: GoogleSta
   const gmailResult = state.gmail?.lastResult as { ingested?: number; mode?: string; done?: boolean } | null;
   return (
     <div className="space-y-4">
+      <Suspense fallback={null}>
+        <ConnectCallback />
+      </Suspense>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="flex items-center gap-2 text-sm font-medium text-fg">
@@ -85,17 +92,24 @@ export function GoogleConnection({ state, scopes, required }: { state: GoogleSta
               </Button>
             </>
           ) : (
-            <Button size="sm" variant="primary" onClick={connect} disabled={busy || !state.configured}>
-              {busy ? "Opening Google…" : "Connect inbox"}
+            <Button size="sm" variant="primary" onClick={connect} disabled={busy || !state.configured} title={state.configured ? undefined : "Google sign-in isn't configured on this server"}>
+              {busy ? "Opening Google…" : state.configured ? "Connect inbox" : "Not available"}
             </Button>
           )}
         </div>
       </div>
 
       {!state.configured ? (
-        <p className="rounded-md border border-dashed border-border-strong px-3 py-2 text-xs text-muted">
-          Google OAuth isn&apos;t configured on this server (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET), so the inbox can&apos;t be connected here.
-        </p>
+        <div role="status" className="flex items-start gap-2.5 rounded-md border border-dashed border-border-strong px-3 py-2.5">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium text-fg">Google sign-in not configured — ask an admin</p>
+            <p className="text-xs text-muted">
+              An admin needs to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server before Gmail and Calendar can be connected. Until then
+              email and meetings aren&apos;t captured automatically; log them on the deal instead.
+            </p>
+          </div>
+        </div>
       ) : null}
 
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
