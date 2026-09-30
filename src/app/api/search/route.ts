@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { and, eq, ilike, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
-import { dealAccessWhere, getCurrentUser, ownedEntityWhere } from "@/lib/rbac/server";
+import { dealAccessWhere, getCurrentUser } from "@/lib/rbac/server";
+import { accountVisibilityWhere } from "@/lib/accounts/queries";
+import { contactVisibilityWhere } from "@/lib/contacts/queries";
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
@@ -13,8 +15,9 @@ export async function GET(req: NextRequest) {
 
   const [dealWhere, accWhere, conWhere] = await Promise.all([
     dealAccessWhere(user, "view"),
-    ownedEntityWhere(user, "accounts", "view", s.accounts.ownerId),
-    ownedEntityWhere(user, "contacts", "view", s.contacts.ownerId),
+    // accounts module rules: owner scope + restricted (MNPI) access list; contacts also hide restricted accounts' people
+    accountVisibilityWhere(user, "view"),
+    contactVisibilityWhere(user, "view"),
   ]);
 
   const [deals, accounts, contacts] = await Promise.all([
@@ -30,8 +33,6 @@ export async function GET(req: NextRequest) {
       .where(
         and(
           accWhere,
-          isNull(s.accounts.deletedAt),
-          eq(s.accounts.restricted, false),
           or(ilike(s.accounts.name, like), ilike(s.accounts.domain, like)),
         ),
       )
