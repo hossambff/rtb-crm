@@ -65,7 +65,7 @@ async function main() {
 
     const probs = new Set(pendingDeals.filter((d) => dealIds.includes(d.id)).map((d) => d.p));
     const [only] = [...probs];
-    const payload: Record<string, unknown> = { dealIds, source: "import", reason: NOTE };
+    const payload: Record<string, unknown> = { dealIds, source: "import" }; // the note carries the reason (shown once)
     if (probs.size === 1 && typeof only === "number") payload.to = only; // shown as "Requested N%" in Approvals
     let approvalId: string;
     if (existing) {

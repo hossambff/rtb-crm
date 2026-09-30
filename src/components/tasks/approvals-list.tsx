@@ -72,7 +72,7 @@ export function ApprovalsList({ pending, mine, tz }: { pending: ApprovalView[]; 
                   <PayloadLine p={a.payload} />
                   {a.note ? <p className="mt-0.5 text-xs italic text-secondary">“{a.note}”</p> : null}
                   <p className="mt-1 text-[11px] text-muted">
-                    Requested by {a.requesterName ?? "someone"} · {fmtInTz(a.createdAt, tz)}
+                    Requested by {a.requesterName ?? (a.requestedBy.startsWith("system:") ? "the spreadsheet import (system)" : "someone")} · {fmtInTz(a.createdAt, tz)}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-2">
