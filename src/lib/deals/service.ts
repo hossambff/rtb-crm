@@ -213,6 +213,12 @@ export async function filterRecipientsForDeal(deal: { id: string; restricted: bo
 export async function onDealWon(ctx: { deal: typeof s.deals.$inferSelect; pipelineKey: string; actorId: string }, tx: DbOrTx) {
   const { deal, pipelineKey } = ctx;
   const created: string[] = [];
+  // QA-26: a won deal has no open next step (it kept "intro call" and Copilot kept recommending it). Onboarding and
+  // invoicing carry the follow-up from here.
+  if (deal.nextStep || deal.nextStepDueAt || deal.nextStepWaitingReason) {
+    await tx.update(s.deals).set({ nextStep: null, nextStepDueAt: null, nextStepWaitingReason: null }).where(eq(s.deals.id, deal.id));
+    created.push("next_step_closed");
+  }
   if (["NET", "ENT", "SPT"].includes(pipelineKey)) {
     // Single path with the Programs module (idempotent; returns the existing project if there is one).
     const res = await ensureMigrationProject(deal.id, { actorId: ctx.actorId }, tx);
