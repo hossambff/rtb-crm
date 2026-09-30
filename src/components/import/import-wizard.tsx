@@ -172,7 +172,7 @@ export function ImportWizard({ pipelines, canSaveTemplates }: { pipelines: { key
             >
               <Upload className="mb-3 size-6 text-secondary" aria-hidden />
               <span className="font-display text-lg text-fg">Drop a spreadsheet here</span>
-              <span className="mt-1 text-sm text-muted">CSV or Excel (.xlsx, multi-sheet) · up to 15 MB</span>
+              <span className="mt-1 text-sm text-muted">CSV or Excel (.xlsx, multi-sheet) · up to 10 MB, 20,000 rows</span>
               <input
                 id="import-file"
                 type="file"

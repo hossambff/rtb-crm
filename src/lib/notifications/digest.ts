@@ -3,6 +3,8 @@ import { and, count, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "dr
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { dayBounds } from "@/lib/alerts/time";
+import { getMatrix } from "@/lib/rbac/server";
+import { ROLES, type Role } from "@/lib/rbac/model";
 import { notifyMany } from "./notify";
 import { snapshotDelta, type SnapshotRow } from "./snapshot-core";
 import { myDayDigestText, type DigestCounts } from "./digest-core";
@@ -139,8 +141,13 @@ export async function sendWeeklyManagerDigests(now = new Date()): Promise<{ mana
     if (done.has(mgr)) continue;
     const pipes = leadPipelines.get(mgr);
     const lines: string[] = [];
-    const moves = delta.filter((d) => !pipes?.length || pipes.includes(d.pipelineKey));
-    if (moves.length && prevRow) {
+    // SEC H-4: company-wide pipeline totals only go to recipients who may see org-wide analytics (the executive
+    // dashboard audience). Snapshots already exclude restricted deals.
+    const role = byId.get(mgr)?.role ?? "pending";
+    const orgWide = (ROLES as readonly string[]).includes(role) && (await getMatrix(role as Role)).analytics?.view === "all";
+    const moves = orgWide ? delta.filter((d) => !pipes?.length || pipes.includes(d.pipelineKey)) : [];
+    if (!orgWide) lines.push("Pipeline: see Analytics for your team's pipeline changes.");
+    else if (moves.length && prevRow) {
       lines.push("Pipeline (week over week):");
       for (const m of moves)
         lines.push(

@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { can, getCurrentUser } from "@/lib/rbac/server";
 import { parseDomainRows, parseDomainText } from "@/lib/scout/domain-list";
+import { IMPORT_LIMITS, inspectXlsxZip } from "@/lib/import/limits";
+
+// SEC M-13: a domain list is one small sheet — much tighter inflation bounds than the import wizard.
+const DOMAIN_LIST_ZIP_LIMITS = { ...IMPORT_LIMITS, maxSheets: 10, maxUncompressedBytes: 20 * 1024 * 1024, maxEntryUncompressedBytes: 15 * 1024 * 1024 };
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_ROWS = 2000;
@@ -12,6 +16,8 @@ export async function POST(req: NextRequest) {
   if (!user || user.role === "pending") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!(await can(user, "scout", "create"))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
+  const len = Number(req.headers.get("content-length") ?? 0);
+  if (Number.isFinite(len) && len > MAX_BYTES + 64 * 1024) return NextResponse.json({ error: "File is larger than 2 MB." }, { status: 413 });
   let form: FormData;
   try {
     form = await req.formData();
@@ -24,8 +30,14 @@ export async function POST(req: NextRequest) {
   const name = file.name.toLowerCase();
   try {
     if (name.endsWith(".xlsx")) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      try {
+        inspectXlsxZip(bytes, DOMAIN_LIST_ZIP_LIMITS);
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : "Could not read that file." }, { status: 413 });
+      }
       const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(await file.arrayBuffer());
+      await wb.xlsx.load(bytes as unknown as ArrayBuffer);
       const ws = wb.worksheets[0];
       if (!ws) return NextResponse.json({ error: "The workbook has no sheets." }, { status: 400 });
       const rows: unknown[][] = [];

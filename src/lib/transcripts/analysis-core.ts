@@ -7,6 +7,7 @@ import { parseAudience } from "@/lib/domain";
 import { parseDue, parseIsoDue } from "@/lib/integrations/due-date";
 import { heuristicSentiment, splitSentences } from "@/lib/gmail/analysis-core";
 import { matchStageName } from "@/lib/integrations/matching-core";
+import { untrustedField } from "@/lib/untrusted-core";
 import { parsePlainText, type Utterance } from "./parse";
 
 export const transcriptAnalysisAiSchema = z.object({
@@ -292,7 +293,7 @@ export function followUpDraft(ctx: TranscriptContext, summary: string[], items: 
 export function transcriptAnalysisPrompt(ctx: TranscriptContext, wrapped: string): string {
   return [
     `Analyze this sales call transcript for ${ctx.ownerName} at RTB Digital. RTB-side participants ("us"): ${ctx.ourNames.join(", ") || ctx.ownerName}.`,
-    `Call date: ${ctx.occurredAt.toISOString()}. Title: ${ctx.title ?? "(none)"}.${ctx.accountName ? ` Prospect account: ${ctx.accountName}.` : ""}`,
+    `Call date: ${ctx.occurredAt.toISOString()}. Title: ${untrustedField("call:title", ctx.title)}.${ctx.accountName ? ` Prospect account: ${ctx.accountName}.` : ""}`,
     "Return exactly 5 summary bullets, decisions, action items with owners (us/them/name), due dates resolved relative to the call date,",
     "verbatim evidence quotes and [hh:mm:ss] timestamps when present. Only propose field_updates for: muu (integer), next_step, expected_close_date (ISO).",
     "Draft a short follow-up email in the rep's voice using only facts from the call; never state unverified performance multiples or unaudited figures.",

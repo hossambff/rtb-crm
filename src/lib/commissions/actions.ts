@@ -7,10 +7,10 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { normalizeDomain } from "@/lib/domain";
-import { assertCan, can, dealModule, ForbiddenError, scopeFor, type AppUser } from "@/lib/rbac/server";
+import { assertCan, can, canSeeRestricted, dealModule, ForbiddenError, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { RATE_TYPES, TRIGGERS } from "./calc";
 import { accrueCommissions } from "./engine";
-import { registrationConflicts } from "./registration";
+import { registrationConflicts, UNAVAILABLE_ACCOUNT_CONFLICT } from "./registration";
 import { applyRegistrationDecision } from "./registration-service";
 
 const ruleSchema = z.object({
@@ -147,6 +147,11 @@ export const searchRegistrableAccounts = action(z.object({ q: z.string().trim().
 async function conflictsFor(user: AppUser, accountId: string) {
   const [account] = await db.select().from(s.accounts).where(and(eq(s.accounts.id, accountId), isNull(s.accounts.deletedAt)));
   if (!account) throw new UserError("Account not found.");
+  // SEC M-1: a restricted (MNPI) account the caller isn't cleared for is reported as "exists, can't register" — no
+  // name, domain, deals or registration state.
+  if (account.restricted && !(await canSeeRestricted(user, "account", account.id))) {
+    return { account: { ...account, name: null, domain: null }, conflicts: [UNAVAILABLE_ACCOUNT_CONFLICT] };
+  }
   const rows = await db
     .select({ ownerId: s.deals.ownerId, pipelineKey: s.pipelines.key, pipelineName: s.pipelines.name, stageName: s.stages.name, restricted: s.deals.restricted })
     .from(s.deals)
@@ -178,7 +183,8 @@ export const checkRegistration = action(z.object({ accountId: z.uuid().optional(
   }
   if (!accountId) throw new UserError("Pick an account or enter a domain.");
   const { account, conflicts } = await conflictsFor(user, accountId);
-  return { exists: true as const, accountId, accountName: account.name, domain: account.domain, conflicts };
+  const hidden = account.name === null;
+  return { exists: true as const, accountId: hidden ? undefined : accountId, accountName: account.name, domain: account.domain, conflicts };
 });
 
 export const registerLead = action(

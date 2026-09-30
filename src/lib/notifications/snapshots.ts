@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { aggregateSnapshot, type SnapshotDeal } from "./snapshot-core";
@@ -7,7 +7,8 @@ import { aggregateSnapshot, type SnapshotDeal } from "./snapshot-core";
 /**
  * Nightly pipeline snapshot (cron /api/cron/snapshot, 23:55 UTC): per pipeline × stage counts, MUU, gross,
  * weighted and override-weighted cents → rso.pipeline_snapshots, upserted by (takenOn, pipeline, stage).
- * Restricted deals are included: snapshots are org aggregates, never exposed per record.
+ * SEC H-4 / M-7: restricted (MNPI) deals are excluded — snapshots feed the weekly digest and the executive trend,
+ * whose audiences are not on the restricted access lists.
  */
 export async function takePipelineSnapshot(now = new Date()): Promise<{ takenOn: string; rows: number }> {
   const takenOn = now.toISOString().slice(0, 10);
@@ -31,7 +32,7 @@ export async function takePipelineSnapshot(now = new Date()): Promise<{ takenOn:
       .from(s.deals)
       .innerJoin(s.stages, eq(s.stages.id, s.deals.stageId))
       .innerJoin(s.pipelines, eq(s.pipelines.id, s.deals.pipelineId))
-      .where(isNull(s.deals.deletedAt)),
+      .where(and(isNull(s.deals.deletedAt), eq(s.deals.restricted, false))),
     db
       .select({ pipelineKey: s.pipelines.key, stageKey: s.stages.key })
       .from(s.stages)

@@ -8,6 +8,7 @@ import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { assertCan, type AppUser } from "@/lib/rbac/server";
 import { approvalRules, assertProposalDeal, proposalWhere } from "./access";
+import { assertNotSelfDecision } from "@/lib/approvals/sod";
 import { approvalTriggers, canExport, computeProForma, COST_FUNCTIONS, isLocked, normalizeInputs, REVENUE_LINES, type ProFormaInputs } from "./calc";
 
 const usd = z.number().min(0).max(1e12);
@@ -33,7 +34,10 @@ const inputsSchema = z.object({
 });
 
 /** Evaluate PRO-3 triggers and write the resulting status (+ approvals row / executive notifications). */
-async function applyApprovalState(user: AppUser, proposalId: string, inputs: ProFormaInputs, dealName: string, version: number) {
+async function applyApprovalState(user: AppUser, proposalId: string, inputs: ProFormaInputs, deal: { name: string; restricted: boolean }, version: number) {
+  const dealName = deal.name;
+  // SEC M-5: executives are not necessarily on a restricted deal's access list — neutral notification text.
+  const notifyLabel = deal.restricted ? "restricted deal" : dealName;
   const reasons = approvalTriggers(inputs, await approvalRules());
   const pending = await db
     .select({ id: s.approvals.id })
@@ -48,7 +52,7 @@ async function applyApprovalState(user: AppUser, proposalId: string, inputs: Pro
       const execs = await db.select({ id: s.user.id }).from(s.user).where(eq(s.user.role, "executive"));
       if (execs.length)
         await db.insert(s.notifications).values(
-          execs.map((e) => ({ userId: e.id, kind: "approval", title: `Proposal approval: ${dealName} v${version}`, body: reasons.join("; "), href: `/proposals/${proposalId}` })),
+          execs.map((e) => ({ userId: e.id, kind: "approval", title: `Proposal approval: ${notifyLabel} v${version}`, body: deal.restricted ? null : reasons.join("; "), href: `/proposals/${proposalId}` })),
         );
     }
   } else {
@@ -72,7 +76,7 @@ export const createProposal = action(z.object({ dealId: z.uuid("Pick a deal"), i
     .insert(s.proposals)
     .values({ dealId, version, inputs: clean as never, outputs: computeProForma(clean) as never, status: "draft", createdBy: user.id })
     .returning();
-  const reasons = await applyApprovalState(user, row!.id, clean, deal.name, version);
+  const reasons = await applyApprovalState(user, row!.id, clean, deal, version);
   await audit({ actorId: user.id, action: "proposal.create", entity: "proposal", entityId: row!.id, after: { dealId, version, inputs: clean, reasons } });
   revalidatePath("/proposals");
   return { id: row!.id, version, reasons };
@@ -86,7 +90,7 @@ export const updateProposal = action(z.object({ id: z.uuid(), inputs: inputsSche
   if (isLocked(before.status)) throw new UserError(`Version ${before.version} is ${before.status} and locked. Create a new version to change it.`);
   const clean = normalizeInputs(inputs);
   await db.update(s.proposals).set({ inputs: clean as never, outputs: computeProForma(clean) as never }).where(eq(s.proposals.id, id));
-  const reasons = await applyApprovalState(user, id, clean, deal.name, before.version);
+  const reasons = await applyApprovalState(user, id, clean, deal, before.version);
   await audit({ actorId: user.id, action: "proposal.update", entity: "proposal", entityId: id, before: before.inputs, after: clean });
   revalidatePath("/proposals");
   revalidatePath(`/proposals/${id}`);
@@ -106,7 +110,7 @@ export const newVersion = action(z.object({ fromId: z.uuid() }), async ({ fromId
     .insert(s.proposals)
     .values({ dealId: src.dealId, version, inputs: clean as never, outputs: computeProForma(clean) as never, status: "draft", createdBy: user.id })
     .returning();
-  await applyApprovalState(user, row!.id, clean, deal.name, version);
+  await applyApprovalState(user, row!.id, clean, deal, version);
   await audit({ actorId: user.id, action: "proposal.new_version", entity: "proposal", entityId: row!.id, after: { fromId, version } });
   revalidatePath("/proposals");
   return { id: row!.id, version };
@@ -125,6 +129,12 @@ export const decideProposal = action(z.object({ id: z.uuid(), decision: z.enum([
     .where(and(eq(s.proposals.id, id), await proposalWhere(user, "view")));
   if (!visible) throw new UserError("Proposal not found.");
   if (p.status !== "pending_approval") throw new UserError("This version is not waiting for approval.");
+  // SEC M-9 / QA-14: separation of duties — neither the proposal's author nor whoever triggered the approval decides it.
+  const requesters = await db
+    .select({ by: s.approvals.requestedBy })
+    .from(s.approvals)
+    .where(and(eq(s.approvals.kind, "proposal"), eq(s.approvals.entityId, id), eq(s.approvals.status, "pending")));
+  for (const r of [p.createdBy, ...requesters.map((x) => x.by)]) await assertNotSelfDecision(user, r);
   const now = new Date();
   const patch =
     decision === "approved"

@@ -21,8 +21,11 @@ export function encryptSecret(plain: string): string {
 export function decryptSecret(payload: string): string {
   const [v, iv, tag, data] = payload.split(":");
   if (v !== "v1" || !iv || !tag || !data) throw new Error("Unsupported secret format");
-  const decipher = createDecipheriv("aes-256-gcm", key(), Buffer.from(iv, "base64"));
-  decipher.setAuthTag(Buffer.from(tag, "base64"));
+  // SEC L-8: only accept full 16-byte GCM tags (short tags weaken authentication).
+  const tagBuf = Buffer.from(tag, "base64");
+  if (tagBuf.length !== 16) throw new Error("Unsupported secret format");
+  const decipher = createDecipheriv("aes-256-gcm", key(), Buffer.from(iv, "base64"), { authTagLength: 16 });
+  decipher.setAuthTag(tagBuf);
   return Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8");
 }
 

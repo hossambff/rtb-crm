@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { env } from "@/lib/env";
@@ -116,7 +116,38 @@ export async function getSearch(user: AppUser, id: string) {
   return row ?? null;
 }
 
+/** SEC M-6: runs on a restricted (MNPI) account are visible only to super_admin and the account's access list. */
+function runAccountOk(user: AppUser): SQL {
+  if (user.role === "super_admin") return sql`true`;
+  return or(
+    isNull(s.enrichmentRuns.accountId),
+    exists(
+      db
+        .select({ x: sql`1` })
+        .from(s.accounts)
+        .where(
+          and(
+            eq(s.accounts.id, s.enrichmentRuns.accountId),
+            or(
+              eq(s.accounts.restricted, false),
+              exists(
+                db
+                  .select({ y: sql`1` })
+                  .from(s.restrictedAccess)
+                  .where(and(eq(s.restrictedAccess.entity, "account"), eq(s.restrictedAccess.entityId, s.accounts.id), eq(s.restrictedAccess.userId, user.id))),
+              ),
+            ),
+          ),
+        ),
+    ),
+  )!;
+}
+
 async function runScopeWhere(user: AppUser): Promise<SQL> {
+  return and(await runRoleScopeWhere(user), runAccountOk(user))!;
+}
+
+async function runRoleScopeWhere(user: AppUser): Promise<SQL> {
   const [ev, sv, cfg] = await Promise.all([scopeFor(user, "enrichment", "view"), scopeFor(user, "scout", "view"), can(user, "admin", "configure", "all")]);
   if (cfg) return sql`true`;
   const mine = eq(s.enrichmentRuns.requestedBy, user.id);

@@ -1,7 +1,7 @@
 /** Lead registration rules (PRD COM-6). Pure — unit tested. */
 
 export type RegistrationConflict = {
-  kind: "owned" | "open_deal" | "active_registration" | "own_registration" | "restricted";
+  kind: "owned" | "open_deal" | "active_registration" | "own_registration" | "restricted" | "unavailable";
   severity: "block" | "warn";
   message: string;
 };
@@ -33,6 +33,13 @@ export function registrationConflicts(p: {
     });
   return out;
 }
+
+/** SEC M-1: the only thing a caller without restricted access learns about a restricted account (no name, no kind). */
+export const UNAVAILABLE_ACCOUNT_CONFLICT: RegistrationConflict = {
+  kind: "unavailable",
+  severity: "block",
+  message: "This account can't be registered. Ask a manager.",
+};
 
 export type RegistrationState = "pending" | "protected" | "expired" | "rejected" | "expiring";
 

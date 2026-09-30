@@ -15,6 +15,19 @@ export function validateSplits(rows: { userId: string; pct: number }[]): string 
   return null;
 }
 
+/** SEC M-8: does the requested split set differ from the stored one (membership, % or role)? */
+export function splitsChanged(
+  current: { userId: string; pct: number; role: string | null }[],
+  next: { userId: string; pct: number; role?: string | null }[],
+): boolean {
+  if (current.length !== next.length) return true;
+  const byUser = new Map(current.map((c) => [c.userId, c]));
+  return next.some((n) => {
+    const c = byUser.get(n.userId);
+    return !c || Math.abs(c.pct - n.pct) > 0.001 || (c.role ?? "owner") !== (n.role ?? "owner");
+  });
+}
+
 /** Executives and super admins self-approve probability overrides; everyone else goes to the approval queue. */
 export function overrideAutoApproved(role: string): boolean {
   return role === "executive" || role === "super_admin";

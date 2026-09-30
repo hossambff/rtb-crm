@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { and, eq, ilike, isNull, ne, or } from "drizzle-orm";
+import { and, eq, ilike, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import * as s from "@/db/schema";
@@ -25,7 +25,10 @@ const optText = (max = 200) =>
     .nullable()
     .transform((v) => (v ? v : null));
 
-export type DuplicateMatch = { id: string; name: string; domain: string | null; reason: "domain" | "name"; score: number };
+export type DuplicateMatch = { id: string; name: string; domain: string | null; reason: "domain" | "name"; score: number; hidden?: boolean };
+
+/** SEC M-1: shown instead of the name when the matching account isn't visible to the caller (restricted/out of scope). */
+const HIDDEN_ACCOUNT_LABEL = "an existing account you don't have access to (ask an admin)";
 
 async function findDuplicates(user: AppUser, name: string, domainRaw: string | null | undefined, excludeId?: string): Promise<DuplicateMatch[]> {
   const domain = normalizeDomain(domainRaw ?? null);
@@ -34,10 +37,16 @@ async function findDuplicates(user: AppUser, name: string, domainRaw: string | n
   if (domain) {
     // domain uniqueness is global: check all live accounts, not just visible ones
     const [hit] = await db
-      .select({ id: s.accounts.id, name: s.accounts.name, domain: s.accounts.domain })
+      .select({ id: s.accounts.id, name: s.accounts.name, domain: s.accounts.domain, visible: sql<boolean>`${visible}` })
       .from(s.accounts)
       .where(and(isNull(s.accounts.deletedAt), eq(s.accounts.domain, domain), excludeId ? ne(s.accounts.id, excludeId) : undefined));
-    if (hit) out.push({ ...hit, reason: "domain", score: 1 });
+    // SEC M-1: the existence of the domain is reported, but never the name/id of an account the caller can't see.
+    if (hit)
+      out.push(
+        hit.visible
+          ? { id: hit.id, name: hit.name, domain: hit.domain, reason: "domain", score: 1 }
+          : { id: "hidden", name: HIDDEN_ACCOUNT_LABEL, domain: null, reason: "domain", score: 1, hidden: true },
+      );
   }
   const n = normalizeName(name);
   if (n.length >= 3) {
@@ -72,7 +81,14 @@ const accountFields = {
   subcategory: optText(120),
   lifecycle: LIFECYCLE,
   priority: PRIORITY.optional().nullable(),
-  ownerId: optText(80),
+  // SEC L-13: an omitted owner means "unchanged" (undefined), an explicit empty value means "unassigned" (null).
+  ownerId: z
+    .string()
+    .trim()
+    .max(80)
+    .optional()
+    .nullable()
+    .transform((v) => (v === undefined ? undefined : v || null)),
   parentId: z.string().uuid().optional().nullable().or(z.literal("").transform(() => null)),
   country: optText(80),
   region: optText(80),
@@ -102,6 +118,8 @@ export const createAccount = action(z.object({ ...accountFields, force: z.boolea
   await assertCan(user, "accounts", "create");
   const { force, ...fields } = input;
   const row = toRow(fields);
+  await assertVisibleParent(user, row.parentId as string | null | undefined);
+  if (row.ownerId && row.ownerId !== user.id) await assertCan(user, "accounts", "assign");
   const dups = await findDuplicates(user, input.name, input.domain);
   const domainDup = dups.find((d) => d.reason === "domain");
   if (domainDup) throw new UserError(`An account with this domain already exists: ${domainDup.name}`);
@@ -114,6 +132,12 @@ export const createAccount = action(z.object({ ...accountFields, force: z.boolea
   revalidatePath("/accounts");
   return { created: true as const, id: created!.id };
 });
+
+/** SEC M-1: a parent must be an account the caller can see (no linking to — and later displaying — restricted ones). */
+async function assertVisibleParent(user: AppUser, parentId: string | null | undefined) {
+  if (!parentId) return;
+  if (!(await getVisibleAccount(user, parentId))) throw new UserError("Parent account not found.");
+}
 
 async function loadEditable(user: AppUser, id: string) {
   const scope = await assertCan(user, "accounts", "edit");
@@ -132,7 +156,8 @@ export const updateAccount = action(z.object({ id: z.string().uuid(), ...account
     if (d) throw new UserError(`Domain already used by ${d.name} — merge the accounts instead.`);
   }
   if (row.parentId === id) throw new UserError("An account can't be its own parent.");
-  if (row.ownerId && row.ownerId !== before.ownerId) await assertCan(user, "accounts", "assign");
+  if (row.parentId && row.parentId !== before.parentId) await assertVisibleParent(user, row.parentId as string);
+  if (row.ownerId !== undefined && row.ownerId !== before.ownerId) await assertCan(user, "accounts", "assign");
   const [after] = await db.update(s.accounts).set(row as Partial<typeof s.accounts.$inferInsert>).where(eq(s.accounts.id, id)).returning();
   await audit({ actorId: user.id, action: "account.update", entity: "account", entityId: id, before, after });
   revalidatePath(`/accounts/${id}`);
