@@ -15,8 +15,9 @@ const client =
   globalForDb.__rsoSql ??
   postgres(url, {
     prepare: false,
-    max: 5,
+    max: Number(process.env.DB_POOL_MAX ?? 5),
     idle_timeout: 20,
+    max_lifetime: 60 * 30,
     connect_timeout: 15,
     ssl: "require",
   });
