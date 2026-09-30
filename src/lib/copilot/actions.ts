@@ -6,8 +6,9 @@ import { db } from "@/db";
 import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
-import { assertCan, dealModule, ForbiddenError, inScope } from "@/lib/rbac/server";
-import { gateIssues } from "./guards";
+import { getPicklist } from "@/lib/deals/queries";
+import { moveDealToStage } from "@/lib/deals/stage-service";
+import { assertCan, ForbiddenError } from "@/lib/rbac/server";
 import { listMyWork, loadAccessibleDeal, newRunState, pipelineReport, stagesOfPipeline } from "./queries";
 import { insertTask, meetingPrep, validateTask } from "./service";
 
@@ -49,69 +50,35 @@ export const undoCopilotTask = action(z.object({ taskId: uuid }), async ({ taskI
 });
 
 /**
- * Apply a Copilot stage suggestion — only on explicit user click. Re-checks RBAC and stage gates, then writes
- * deal_stage_history, a stage_change activity and an audit entry. Approval-gated stages create an approval request.
+ * Apply a Copilot stage suggestion — only on explicit user click. Runs the deals module's stage-change service
+ * (RBAC, gates, won/lost/hold reasons, stage history, activity, audit, won automation, health). Approval-gated stages
+ * create a stage_gate approval request instead of moving.
  */
 export const applyCopilotStageChange = action(
   z.object({ dealId: uuid, stageKey: z.string().min(1).max(40), reason: z.string().max(500).default("") }),
   async ({ dealId, stageKey, reason }, user) => {
     const deal = await loadAccessibleDeal(user, dealId, "edit");
     if (!deal) throw new ForbiddenError("You can't edit this deal.");
-    const scope = await assertCan(user, dealModule(deal.pipelineKey), "edit");
-    if (!inScope(user, scope, { ownerId: deal.ownerId, teamId: deal.teamId, pipelineKey: deal.pipelineKey })) throw new ForbiddenError("This deal is outside your edit scope.");
     const stages = await stagesOfPipeline(deal.pipelineId);
     const target = stages.find((st) => st.key === stageKey);
     if (!target) throw new UserError(`Unknown stage "${stageKey}".`);
     if (target.id === deal.stageId) throw new UserError(`The deal is already in "${target.name}".`);
-    const missing = gateIssues({ ...target, requiresApproval: false, category: "open" }, deal);
-    if (missing.length) throw new UserError(`Stage gate: ${missing.join("; ")}.`);
-
-    if (target.requiresApproval) {
-      const [appr] = await db
-        .insert(s.approvals)
-        .values({
-          kind: "stage_gate",
-          entity: "deal",
-          entityId: deal.id,
-          requestedBy: user.id,
-          payload: { fromStageId: deal.stageId, toStageId: target.id, toStageKey: target.key, reason, via: "copilot" },
-        })
-        .returning({ id: s.approvals.id });
-      await audit({ actorId: user.id, action: "deal.stage_change_requested", entity: "deal", entityId: deal.id, before: { stageId: deal.stageId }, after: { stageId: target.id, approvalId: appr!.id, reason } });
-      return { status: "pending_approval" as const, stageName: target.name };
+    let reasonCode: string | undefined;
+    if (target.category === "lost" || target.category === "hold") {
+      const options = await getPicklist(target.category === "lost" ? "lost_reason" : "hold_reason");
+      const r = reason.trim().toLowerCase();
+      reasonCode = (options.find((o) => r && (r.includes(o.value.toLowerCase()) || r.includes(o.label.toLowerCase()))) ?? options.find((o) => /other/i.test(o.value)) ?? options[0])?.value;
     }
-
-    const now = new Date();
-    const status = target.category;
-    await db.transaction(async (tx) => {
-      await tx
-        .update(s.deals)
-        .set({
-          stageId: target.id,
-          stageEnteredAt: now,
-          status,
-          ...(status === "won" ? { wonAt: now } : {}),
-          ...(status === "lost" ? { lostAt: now, lostReason: reason || null } : {}),
-          ...(status === "hold" ? { holdReason: reason || null } : {}),
-          lastActivityAt: now,
-        })
-        .where(eq(s.deals.id, deal.id));
-      await tx.insert(s.dealStageHistory).values({ dealId: deal.id, fromStageId: deal.stageId, toStageId: target.id, changedBy: user.id, reason: reason || "Applied from Copilot suggestion" });
-      await tx.insert(s.activities).values({
-        type: "stage_change",
-        source: "manual",
-        subject: `Stage: ${deal.stageName} → ${target.name}`,
-        body: reason || null,
-        actorId: user.id,
-        dealId: deal.id,
-        accountId: deal.accountId,
-        metadata: { via: "copilot", fromStageId: deal.stageId, toStageId: target.id },
-      });
-    });
-    await audit({ actorId: user.id, action: "deal.stage_change", entity: "deal", entityId: deal.id, before: { stageId: deal.stageId, status: deal.status }, after: { stageId: target.id, status, reason, via: "copilot" } });
+    const res = await moveDealToStage(
+      user,
+      dealId,
+      { id: target.id },
+      { reasonCode, reasonText: reason.trim() || (target.category === "won" ? "Applied from Copilot suggestion" : undefined) },
+      { via: "copilot" },
+    );
     revalidatePath(`/deals/${deal.id}`);
     revalidatePath("/pipelines");
-    return { status: "applied" as const, stageName: target.name };
+    return { status: res.pendingApproval ? ("pending_approval" as const) : ("applied" as const), stageName: target.name };
   },
 );
 

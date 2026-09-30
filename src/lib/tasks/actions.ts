@@ -11,6 +11,7 @@ import { notify } from "@/lib/notifications/notify";
 import { raiseSnoozeAlert } from "@/lib/alerts/engine";
 import { canEditTaskSync } from "./queries";
 import { PRIORITIES } from "./core";
+import { recomputeDealHealth } from "@/lib/deals/service";
 
 const uuid = z.string().uuid();
 const optUuid = z.string().uuid().nullish();
@@ -30,6 +31,11 @@ const TaskInput = z.object({
   accountId: optUuid,
   contactId: optUuid,
 });
+
+/** Overdue open tasks feed deal health — recompute the linked deal(s) after task writes. */
+async function refreshHealth(...dealIds: (string | null | undefined)[]) {
+  for (const id of new Set(dealIds.filter((x): x is string => Boolean(x)))) await recomputeDealHealth(id);
+}
 
 function revalidate() {
   revalidatePath("/tasks");
@@ -100,6 +106,7 @@ export const saveTask = action(TaskInput, async (input, user) => {
     const before = await loadEditable(user, input.id);
     const [after] = await db.update(s.tasks).set(values).where(eq(s.tasks.id, input.id)).returning();
     await audit({ actorId: user.id, action: "task.update", entity: "task", entityId: input.id, before, after });
+    await refreshHealth(before.dealId, after?.dealId);
     if (assigneeId !== before.assigneeId && assigneeId !== user.id)
       await notify(assigneeId, { kind: "task", title: `${user.name} assigned you: ${input.title}`, href: `/tasks?task=${input.id}` });
     revalidate();
@@ -111,6 +118,7 @@ export const saveTask = action(TaskInput, async (input, user) => {
     .values({ ...values, createdBy: user.id, origin: "manual" })
     .returning();
   await audit({ actorId: user.id, action: "task.create", entity: "task", entityId: row!.id, after: row });
+  await refreshHealth(row!.dealId);
   if (assigneeId !== user.id) await notify(assigneeId, { kind: "task", title: `${user.name} assigned you: ${input.title}`, href: `/tasks?task=${row!.id}` });
   revalidate();
   return { id: row!.id };
@@ -125,6 +133,7 @@ export const setTaskStatus = action(z.object({ id: uuid, status: z.enum(["open",
     .where(eq(s.tasks.id, id))
     .returning();
   await audit({ actorId: user.id, action: status === "done" ? "task.complete" : status === "open" ? "task.reopen" : "task.cancel", entity: "task", entityId: id, before, after });
+  await refreshHealth(before.dealId);
   if (status !== "open") {
     // Nothing Slips: closing the task clears its task-scoped alerts (NS-05/06/26) right away.
     await db
@@ -150,6 +159,7 @@ export const snoozeTask = action(
       .where(eq(s.tasks.id, id))
       .returning();
     await audit({ actorId: user.id, action: "task.snooze", entity: "task", entityId: id, before, after: { ...after, snoozeReason: reason } });
+    await refreshHealth(before.dealId);
     const [rule] = await db.select({ params: s.alertRules.params }).from(s.alertRules).where(eq(s.alertRules.code, "NS-26"));
     const threshold = typeof rule?.params?.snoozes === "number" ? rule.params.snoozes : 3;
     let escalated = false;

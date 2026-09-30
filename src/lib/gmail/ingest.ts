@@ -8,6 +8,7 @@ import { bumpActivity, internalDomains, loadDirectory, resolveDealForAccount } f
 import { matchParticipants, normalizeBlocklist, type Directory } from "@/lib/integrations/matching-core";
 import { getPrefs } from "@/lib/integrations/store";
 import { computeAwaiting, messageDirection, stripQuoted, type ParsedMessage } from "./parse";
+import { recomputeDealHealth } from "@/lib/deals/service";
 
 export type IngestContext = {
   owner: { id: string; name: string; email: string };
@@ -164,6 +165,7 @@ export async function ingestParsedMessage(
     });
   }
   await bumpActivity(threadRow.dealId, match.contactIds, sentAt);
+  if (threadRow.dealId) await recomputeDealHealth(threadRow.dealId);
   await refreshThreadState(threadRow.id);
   return { status: "ingested", threadRowId: threadRow.id, messageRowId: msg.id, dealId: threadRow.dealId };
 }

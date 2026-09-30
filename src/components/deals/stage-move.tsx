@@ -41,6 +41,12 @@ export function useStageMove(ctx: Ctx) {
         toast.error(res.error);
         return;
       }
+      if (res.data.pendingApproval) {
+        ctxRef.current.onOptimistic?.(deal.id, deal.stageId);
+        toast.info(`${stage.name} needs approval — request sent to your manager`);
+        onDone?.();
+        return;
+      }
       const extra = res.data.created.includes("migration_project")
         ? " · Onboarding project created"
         : res.data.created.includes("invoice")

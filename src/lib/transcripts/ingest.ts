@@ -6,6 +6,7 @@ import { getSetting } from "@/lib/settings";
 import { autonomyLevel } from "@/lib/integrations/core";
 import { bumpActivity, internalDomains, loadDirectory, resolveDealForAccount } from "@/lib/integrations/directory";
 import { matchParticipants, normalizeEmail } from "@/lib/integrations/matching-core";
+import { recomputeDealHealth } from "@/lib/deals/service";
 
 export type TranscriptSource = (typeof s.transcriptSource.enumValues)[number];
 
@@ -148,6 +149,7 @@ export async function ingestTranscript(input: IngestTranscriptInput): Promise<{ 
     metadata: { consent: Boolean(input.consent), source: input.source },
   });
   await bumpActivity(dealId, [], occurredAt);
+  if (dealId) await recomputeDealHealth(dealId);
   return { id: row.id, created: true, changed: false };
 }
 
@@ -163,5 +165,8 @@ export async function setTranscriptDeal(transcriptId: string, dealId: string | n
     .update(s.activities)
     .set({ dealId, ...(dealId ? { accountId } : {}) })
     .where(and(eq(s.activities.transcriptId, transcriptId), eq(s.activities.type, "call")));
-  if (dealId) await bumpActivity(dealId, [], new Date());
+  if (dealId) {
+    await bumpActivity(dealId, [], new Date());
+    await recomputeDealHealth(dealId);
+  }
 }

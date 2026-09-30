@@ -7,11 +7,11 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { normalizeDomain } from "@/lib/domain";
-import { assertCan, can, dealModule, ForbiddenError, ownedEntityWhere, scopeFor, type AppUser } from "@/lib/rbac/server";
+import { assertCan, can, dealModule, ForbiddenError, ownedEntityWhere, scopeFor } from "@/lib/rbac/server";
 import { toCsv } from "./csv";
 import { stageSlice } from "./board-shape";
-import { filledKeys, GATE_FIELDS, gateFieldMeta, missingFields, needsReason, parseGateValue, reasonPicklist } from "./gates";
-import { getPicklist, getPipelineByKey, getStagesByPipeline, listActiveUsers, listDealsForBoard } from "./queries";
+import { filledKeys, gateFieldMeta, missingFields } from "./gates";
+import { getPipelineByKey, getStagesByPipeline, listActiveUsers, listDealsForBoard } from "./queries";
 import { extractMentions, overrideAutoApproved, validateSplits } from "./rules";
 import {
   canAssignTo,
@@ -21,12 +21,12 @@ import {
   loadDealForWrite,
   logActivity,
   notify,
-  onDealWon,
   recomputeDealHealth,
-  type DealWriteContext,
 } from "./service";
 import { buildDealSummary } from "./summary";
-import type { StageDTO } from "./types";
+import { assertContactUsable, createContactForDeal, moveSchema, performStageMove, stageById } from "./stage-service";
+
+export type { MoveResult } from "./stage-service";
 
 const uuid = z.string().uuid();
 const optDate = z
@@ -49,158 +49,11 @@ function revalidateDeal(dealId: string, pipelineKey?: string) {
   revalidatePath("/pipelines");
 }
 
-async function stageById(stageId: string): Promise<(StageDTO & { pipelineId: string }) | null> {
-  const [st] = await db.select().from(s.stages).where(eq(s.stages.id, stageId));
-  return st
-    ? { id: st.id, key: st.key, name: st.name, sortOrder: st.sortOrder, probability: st.probability, category: st.category, slaDays: st.slaDays, requiredFields: st.requiredFields, pipelineId: st.pipelineId }
-    : null;
-}
-
-/* ═════════════════════ Stage moves (KAN-1, DEAL-2/3/7) ═════════════════════ */
-
-const moveSchema = z.object({
-  dealId: uuid,
-  toStageId: uuid,
-  /** Gate-dialog values keyed by field (dollars for usd, 0-100 for percent, ISO for dates, contact id). */
-  fields: z.record(z.string().max(60), z.string().max(2000)).optional(),
-  newContact: z.object({ fullName: z.string().trim().min(2).max(120), email: z.string().trim().email().max(200).optional().or(z.literal("")), title: z.string().trim().max(120).optional() }).optional(),
-  reasonCode: z.string().max(120).optional(),
-  reasonText: z.string().trim().max(2000).optional(),
-});
-type MoveInput = z.infer<typeof moveSchema>;
-
-export type MoveResult = { moved: boolean; stageId: string; status: string; created: string[]; health: number | null };
-
-async function createContactForDeal(user: AppUser, deal: { accountId: string | null }, c: NonNullable<MoveInput["newContact"]>) {
-  await assertCan(user, "contacts", "create");
-  const [first, ...rest] = c.fullName.split(/\s+/);
-  const [row] = await db
-    .insert(s.contacts)
-    .values({ accountId: deal.accountId, fullName: c.fullName, firstName: first ?? null, lastName: rest.join(" ") || null, email: c.email || null, title: c.title || null, ownerId: user.id, origin: "manual" })
-    .returning({ id: s.contacts.id });
-  await audit({ actorId: user.id, action: "contact.create", entity: "contact", entityId: row!.id, after: { fullName: c.fullName, accountId: deal.accountId } });
-  return row!.id;
-}
-
-/** Ensure a contact id is on the deal's account and visible to the user. */
-async function assertContactUsable(user: AppUser, accountId: string | null, contactId: string) {
-  const where = await ownedEntityWhere(user, "contacts", "view", s.contacts.ownerId);
-  const [c] = await db
-    .select({ id: s.contacts.id, accountId: s.contacts.accountId })
-    .from(s.contacts)
-    .where(and(eq(s.contacts.id, contactId), isNull(s.contacts.deletedAt), where));
-  if (!c) throw new UserError("That contact isn't available.");
-  if (accountId && c.accountId && c.accountId !== accountId) throw new UserError("The contact belongs to a different account.");
-}
-
-/** Core stage transition used by drag-and-drop, the record stage path and bulk moves. */
-async function performStageMove(user: AppUser, ctx: DealWriteContext, input: MoveInput): Promise<MoveResult> {
-  const target = await stageById(input.toStageId);
-  if (!target || target.pipelineId !== ctx.deal.pipelineId) throw new UserError("That stage belongs to a different pipeline.");
-  if (target.id === ctx.deal.stageId) return { moved: false, stageId: target.id, status: ctx.deal.status, created: [], health: ctx.deal.healthScore };
-
-  // 1. Apply gate-dialog field values
-  const patch: Record<string, unknown> = {};
-  const custom: Record<string, unknown> = { ...(ctx.deal.customFields ?? {}) };
-  for (const [key, raw] of Object.entries(input.fields ?? {})) {
-    if (!raw.trim()) continue;
-    if (ctx.hidden.has(key)) throw new ForbiddenError(`Your role can't edit ${gateFieldMeta(key).label}.`);
-    const meta = gateFieldMeta(key);
-    if (meta.kind === "contact") {
-      if (!uuid.safeParse(raw).success) throw new UserError("Pick a primary contact.");
-      await assertContactUsable(user, ctx.deal.accountId, raw);
-      patch.primaryContactId = raw;
-      continue;
-    }
-    const parsed = parseGateValue(meta.kind, raw);
-    if (parsed === undefined) throw new UserError(`${meta.label} is invalid.`);
-    if (key in GATE_FIELDS) patch[key] = meta.kind === "number" && ["muu", "rampMonths"].includes(key) ? Math.round(parsed as number) : parsed;
-    else custom[key] = parsed instanceof Date ? parsed.toISOString() : parsed;
-  }
-  if (input.newContact) await assertCan(user, "contacts", "create");
-
-  // 2. Gates (a new inline contact counts as the primary contact; it is created only once everything validates)
-  const merged = { ...ctx.deal, ...patch, ...(input.newContact ? { primaryContactId: "pending-new-contact" } : {}), customFields: custom } as Record<string, unknown> & {
-    customFields: Record<string, unknown>;
-  };
-  const missing = missingFields(target, filledKeys(merged, target.requiredFields));
-  if (missing.length) {
-    const hiddenMissing = missing.filter((k) => ctx.hidden.has(k));
-    if (hiddenMissing.length) throw new UserError(`${target.name} requires ${hiddenMissing.map((k) => gateFieldMeta(k).label).join(", ")} — ask a manager to complete it.`);
-    throw new UserError(`${target.name} requires: ${missing.map((k) => gateFieldMeta(k).label).join(", ")}.`);
-  }
-  let reason: string | null = null;
-  if (needsReason(target.category)) {
-    const list = reasonPicklist(target.category);
-    if (list) {
-      const options = await getPicklist(list);
-      if (!input.reasonCode || !options.some((o) => o.value === input.reasonCode)) throw new UserError(`Pick a ${target.category} reason.`);
-      reason = input.reasonText ? `${input.reasonCode}: ${input.reasonText}` : input.reasonCode;
-    } else {
-      if (!input.reasonText) throw new UserError("Add a short note on why this deal was won.");
-      reason = input.reasonText;
-    }
-  }
-
-  // 3. Write
-  if (input.newContact) patch.primaryContactId = await createContactForDeal(user, ctx.deal, input.newContact);
-  const now = new Date();
-  const from = ctx.stage;
-  const update: Partial<typeof s.deals.$inferInsert> = {
-    ...(patch as Partial<typeof s.deals.$inferInsert>),
-    customFields: custom,
-    stageId: target.id,
-    stageEnteredAt: now,
-    status: target.category,
-  };
-  update.wonAt = target.category === "won" ? (ctx.deal.wonAt ?? now) : null; // re-opened deals no longer count as won
-  if (target.category === "lost") {
-    update.lostAt = now;
-    update.lostReason = reason;
-  }
-  if (target.category === "hold") update.holdReason = reason;
-  if (target.category === "open") {
-    update.lostAt = null;
-    update.holdReason = null;
-  }
-
-  const created = await db.transaction(async (tx) => {
-    const [updated] = await tx.update(s.deals).set(update).where(eq(s.deals.id, ctx.deal.id)).returning();
-    await tx.insert(s.dealStageHistory).values({ dealId: ctx.deal.id, fromStageId: from.id, toStageId: target.id, changedBy: user.id, reason });
-    if (patch.primaryContactId) {
-      await tx.insert(s.dealContacts).values({ dealId: ctx.deal.id, contactId: patch.primaryContactId as string, role: null }).onConflictDoNothing();
-    }
-    await logActivity(
-      {
-        type: "stage_change",
-        source: "manual",
-        subject: `${from.name} → ${target.name}`,
-        body: reason,
-        actorId: user.id,
-        dealId: ctx.deal.id,
-        accountId: ctx.deal.accountId,
-        metadata: { fromStageId: from.id, toStageId: target.id, category: target.category },
-      },
-      tx,
-    );
-    return target.category === "won" ? onDealWon({ deal: updated!, pipelineKey: ctx.pipeline.key, actorId: user.id }, tx) : [];
-  });
-
-  await audit({
-    actorId: user.id,
-    action: "deal.stage_change",
-    entity: "deal",
-    entityId: ctx.deal.id,
-    before: { stageId: from.id, stage: from.name, status: ctx.deal.status },
-    after: { stageId: target.id, stage: target.name, status: target.category, reason, fields: Object.keys(patch), created },
-  });
-  const h = await recomputeDealHealth(ctx.deal.id);
-  return { moved: true, stageId: target.id, status: target.category, created, health: h?.score ?? null };
-}
+/* ═════════════════════ Stage moves (KAN-1, DEAL-2/3/7) — logic lives in ./stage-service ═════════════════════ */
 
 export const moveDealStage = action(moveSchema, async (input, user) => {
   const ctx = await loadDealForWrite(user, input.dealId, "edit");
-  const res = await performStageMove(user, ctx, input);
+  const res = await performStageMove(user, ctx, input, { via: "board" });
   revalidateDeal(ctx.deal.id, ctx.pipeline.key);
   return res;
 });
@@ -215,8 +68,9 @@ export const bulkMoveStage = action(
       try {
         const ctx = await loadDealForWrite(user, id, "edit");
         pipelineKey = ctx.pipeline.key;
-        const r = await performStageMove(user, ctx, { dealId: id, toStageId: input.toStageId, reasonCode: input.reasonCode, reasonText: input.reasonText });
+        const r = await performStageMove(user, ctx, { dealId: id, toStageId: input.toStageId, reasonCode: input.reasonCode, reasonText: input.reasonText }, { via: "bulk" });
         if (r.moved) moved.push(id);
+        else if (r.pendingApproval) skipped.push({ id, name: ctx.deal.name, reason: "Stage needs approval — request sent" });
       } catch (e) {
         const [d] = await db.select({ name: s.deals.name }).from(s.deals).where(eq(s.deals.id, id));
         skipped.push({ id, name: d?.name ?? id, reason: e instanceof Error ? e.message : "Failed" });

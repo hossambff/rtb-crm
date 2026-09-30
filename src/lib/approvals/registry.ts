@@ -3,9 +3,11 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
-import { getSetting } from "@/lib/settings";
 import { canSeeRestricted, dealModule, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { SCOPE_RANK } from "@/lib/rbac/model";
+import { UserError } from "@/lib/actions";
+import { applyRegistrationDecision } from "@/lib/commissions/registration-service";
+import { acceptCandidatesAs } from "@/lib/scout/accept";
 
 export type ApprovalRow = typeof s.approvals.$inferSelect;
 export type ApprovalDecision = "approved" | "rejected";
@@ -114,11 +116,33 @@ registerApprovalHandler("probability_override", {
   resolvesAlerts: (a) => ({ ruleCode: "NS-18", entity: "deal", entityIds: dealIdsOf(a) }),
 });
 
-// Stage gate (stages.requiresApproval): approve scope ≥ own on the pipeline, deal in scope. Moving the stage is the
-// Deals module's job — TODO(deals): register a richer handler that performs the stage move on approval.
+// Stage gate (stages.requiresApproval): approve scope ≥ own on the pipeline, deal in scope. Approving performs the move
+// through the deals module's stage-change service (gates, history, won automation, audit, health) as the approver.
 registerApprovalHandler("stage_gate", {
   canDecide: (user, a) => canApproveDeals(user, dealIdsOf(a), "own"),
-  label: dealLabel,
+  label: async (user, a) => {
+    const base = await dealLabel(user, a);
+    const to = typeof a.payload?.toStage === "string" ? a.payload.toStage : typeof a.payload?.toStageKey === "string" ? a.payload.toStageKey : null;
+    return base && to ? `${base} → ${to}` : base;
+  },
+  apply: async ({ approval, decision, user }) => {
+    if (decision !== "approved") return;
+    const p = approval.payload ?? {};
+    const toStageId = typeof p.toStageId === "string" ? p.toStageId : null;
+    if (!toStageId) throw new UserError("This request has no target stage.");
+    const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+    const fields = p.fields && typeof p.fields === "object" ? (p.fields as Record<string, string>) : undefined;
+    const nc = p.newContact && typeof p.newContact === "object" ? (p.newContact as { fullName: string; email?: string; title?: string }) : undefined;
+    const { moveDealToStage } = await import("@/lib/deals/stage-service"); // lazy: deals → approvals → deals cycle
+    const r = await moveDealToStage(
+      user,
+      approval.entityId,
+      { id: toStageId },
+      { fields, newContact: nc, reasonCode: str(p.reasonCode), reasonText: str(p.reasonText) ?? str(p.reason) },
+      { approved: true, via: "approval" },
+    );
+    if (!r.moved) throw new UserError("The deal is already in that stage.");
+  },
 });
 
 // Proposal approval (PRD M14 / NS-29).
@@ -154,9 +178,10 @@ registerApprovalHandler("proposal", {
   resolvesAlerts: (a) => ({ ruleCode: "NS-29", entity: "proposal", entityIds: [a.entityId] }),
 });
 
-// Commission lead registration (PRD M18): commissions.approve.
+// Commission lead registration (PRD M18 / COM-6): same rule and side effects as Commissions → Registrations
+// (accounts.assign = all; protection window, account owner if unowned, requester notified).
 registerApprovalHandler("lead_registration", {
-  canDecide: async (user) => SCOPE_RANK[await scopeFor(user, "commissions", "approve")] >= SCOPE_RANK.own,
+  canDecide: async (user) => (await scopeFor(user, "accounts", "assign")) === "all",
   label: async (_user, a) => {
     const [r] = await db
       .select({ account: s.accounts.name })
@@ -166,38 +191,61 @@ registerApprovalHandler("lead_registration", {
     return r ? `Registration · ${r.account}` : null;
   },
   apply: async ({ approval, decision, user, note }) => {
-    const days = await getSetting<number>("commission.registration_protect_days", 90);
-    const [before] = await db.select().from(s.leadRegistrations).where(eq(s.leadRegistrations.id, approval.entityId));
-    if (!before) return;
-    const [after] = await db
-      .update(s.leadRegistrations)
-      .set({
-        status: decision,
-        decidedBy: user.id,
-        note: note ?? before.note,
-        protectedUntil: decision === "approved" ? new Date(Date.now() + days * 86_400_000) : null,
-      })
-      .where(eq(s.leadRegistrations.id, approval.entityId))
-      .returning();
-    await audit({ actorId: user.id, action: `lead_registration.${decision}`, entity: "lead_registration", entityId: approval.entityId, before, after });
+    await applyRegistrationDecision(user, approval.entityId, decision, note, { syncApproval: false });
   },
 });
 
-// Scout budget increase (AT-13): routed to SVP/exec — scout.assign ≥ team covering the requester.
-// payload: { userId?: string, monthlyCents?: number }. TODO(scout): richer handling (org budget, one-off top-ups).
+// Scout budget request (AT-13), created by Lead Scout's "Request more budget": routed to SVP/exec — scout.assign ≥ team
+// covering the requester. Semantics (src/lib/scout/budget.ts): an APPROVED scout_budget row for the same user + entity
+// is a one-time override that lifts the per-run/user cap up to payload.amountCents for the next run on that entity
+// (consumed via payload.consumedRunId) — so approving needs no extra side effect. A payload.monthlyCents (admin-style
+// request) additionally sets the user's standing monthly cap.
 registerApprovalHandler("scout_budget", {
   canDecide: async (user, a) => {
     const scope = await scopeFor(user, "scout", "assign");
     if (SCOPE_RANK[scope] < SCOPE_RANK.team) return false;
     return inScope(user, scope, { ownerId: typeof a.payload?.userId === "string" ? a.payload.userId : a.requestedBy });
   },
+  label: async (_user, a) => {
+    const cents = typeof a.payload?.amountCents === "number" ? a.payload.amountCents : typeof a.payload?.monthlyCents === "number" ? a.payload.monthlyCents : null;
+    const who = typeof a.payload?.requesterName === "string" ? a.payload.requesterName : null;
+    const what = a.entity === "account" ? "enrichment" : "Lead Scout run";
+    return `Scout budget${cents != null ? ` · $${(cents / 100).toFixed(2)}` : ""} for ${what}${who ? ` · ${who}` : ""}`;
+  },
   apply: async ({ approval, decision, user }) => {
     if (decision !== "approved") return;
     const target = typeof approval.payload?.userId === "string" ? approval.payload.userId : approval.requestedBy;
     const cents = approval.payload?.monthlyCents;
-    if (typeof cents !== "number" || !Number.isFinite(cents) || cents < 0) return;
+    if (typeof cents !== "number" || !Number.isFinite(cents) || cents < 0) return; // one-time override: status is enough
     const [before] = await db.select({ c: s.user.monthlyScoutBudgetCents }).from(s.user).where(eq(s.user.id, target));
     await db.update(s.user).set({ monthlyScoutBudgetCents: Math.round(cents) }).where(eq(s.user.id, target));
     await audit({ actorId: user.id, action: "user.scout_budget_set", entity: "user", entityId: target, before, after: { c: Math.round(cents) } });
+  },
+});
+
+// Scout suggested targets (roles without scout edit, e.g. interns): payload { candidateIds, domains, pipelineKey }.
+// Approver needs scout edit covering the requester's searches; approving accepts the candidates through Lead Scout's
+// accept service (account + Target deal, ownership protection) with the requester as owner.
+registerApprovalHandler("scout_accept", {
+  canDecide: async (user, a) => {
+    const scope = await scopeFor(user, "scout", "edit");
+    if (scope === "all" || scope === "pipeline") return true;
+    if (scope === "team") return user.teamMemberIds.includes(a.requestedBy);
+    return false;
+  },
+  label: async (_user, a) => {
+    const domains = Array.isArray(a.payload?.domains) ? (a.payload.domains as unknown[]).filter((d): d is string => typeof d === "string") : [];
+    if (!domains.length) return "Suggested Lead Scout targets";
+    return `Suggested targets · ${domains.slice(0, 3).join(", ")}${domains.length > 3 ? ` +${domains.length - 3}` : ""}`;
+  },
+  apply: async ({ approval, decision, user }) => {
+    if (decision !== "approved") return;
+    const ids = Array.isArray(approval.payload?.candidateIds) ? (approval.payload.candidateIds as unknown[]).filter((x): x is string => typeof x === "string") : [];
+    if (!ids.length) throw new UserError("No candidates on this request.");
+    const pk = approval.payload?.pipelineKey;
+    const pipelineKey = pk === "NET" || pk === "SPT" || pk === "ENT" ? pk : undefined;
+    const outcomes = await acceptCandidatesAs(user, { ids: ids.slice(0, 200), pipelineKey, ownerId: approval.requestedBy, enrich: false });
+    if (outcomes.length && outcomes.every((o) => !o.ok)) throw new UserError(`Could not accept: ${outcomes.map((o) => `${o.domain}: ${o.message}`).slice(0, 3).join("; ")}`);
+    await audit({ actorId: user.id, action: "scout_candidate.accept_approved", entity: "approval", entityId: approval.id, after: { outcomes } });
   },
 });

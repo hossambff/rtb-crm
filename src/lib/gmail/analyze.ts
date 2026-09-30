@@ -19,6 +19,7 @@ import {
 } from "./analysis-core";
 import { stripQuoted } from "./parse";
 import { refreshThreadState } from "./ingest";
+import { recomputeDealHealth } from "@/lib/deals/service";
 
 export type StoredEmailAnalysis = EmailAnalysis & {
   suggestedDealId?: string | null;
@@ -82,6 +83,7 @@ export async function createCommitmentTask(opts: {
       evidenceSource,
     })
     .returning({ id: s.tasks.id });
+  if (opts.dealId) await recomputeDealHealth(opts.dealId);
   return t!.id;
 }
 

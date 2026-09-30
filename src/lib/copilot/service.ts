@@ -23,6 +23,7 @@ import {
   type RunState,
 } from "./queries";
 import type { CreateTaskOutput, EmailDraft, MeetingBrief, StageSuggestionOutput, TaskSuggestion } from "./types";
+import { recomputeDealHealth } from "@/lib/deals/service";
 
 /* ───────────── tasks ───────────── */
 
@@ -87,6 +88,7 @@ export async function insertTask(user: AppUser, task: TaskSuggestion, accountId:
     })
     .returning({ id: s.tasks.id });
   await audit({ actorId: user.id, actorKind, action: "task.create", entity: "task", entityId: row!.id, after: { ...task, via: "copilot" } });
+  if (task.dealId) await recomputeDealHealth(task.dealId);
   return row!.id;
 }
 

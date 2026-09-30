@@ -17,6 +17,7 @@ const KIND_LABELS: Record<string, string> = {
   lead_registration: "Lead registration",
   scout_budget: "Scout budget",
   stage_gate: "Stage gate",
+  scout_accept: "Suggested targets",
 };
 
 function PayloadLine({ p }: { p: Record<string, unknown> }) {
@@ -24,6 +25,9 @@ function PayloadLine({ p }: { p: Record<string, unknown> }) {
   if (typeof p.probability === "number") parts.push(`Requested ${Math.round(p.probability * 100)}%`);
   if (typeof p.fromProbability === "number") parts.push(`from ${Math.round(p.fromProbability * 100)}%`);
   if (typeof p.monthlyCents === "number") parts.push(`$${(p.monthlyCents / 100).toFixed(2)}/month`);
+  if (typeof p.amountCents === "number") parts.push(`$${(p.amountCents / 100).toFixed(2)} one-time`);
+  if (typeof p.to === "number") parts.push(`Requested ${Math.round(p.to * 100)}%`);
+  if (typeof p.reasonText === "string") parts.push(`“${p.reasonText}”`);
   if (typeof p.reason === "string") parts.push(`“${p.reason}”`);
   if (typeof p.dealIds === "string") parts.push(p.dealIds);
   return parts.length ? <p className="mt-0.5 text-xs text-secondary">{parts.join(" · ")}</p> : null;

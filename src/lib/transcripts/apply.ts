@@ -8,12 +8,14 @@ import { isFieldHidden } from "@/lib/rbac/model";
 import { ForbiddenError, type AppUser } from "@/lib/rbac/server";
 import { getAccessibleDeal } from "@/lib/integrations/deal-access";
 import { parseAudience } from "@/lib/domain";
+import { getPicklist } from "@/lib/deals/queries";
+import { moveDealToStage } from "@/lib/deals/stage-service";
+import { recomputeDealHealth } from "@/lib/deals/service";
 import type { TranscriptAnalysis } from "./analysis-core";
 
 /**
- * ⚠️ CONSOLIDATE LATER: the deals module owns stage changes (gates, required fields, approvals, alerts).
- * This is a minimal, permission-checked stand-in used by the post-call Apply screen until that module is merged —
- * replace the body with a call to the deals module's stage-change service.
+ * Post-call Apply → the deals module's stage-change service (gates, required fields, approval-gated stages, won/lost
+ * handling, stage history, audit, health). Won/Lost still need the close details, so they're done from the deal page.
  */
 export async function applyStageChange(user: AppUser, dealId: string, toStageId: string, reason: string) {
   const deal = await getAccessibleDeal(user, dealId, "edit");
@@ -23,29 +25,17 @@ export async function applyStageChange(user: AppUser, dealId: string, toStageId:
     .from(s.stages)
     .where(and(eq(s.stages.id, toStageId), eq(s.stages.pipelineId, deal.pipelineId)));
   if (!stage) throw new UserError("That stage doesn't belong to this deal's pipeline.");
-  if (stage.id === deal.stageId) return { changed: false };
-  if (stage.requiresApproval) throw new UserError(`Moving to “${stage.name}” requires approval — change it from the deal page.`);
+  if (stage.id === deal.stageId) return { changed: false, pendingApproval: false };
   if (stage.category === "won" || stage.category === "lost") {
     throw new UserError("Mark deals Won/Lost from the deal page (it asks for the required close details).");
   }
-  const now = new Date();
-  await db
-    .update(s.deals)
-    .set({ stageId: stage.id, stageEnteredAt: now, status: stage.category, lastActivityAt: now })
-    .where(eq(s.deals.id, dealId));
-  await db.insert(s.dealStageHistory).values({ dealId, fromStageId: deal.stageId, toStageId: stage.id, changedBy: user.id, reason });
-  await db.insert(s.activities).values({
-    type: "stage_change",
-    source: "manual",
-    subject: `Stage → ${stage.name}`,
-    body: reason,
-    actorId: user.id,
-    dealId,
-    accountId: deal.accountId,
-    metadata: { fromStageId: deal.stageId, toStageId: stage.id },
-  });
-  await audit({ actorId: user.id, action: "deal.stage_change", entity: "deal", entityId: dealId, before: { stageId: deal.stageId }, after: { stageId: stage.id, reason } });
-  return { changed: true };
+  let reasonCode: string | undefined;
+  if (stage.category === "hold") {
+    const options = await getPicklist("hold_reason");
+    reasonCode = (options.find((o) => /other/i.test(o.value) || /other/i.test(o.label)) ?? options[0])?.value;
+  }
+  const r = await moveDealToStage(user, dealId, { id: stage.id }, { reasonCode, reasonText: reason.slice(0, 2000) }, { via: "call_review" });
+  return { changed: r.moved, pendingApproval: Boolean(r.pendingApproval) };
 }
 
 export type ApplyInput = {
@@ -131,7 +121,9 @@ export async function applyTranscriptReview(user: AppUser, transcriptId: string,
   if (t.dealId && input.stageId) {
     const r = await applyStageChange(user, t.dealId, input.stageId, `Applied from call review (transcript ${t.title ?? t.id})`);
     applied.stageChanged = r.changed;
+    if (r.pendingApproval) applied.stageApprovalRequested = true;
   }
+  if (t.dealId && (taskIds.length || applied.fields)) await recomputeDealHealth(t.dealId);
 
   const analysis = (t.analysis ?? {}) as Partial<TranscriptAnalysis> & { applied?: unknown[] };
   const history = Array.isArray(analysis.applied) ? analysis.applied : [];

@@ -7,6 +7,7 @@ import { DEFAULT_HIDDEN_FIELDS, type Role } from "@/lib/rbac/model";
 import { assertCan, dealAccessWhere, dealModule, ForbiddenError, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { UserError } from "@/lib/actions";
 import { computeHealth } from "./health";
+import { ensureMigrationProject } from "@/lib/onboarding/service";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type DbOrTx = typeof db | Tx;
@@ -228,16 +229,9 @@ export async function onDealWon(ctx: { deal: typeof s.deals.$inferSelect; pipeli
   const { deal, pipelineKey } = ctx;
   const created: string[] = [];
   if (["NET", "ENT", "SPT"].includes(pipelineKey)) {
-    const [existing] = await tx.select({ id: s.migrationProjects.id }).from(s.migrationProjects).where(eq(s.migrationProjects.dealId, deal.id));
-    if (!existing) {
-      let name = deal.name;
-      if (deal.accountId) {
-        const [acc] = await tx.select({ name: s.accounts.name }).from(s.accounts).where(eq(s.accounts.id, deal.accountId));
-        if (acc) name = acc.name;
-      }
-      await tx.insert(s.migrationProjects).values({ dealId: deal.id, accountId: deal.accountId, name, stage: "discovery" });
-      created.push("migration_project");
-    }
+    // Single path with the Programs module (idempotent; returns the existing project if there is one).
+    const res = await ensureMigrationProject(deal.id, { actorId: ctx.actorId }, tx);
+    if (res?.created) created.push("migration_project");
   }
   if (pipelineKey === "ADS" && deal.nextPaymentCents && deal.nextPaymentAt) {
     const [existing] = await tx
