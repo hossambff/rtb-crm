@@ -165,6 +165,7 @@ export async function recomputeDealHealth(dealId: string, tx: DbOrTx = db): Prom
     nextStepWaitingReason: row.deal.nextStepWaitingReason,
     stakeholderRoles: roles.map((r) => r.role),
     overdueTaskCount: overdue?.n ?? 0,
+    imported: row.deal.tags?.includes("imported") ?? false,
   });
   if (h.score !== row.deal.healthScore || h.explanation !== row.deal.healthExplanation) {
     await tx.update(s.deals).set({ healthScore: h.score, healthExplanation: h.explanation }).where(eq(s.deals.id, dealId));
