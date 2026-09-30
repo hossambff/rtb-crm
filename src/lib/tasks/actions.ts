@@ -12,13 +12,15 @@ import { raiseSnoozeAlert } from "@/lib/alerts/engine";
 import { canEditTaskSync } from "./queries";
 import { PRIORITIES } from "./core";
 import { recomputeDealHealth } from "@/lib/deals/service";
+import { parseUserDate } from "@/lib/time";
 
 const uuid = z.string().uuid();
 const optUuid = z.string().uuid().nullish();
+/** Validated date string; resolved in the user's zone with `parseUserDate` (date-only → 17:00 local, M-06/QA-12). */
 const isoDate = z
   .string()
-  .refine((v) => !Number.isNaN(new Date(v).getTime()), "Invalid date")
-  .transform((v) => new Date(v));
+  .max(40)
+  .refine((v) => parseUserDate(v, "UTC") != null, "Invalid date");
 
 const TaskInput = z.object({
   id: uuid.optional(),
@@ -95,7 +97,7 @@ export const saveTask = action(TaskInput, async (input, user) => {
   const values = {
     title: input.title,
     description: input.description || null,
-    dueAt: input.dueAt ?? null,
+    dueAt: input.dueAt ? (parseUserDate(input.dueAt, user.timezone) ?? null) : null,
     assigneeId,
     priority: input.priority,
     dealId: input.dealId ?? null,
@@ -149,13 +151,16 @@ export const setTaskStatus = action(z.object({ id: uuid, status: z.enum(["open",
 
 export const snoozeTask = action(
   z.object({ id: uuid, until: isoDate, reason: z.string().trim().min(3, "Give a short reason").max(500) }),
-  async ({ id, until, reason }, user) => {
+  async ({ id, until: untilRaw, reason }, user) => {
+    // a zone-less "YYYY-MM-DDTHH:mm" is wall time in the user's PROFILE zone, not the browser's or the server's (QA-12)
+    const until = parseUserDate(untilRaw, user.timezone);
+    if (!until) throw new UserError("Pick when it should come back.");
     if (until.getTime() <= Date.now()) throw new UserError("Pick a time in the future.");
     const before = await loadEditable(user, id);
     if (before.status !== "open") throw new UserError("Only open tasks can be snoozed.");
     const [after] = await db
       .update(s.tasks)
-      .set({ snoozedUntil: until, dueAt: until, snoozeCount: sql`${s.tasks.snoozeCount} + 1` })
+      .set({ snoozedUntil: until, dueAt: until, snoozeReason: reason, snoozeCount: sql`${s.tasks.snoozeCount} + 1` })
       .where(eq(s.tasks.id, id))
       .returning();
     await audit({ actorId: user.id, action: "task.snooze", entity: "task", entityId: id, before, after: { ...after, snoozeReason: reason } });

@@ -3,6 +3,7 @@
  * needs the gate dialog; the server re-evaluates with the same functions before writing.
  */
 import type { StageCategory } from "./types";
+import { DEFAULT_TZ, parseUserDate } from "@/lib/time";
 
 export type GateFieldKind = "number" | "usd" | "percent" | "date" | "text" | "contact";
 
@@ -86,7 +87,8 @@ export function filledKeys(deal: Record<string, unknown> & { customFields?: Reco
  * usd → cents (input in dollars), percent → 0..1 (input 0..100), number → number, date → Date, text/contact → string.
  * Returns undefined when the value is empty/invalid.
  */
-export function parseGateValue(kind: GateFieldKind, raw: unknown): number | string | Date | undefined {
+/** `tz` = the user's zone: a date-only value is stored as 17:00 local that day (src/lib/time.ts, M-06). */
+export function parseGateValue(kind: GateFieldKind, raw: unknown, tz = DEFAULT_TZ): number | string | Date | undefined {
   if (raw == null) return undefined;
   const s = String(raw).trim();
   if (!s) return undefined;
@@ -103,10 +105,8 @@ export function parseGateValue(kind: GateFieldKind, raw: unknown): number | stri
       const n = Number(s.replace(/[%\s]/g, ""));
       return Number.isFinite(n) && n > 0 && n <= 100 ? n / 100 : undefined;
     }
-    case "date": {
-      const d = new Date(s);
-      return Number.isNaN(d.getTime()) ? undefined : d;
-    }
+    case "date":
+      return parseUserDate(s, tz) ?? undefined;
     default:
       return s;
   }

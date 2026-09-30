@@ -329,11 +329,11 @@ export async function adsRevenue(ctx: AnalyticsContext, now: Date) {
 export async function snapshotTrend(ctx: AnalyticsContext, now: Date) {
   if (!ctx.orgWide) return null;
   const since = new Date(now.getTime() - 12 * 7 * 86_400_000).toISOString().slice(0, 10);
-  const weighted = ctx.filters.overrides ? s.pipelineSnapshots.weightedCents : sql`(${s.pipelineSnapshots.weightedCents} - ${s.pipelineSnapshots.overrideWeightedCents})`;
+  const weighted = snapshotWeightedSql(ctx.filters.overrides);
   const rows = await limited(db
     .select({ day: s.pipelineSnapshots.takenOn, pipeline: s.pipelineSnapshots.pipelineKey, weighted: sumF(sql`${weighted}::float8 / 100`) })
     .from(s.pipelineSnapshots)
-    .where(gte(s.pipelineSnapshots.takenOn, since))
+    .where(and(gte(s.pipelineSnapshots.takenOn, since), SNAPSHOT_OPEN))
     .groupBy(s.pipelineSnapshots.takenOn, s.pipelineSnapshots.pipelineKey)
     .orderBy(asc(s.pipelineSnapshots.takenOn)));
   return rows;
@@ -348,10 +348,22 @@ export async function weekAgoWeighted(ctx: AnalyticsContext, now: Date): Promise
     .from(s.pipelineSnapshots)
     .where(lte(s.pipelineSnapshots.takenOn, day)));
   if (!latest?.d) return null;
-  const weighted = ctx.filters.overrides ? s.pipelineSnapshots.weightedCents : sql`(${s.pipelineSnapshots.weightedCents} - ${s.pipelineSnapshots.overrideWeightedCents})`;
+  const weighted = snapshotWeightedSql(ctx.filters.overrides);
   const [r] = await limited(db
     .select({ v: sumF(sql`${weighted}::float8 / 100`) })
     .from(s.pipelineSnapshots)
-    .where(eq(s.pipelineSnapshots.takenOn, latest.d)));
+    .where(and(eq(s.pipelineSnapshots.takenOn, latest.d), SNAPSHOT_OPEN)));
   return r?.v ?? null;
 }
+
+/**
+ * Snapshot column for the weighted value (H-01): `override_weighted_cents` = with approved overrides,
+ * `weighted_cents` = stage probability only (see snapshot-core `snapshotWeightedCents`).
+ */
+function snapshotWeightedSql(includeOverrides: boolean) {
+  return includeOverrides ? s.pipelineSnapshots.overrideWeightedCents : s.pipelineSnapshots.weightedCents;
+}
+
+/** Only open-stage snapshot rows are pipeline (legacy rows written before H-01 may include won/lost stages). */
+const SNAPSHOT_OPEN = sql`exists (select 1 from ${s.stages} st join ${s.pipelines} sp on sp.id = st.pipeline_id
+  where sp.key = ${s.pipelineSnapshots.pipelineKey} and st.key = ${s.pipelineSnapshots.stageKey} and st.category = 'open')`;

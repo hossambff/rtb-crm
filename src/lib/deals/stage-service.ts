@@ -106,7 +106,7 @@ export async function performStageMove(user: AppUser, ctx: DealWriteContext, inp
       patch.primaryContactId = raw;
       continue;
     }
-    const parsed = parseGateValue(meta.kind, raw);
+    const parsed = parseGateValue(meta.kind, raw, user.timezone);
     if (parsed === undefined) throw new UserError(`${meta.label} is invalid.`);
     if (key in GATE_FIELDS) patch[key] = meta.kind === "number" && ["muu", "rampMonths"].includes(key) ? Math.round(parsed as number) : parsed;
     else custom[key] = customPatch[key] = parsed instanceof Date ? parsed.toISOString() : parsed;

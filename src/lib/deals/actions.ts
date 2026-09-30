@@ -7,6 +7,7 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { normalizeDomain } from "@/lib/domain";
+import { parseUserDate } from "@/lib/time";
 import { assertCan, can, dealModule, ForbiddenError, ownedEntityWhere, scopeFor } from "@/lib/rbac/server";
 import { notifyMany } from "@/lib/notifications/notify";
 import { toCsv } from "./csv";
@@ -29,18 +30,17 @@ import { assertContactUsable, createContactForDeal, moveSchema, performStageMove
 export type { MoveResult } from "./stage-service";
 
 const uuid = z.string().uuid();
+/**
+ * Date inputs stay strings through validation and are resolved in the USER's time zone by `userDate` (M-06):
+ * a date-only "YYYY-MM-DD" becomes 17:00 local on that day (src/lib/time.ts), not 00:00 UTC (8 pm ET the day before).
+ */
 const optDate = z
-  .union([z.string(), z.null()])
+  .union([z.string().max(40), z.null()])
   .optional()
-  .transform((v, ctx) => {
-    if (v == null || v === "") return v === undefined ? undefined : null;
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) {
-      ctx.addIssue({ code: "custom", message: "Invalid date" });
-      return z.NEVER;
-    }
-    return d;
-  });
+  .refine((v) => v == null || v === "" || parseUserDate(v, "UTC") !== undefined, "Invalid date");
+/** undefined = not provided; null = cleared. */
+const userDate = (v: string | null | undefined, user: { timezone: string }, dateOnlyHour?: number): Date | null | undefined =>
+  v === undefined ? undefined : (parseUserDate(v, user.timezone, { dateOnlyHour }) ?? null);
 const priorityEnum = z.enum(["top10", "high", "medium", "low"]);
 
 function revalidateDeal(dealId: string, pipelineKey?: string) {
@@ -158,8 +158,8 @@ export const createDeal = action(createSchema, async (input, user) => {
   const stage = await stageById(input.stageId);
   if (!stage || stage.pipelineId !== pipeline.id) throw new UserError("Pick a stage in this pipeline.");
   if (stage.category !== "open") throw new UserError("New deals must start in an open stage.");
-  const due = new Date(input.nextStepDueAt);
-  if (Number.isNaN(due.getTime())) throw new UserError("Next step due date is invalid.");
+  const due = parseUserDate(input.nextStepDueAt, user.timezone);
+  if (!due) throw new UserError("Next step due date is invalid.");
 
   const ownerId = input.ownerId || user.id;
   if (ownerId !== user.id) {
@@ -266,10 +266,10 @@ export const updateDealQuick = action(quickSchema, async ({ dealId, patch }, use
   const upd: Partial<typeof s.deals.$inferInsert> = {};
   if (patch.name !== undefined) upd.name = patch.name;
   if (patch.nextStep !== undefined) upd.nextStep = patch.nextStep || null;
-  if (patch.nextStepDueAt !== undefined) upd.nextStepDueAt = patch.nextStepDueAt;
+  if (patch.nextStepDueAt !== undefined) upd.nextStepDueAt = userDate(patch.nextStepDueAt, user);
   if (patch.nextStepWaitingReason !== undefined) upd.nextStepWaitingReason = patch.nextStepWaitingReason || null;
   if (patch.priority !== undefined) upd.priority = patch.priority;
-  if (patch.expectedCloseDate !== undefined) upd.expectedCloseDate = patch.expectedCloseDate;
+  if (patch.expectedCloseDate !== undefined) upd.expectedCloseDate = userDate(patch.expectedCloseDate, user);
   if (patch.source !== undefined) upd.source = patch.source || null;
   if (patch.ownerId !== undefined && patch.ownerId !== ctx.deal.ownerId) {
     await assertCan(user, dealModule(ctx.pipeline.key), "assign");
@@ -324,6 +324,7 @@ export const updateDealValues = action(valueSchema, async ({ dealId, patch }, us
     if (ctx.hidden.has(col)) throw new ForbiddenError(`Your role can't edit ${gateFieldMeta(col).label}.`);
     if (col.endsWith("Cents")) upd[col] = v == null ? null : Math.round((v as number) * 100);
     else if (col === "revSharePct") upd[col] = v == null ? null : (v as number) / 100;
+    else if (col === "nextPaymentAt" || col === "renewalAt") upd[col] = userDate(v as string | null, user);
     else upd[col] = v;
   }
   if (!Object.keys(upd).length) return { ok: true };
@@ -406,7 +407,7 @@ export const logDealActivity = action(
       type: input.type,
       subject: input.subject || null,
       body: input.body || null,
-      occurredAt: input.occurredAt ?? new Date(),
+      occurredAt: userDate(input.occurredAt, user, 12) ?? new Date(),
       durationMin: input.durationMin ?? null,
       contactId: input.contactId || null,
       direction: input.direction ?? null,
@@ -458,7 +459,7 @@ export const createDealTask = action(
       .values({
         title: input.title,
         description: input.description || null,
-        dueAt: input.dueAt ?? null,
+        dueAt: userDate(input.dueAt, user) ?? null,
         assigneeId,
         createdBy: user.id,
         dealId: ctx.deal.id,
@@ -565,8 +566,8 @@ export const addDocument = action(
         url: input.url || null,
         status: input.status,
         version: (prev?.v ?? 0) + 1,
-        signedAt: input.signedAt ?? (input.status === "signed" ? new Date() : null),
-        expiresAt: input.expiresAt ?? null,
+        signedAt: userDate(input.signedAt, user, 12) ?? (input.status === "signed" ? new Date() : null),
+        expiresAt: userDate(input.expiresAt, user) ?? null,
         uploadedBy: user.id,
       })
       .returning({ id: s.documents.id });

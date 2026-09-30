@@ -15,6 +15,8 @@ export type SnapshotDeal = {
   stageProbability: number;
   probabilityOverride: number | null;
   overrideStatus: string | null;
+  /** Stage category; only `open` deals are pipeline (H-01/M-10). Omitted = treated as open (legacy callers). */
+  stageCategory?: string;
 };
 
 export type SnapshotRow = {
@@ -28,15 +30,26 @@ export type SnapshotRow = {
 };
 
 /**
- * Per pipeline × stage: count, MUU, gross $, weighted $ at stage probability, and weighted $ honoring approved
- * probability overrides. Every known stage gets a row (zeros included) so charts have stable axes.
+ * Column semantics (H-01) — keep readers and the writer in one place:
+ * - `weightedCents`          = weighted at the STAGE probability (overrides ignored) → "excl. overrides"
+ * - `overrideWeightedCents`  = weighted honoring APPROVED probability overrides      → "incl. overrides"
  */
-export function aggregateSnapshot(deals: SnapshotDeal[], stages: { pipelineKey: string; stageKey: string }[]): SnapshotRow[] {
+export function snapshotWeightedCents(row: Pick<SnapshotRow, "weightedCents" | "overrideWeightedCents">, includeOverrides: boolean): number {
+  return includeOverrides ? row.overrideWeightedCents : row.weightedCents;
+}
+
+/**
+ * Per pipeline × OPEN stage: count, MUU, gross $, weighted $ at stage probability, and weighted $ honoring approved
+ * probability overrides. Won / lost / hold stages are not pipeline and are excluded (H-01, M-10). Every known open
+ * stage gets a row (zeros included) so charts have stable axes.
+ */
+export function aggregateSnapshot(deals: SnapshotDeal[], stages: { pipelineKey: string; stageKey: string; category?: string }[]): SnapshotRow[] {
   const rows = new Map<string, SnapshotRow>();
   const key = (p: string, st: string) => `${p}|${st}`;
   for (const st of stages)
-    rows.set(key(st.pipelineKey, st.stageKey), { pipelineKey: st.pipelineKey, stageKey: st.stageKey, dealCount: 0, muu: 0, grossCents: 0, weightedCents: 0, overrideWeightedCents: 0 });
+    if ((st.category ?? "open") === "open") rows.set(key(st.pipelineKey, st.stageKey), { pipelineKey: st.pipelineKey, stageKey: st.stageKey, dealCount: 0, muu: 0, grossCents: 0, weightedCents: 0, overrideWeightedCents: 0 });
   for (const d of deals) {
+    if ((d.stageCategory ?? "open") !== "open") continue;
     const k = key(d.pipelineKey, d.stageKey);
     let r = rows.get(k);
     if (!r) {

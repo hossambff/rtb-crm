@@ -195,7 +195,8 @@ describe("documents, onboarding, R100, revenue", () => {
     expect(invoiceOverdueTier({ status: "sent", dueAt: days(20) }, NOW)).toBe(14);
     expect(invoiceOverdueTier({ status: "sent", dueAt: days(8) }, NOW)).toBe(7);
     expect(invoiceOverdueTier({ status: "sent", dueAt: days(1) }, NOW)).toBe(1);
-    expect(invoiceOverdueTier({ status: "sent", dueAt: days(0.5) }, NOW)).toBe(null);
+    expect(invoiceOverdueTier({ status: "sent", dueAt: days(0.1) }, NOW)).toBe(null); // due earlier today (ET) → not late yet
+    expect(invoiceOverdueTier({ status: "sent", dueAt: days(0.5) }, NOW)).toBe(1); // due yesterday 23:00 ET → 1 calendar day late (M-07)
     expect(invoiceOverdueTier({ status: "paid", dueAt: days(20) }, NOW)).toBe(null);
   });
   it("NS-24 renewal tiers", () => {

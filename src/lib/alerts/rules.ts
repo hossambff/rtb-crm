@@ -4,12 +4,14 @@
  */
 import {
   businessDaysBetween,
+  businessDaysPassed,
   businessHoursBetween,
   daysBetween,
   daysLeftInMonth,
   isBusinessDay,
-  monthIndexSince,
+  localDateKey,
 } from "./time";
+import { participationMonthIndex } from "../r100/calc";
 
 export type Severity = "info" | "warning" | "serious" | "critical";
 export const SEVERITY_RANK: Record<Severity, number> = { info: 0, warning: 1, serious: 2, critical: 3 };
@@ -178,7 +180,7 @@ export function docUnsigned(
 ): boolean {
   if (doc.status !== "sent") return false;
   if (!["nda", "contract", "io", "proposal", "pro_forma"].includes(doc.type)) return false;
-  return businessDaysBetween(doc.createdAt, now, opts.tz) >= opts.businessDays;
+  return businessDaysPassed(doc.createdAt, now, opts.businessDays, opts.tz);
 }
 
 /** NS-11: signed NDA/contract expiring within N days. */
@@ -204,24 +206,38 @@ export function goLiveSlipped(p: { launched: boolean; targetGoLive?: Date | null
   return !p.launched && !p.actualGoLive && p.targetGoLive != null && p.targetGoLive < now;
 }
 
+/* ───────────── Escalation ───────────── */
+
+/**
+ * Escalation recipients (QA-04): the manager (user.managerId, else the team lead — resolved by the caller), else every
+ * active sales leader, else every active executive; never the user themselves.
+ */
+export function escalationChain(p: { self: string; manager: string | null; salesLeaders: string[]; executives: string[] }): string[] {
+  if (p.manager && p.manager !== p.self) return [p.manager];
+  for (const tier of [p.salesLeaders, p.executives]) {
+    const ids = tier.filter((id) => id !== p.self);
+    if (ids.length) return ids;
+  }
+  return [];
+}
+
 /* ───────────── R100 ───────────── */
 
 /**
- * NS-21: live RTB100 company hasn't posted this month. participation[i] = month i+1 since firstPostDate.
- * Fires only in the last `windowDays` days of the month (PRD: month end −7 days).
+ * NS-21: live RTB100 company hasn't posted this month. participation[i] = month i+1 since firstPostDate, using the
+ * SAME calendar-month index as the R100 page (`participationMonthIndex`, H-06). Participation is only expected for
+ * months 1..`months` (default 3 = the program's participation slots); after that the rule never fires, and it clears
+ * as soon as the month is ticked. Fires only in the last `windowDays` days of the month (PRD: month end −7 days).
  */
 export function r100ParticipationLapsing(
   r100: { firstPostDate?: string | null; participation?: boolean[] } | null | undefined,
   now: Date,
-  opts: { tz: string; windowDays?: number },
+  opts: { tz: string; windowDays?: number; months?: number },
 ): boolean {
-  if (!r100?.firstPostDate) return false;
-  const first = new Date(r100.firstPostDate);
-  if (Number.isNaN(first.getTime()) || first > now) return false;
+  const idx = participationMonthIndex(r100?.firstPostDate, now);
+  if (idx == null || idx < 0 || idx >= (opts.months ?? 3)) return false;
   if (daysLeftInMonth(now, opts.tz) > (opts.windowDays ?? 7)) return false;
-  const idx = monthIndexSince(first, now);
-  if (idx < 0) return false;
-  return r100.participation?.[idx] !== true;
+  return r100?.participation?.[idx] !== true;
 }
 
 export type Interview = { key: string; guest?: string; filmedAt: Date };
@@ -250,14 +266,18 @@ export function unpublishedInterviews(customFields: Record<string, unknown> | nu
 
 /* ───────────── Revenue ───────────── */
 
-/** NS-23: highest overdue tier reached (e.g. [1,7,14] → 14 when 20 days late), or null. */
+/**
+ * NS-23: highest overdue tier reached (e.g. [1,7,14] → 14 when 20 days late), or null. Days late are CALENDAR days in
+ * `tz` (M-07): due Oct 1 is 1 day late all of Oct 2, matching the revenue page, not "24 h after the due instant".
+ */
 export function invoiceOverdueTier(
   inv: { status: string; dueAt: Date; paidAt?: Date | null },
   now: Date,
   tiers: number[] = [1, 7, 14],
+  tz = "America/New_York",
 ): number | null {
   if (inv.paidAt || ["paid", "written_off"].includes(inv.status)) return null;
-  const late = daysBetween(inv.dueAt, now);
+  const late = Math.round((Date.parse(localDateKey(now, tz)) - Date.parse(localDateKey(inv.dueAt, tz))) / 86_400_000);
   const hit = [...tiers].sort((a, b) => a - b).filter((t) => late >= t);
   return hit.length ? hit[hit.length - 1]! : null;
 }
@@ -275,7 +295,7 @@ export function renewalTier(renewalAt: Date | null | undefined, now: Date, tiers
 /** NS-25: no logged activity in ≥ N business days (baseline = last activity or account creation). */
 export function repInactive(lastActivityAt: Date | null | undefined, createdAt: Date, now: Date, opts: { businessDays: number; tz: string }): boolean {
   const ref = lastActivityAt && lastActivityAt > createdAt ? lastActivityAt : createdAt;
-  return businessDaysBetween(ref, now, opts.tz) >= opts.businessDays;
+  return businessDaysPassed(ref, now, opts.businessDays, opts.tz);
 }
 
 /** NS-33: highest budget threshold (fraction) reached, or null. */
@@ -306,7 +326,7 @@ export function escalationDue(
   if (!["open", "acknowledged"].includes(a.state)) return false;
   if (!isBusinessDay(now, opts.tz)) return false;
   // escalateAfterHours is expressed in wall hours (24 = one business day); convert to business days when ≥ 24.
-  if (afterHours >= 24) return businessDaysBetween(a.createdAt, now, opts.tz) >= Math.round(afterHours / 24);
+  if (afterHours >= 24) return businessDaysPassed(a.createdAt, now, Math.round(afterHours / 24), opts.tz);
   return businessHoursBetween(a.createdAt, now, opts.tz, opts.startHour ?? 9, opts.endHour ?? 18) >= afterHours;
 }
 
