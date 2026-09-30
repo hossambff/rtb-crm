@@ -22,8 +22,10 @@ export async function dataQuality(ctx: AnalyticsContext) {
   const contactScope = and(contactAccess, isNull(s.contacts.deletedAt), ownerFilter(ctx, s.contacts.ownerId));
   const open = eq(s.stages.category, "open");
 
-  // Correlated columns are written out: drizzle leaves single-table columns unqualified, which would bind to `b`.
-  const altDup = sql`exists (select 1 from ${s.accounts} b where b.id <> "accounts".id and b.deleted_at is null and "accounts".domain = any(b.alt_domains))`;
+  // Performance (QA perf, ~7 s → ~0.1 s): the old correlated `exists (… "accounts".domain = any(b.alt_domains))` scanned
+  // every account's alt_domains for every account (O(n²) on 8.5K rows). An uncorrelated semi-join against the unnested
+  // alt-domain set is hashed once. An account listing its own domain as an alternate is excluded instead of `b.id <> id`.
+  const altDup = sql`("accounts".domain in (select unnest(b.alt_domains) from ${s.accounts} b where b.deleted_at is null and cardinality(b.alt_domains) > 0) and not ("accounts".domain = any("accounts".alt_domains)))`;
   const nameKey = sql<string>`lower(btrim(${s.accounts.name}))`;
 
   const [domainDupes, nameDupes, emailDupes, missingMuu, missingContact, emails, imports, missingDomain] = await limitedAll([
