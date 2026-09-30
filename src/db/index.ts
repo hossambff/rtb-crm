@@ -14,7 +14,11 @@ const globalForDb = globalThis as unknown as { __rsoSql?: ReturnType<typeof post
 const client =
   globalForDb.__rsoSql ??
   postgres(url, {
+    // `max_pipeline` is supported at runtime (postgres/src/index.js) but missing from the type definitions.
+    ...({ max_pipeline: 1 } as object),
     prepare: false,
+    // Supabase transaction pooler (Supavisor) must not receive pipelined queries on one client connection:
+    // pipelining can interleave statements/params across pooled backends. One in-flight query per connection.
     max: Number(process.env.DB_POOL_MAX ?? 5),
     idle_timeout: 20,
     max_lifetime: 60 * 30,
