@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Upload } from "lucide-react";
 import { requireUser, scopeFor } from "@/lib/rbac/server";
-import { listTranscripts, meetingsMissingNotes } from "@/lib/transcripts/queries";
+import { redirect } from "next/navigation";
+import { listTranscripts, meetingLinkTarget, meetingsMissingNotes } from "@/lib/transcripts/queries";
 import { getConnection } from "@/lib/integrations/store";
 import { fmtDate, fmtRelative } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,11 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) 
 export default async function CallsPage({ searchParams }: PageProps<"/calls">) {
   const user = await requireUser();
   const sp = await searchParams;
+  const meetingParam = one(sp.meeting);
+  if (meetingParam) {
+    const target = await meetingLinkTarget(user, meetingParam);
+    if (target) redirect(target);
+  }
   const f = { q: one(sp.q)?.slice(0, 100), source: one(sp.source), status: one(sp.status) };
   const [rows, missing, granola, createScope] = await Promise.all([
     listTranscripts(user, f),

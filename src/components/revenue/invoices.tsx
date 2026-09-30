@@ -161,8 +161,12 @@ function RowMenu({ inv, perms, onEdit }: { inv: InvoiceRow; perms: Perms; onEdit
   );
 }
 
-export function InvoicesTable({ invoices, perms, deals }: { invoices: InvoiceRow[]; perms: Perms; deals: { id: string; name: string }[] }) {
+export function InvoicesTable({ invoices, perms, deals, highlightId }: { invoices: InvoiceRow[]; perms: Perms; deals: { id: string; name: string }[]; highlightId?: string | null }) {
   const [status, setStatus] = React.useState<"all" | InvoiceStatus>("all");
+  // deep link from alerts (/revenue?invoice=<id>): scroll the row into view
+  React.useEffect(() => {
+    if (highlightId) document.getElementById(`invoice-${highlightId}`)?.scrollIntoView({ block: "center" });
+  }, [highlightId]);
   const [editing, setEditing] = React.useState<InvoiceRow | null>(null);
   const rows = invoices.filter((i) => status === "all" || i.status === status);
   return (
@@ -197,7 +201,7 @@ export function InvoicesTable({ invoices, perms, deals }: { invoices: InvoiceRow
             </thead>
             <tbody>
               {rows.map((inv) => (
-                <tr key={inv.id} className="border-t border-border hover:bg-surface-1">
+                <tr key={inv.id} id={`invoice-${inv.id}`} className={cn("border-t border-border hover:bg-surface-1", inv.id === highlightId && "bg-surface-2")} aria-current={inv.id === highlightId ? "true" : undefined}>
                   <td className="px-3 py-2">
                     <p className="font-medium text-fg">{inv.dealName}</p>
                     {inv.accountName ? <p className="text-[11px] text-muted">{inv.accountName}</p> : null}

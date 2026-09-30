@@ -13,8 +13,10 @@ export const metadata = { title: "Revenue" };
 
 const usd = (c: number) => fmtUsd(c, { cents: true, compact: true });
 
-export default async function RevenuePage() {
+export default async function RevenuePage({ searchParams }: PageProps<"/revenue">) {
   const user = await requireUser();
+  const sp = await searchParams;
+  const invoiceParam = typeof sp.invoice === "string" ? sp.invoice : null;
   if (!(await can(user, "revenue", "view"))) return <EmptyState title="No access" description="Your role can't view revenue and invoices." />;
   const d = await getRevenueData(user);
   const { summary: s } = d;
@@ -84,7 +86,7 @@ export default async function RevenuePage() {
           <TabsTrigger value="deals">Deals & billing</TabsTrigger>
         </TabsList>
         <TabsContent value="invoices">
-          <InvoicesTable invoices={d.invoices} perms={d.perms} deals={d.invoiceDeals} />
+          <InvoicesTable invoices={d.invoices} perms={d.perms} deals={d.invoiceDeals} highlightId={invoiceParam} />
         </TabsContent>
         <TabsContent value="collections">
           <CollectionsBoard invoices={d.invoices} perms={d.perms} />

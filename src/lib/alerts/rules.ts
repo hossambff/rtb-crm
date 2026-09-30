@@ -359,11 +359,11 @@ export function alertHref(entity: string, entityId: string): string {
     case "integration":
       return "/settings";
     case "proposal":
-      return `/proposals?proposal=${id}`;
+      return `/proposals/${id}`;
     case "scout_search":
-      return `/scout?search=${id}`;
+      return `/scout/searches/${id}`;
     case "lead_registration":
-      return "/commissions";
+      return "/commissions?tab=registrations";
     case "user":
       return "/tasks?tab=team";
     case "org":

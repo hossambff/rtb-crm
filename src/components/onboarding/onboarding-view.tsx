@@ -23,9 +23,9 @@ type Props = {
   perms: { canCreate: boolean; canEdit: boolean };
 };
 
-export function OnboardingView({ projects, wonDeals, owners, perms }: Props) {
+export function OnboardingView({ projects, wonDeals, owners, perms, initialOpenId = null }: Props & { initialOpenId?: string | null }) {
   const [view, setView] = React.useState<"board" | "table">("board");
-  const [openId, setOpenId] = React.useState<string | null>(null);
+  const [openId, setOpenId] = React.useState<string | null>(initialOpenId);
   const [creating, setCreating] = React.useState(false);
   const [local, setLocal] = React.useState(projects);
   const [synced, setSynced] = React.useState(projects);

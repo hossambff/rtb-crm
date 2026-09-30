@@ -136,3 +136,16 @@ export async function meetingsMissingNotes(user: AppUser) {
     .limit(8);
   return rows;
 }
+
+/**
+ * Deep link target for a meeting (alerts link to /calls?meeting=<id>): its transcript when one exists, otherwise the
+ * upload form prefilled for that meeting. Only the meeting owner (or someone who can see the transcript) gets a link.
+ */
+export async function meetingLinkTarget(user: AppUser, meetingId: string): Promise<string | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(meetingId)) return null;
+  const [m] = await db.select({ ownerId: s.meetings.ownerId, transcriptId: s.meetings.transcriptId }).from(s.meetings).where(eq(s.meetings.id, meetingId));
+  if (!m) return null;
+  if (m.transcriptId && (await getTranscriptForUser(user, m.transcriptId))) return `/calls/${m.transcriptId}`;
+  if (m.ownerId === user.id) return `/calls/upload?meetingId=${meetingId}`;
+  return null;
+}
