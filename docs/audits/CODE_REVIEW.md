@@ -387,3 +387,60 @@ expect(nextStepOverdue(new Date("2026-10-01") /* stored 00:00Z */, new Date("202
 ```
 
 Value-math parity (read-only, live DB): `tsx --conditions=react-server audit-main/parity.ts` → `{"rows":3178,"mismatches":0}`.
+
+---
+
+## Remediation status (data-integrity fix pass, 2026-09-30)
+
+Branch `worktree-agent-a5cfc46d215e93cba` (from `main` @ `09eff2f`). Schema used as hardened by migration 0003; no
+schema or migration files were edited. Gates: `next typegen && tsc --noEmit`, `eslint src --max-warnings=0`,
+`vitest run` (37 files, 419 tests) all pass. Appendix A reproductions are now regression tests:
+`src/lib/commissions/__tests__/regressions.test.ts` (CR-01, H-02), `src/lib/notifications/__tests__/snapshot-regressions.test.ts`
+(H-01, M-10), `src/lib/alerts/__tests__/regressions.test.ts` (H-05, H-06, M-06, M-09, QA-04, QA-12),
+`src/lib/scout/__tests__/budget-reservation.test.ts` (H-04).
+
+Live verification (shared DB, rows prefixed `[test] fixdata`, all removed afterwards): a transactional suite ran the
+real service functions — double won move, concurrent accrual runs, plan edit, loss clawback, account + deal merge,
+bulk override approval, failing stage-gate approval, concurrent scout reservations, dismiss → sweep → clear → re-occur,
+NS-26 escalation without a manager, import commit through `/api/import/commit` + rollback — all PASS, including while
+10 heavy pages were loading in parallel.
+
+| ID | Status | What changed (where) |
+|---|---|---|
+| QA-01 | **Fixed (root cause)** | postgres-js still pipelines with `max_pipeline: 1` (the active query isn't counted, verified against the pooler); pipelined statements through Supavisor caused the ClientRead stalls / 30 s ECONNRESET. The drizzle client now caps in-flight queries + transactions at `DB_POOL_MAX`, so nothing is pipelined (`src/db/index.ts` `limitInFlight`). (`max_pipeline: 0` also stops pipelining but breaks `sql.begin` → UNSAFE_TRANSACTION; don't use it.) Every transaction was audited for global-`db` use: fixed in commissions, onboarding, scout accept, audit(), stage moves, approvals, merge, import; any remaining one now bypasses the limiter and logs a warning. `onRequestError` + action errors log a ref + driver cause without params (`src/instrumentation.ts`, `src/lib/errors.ts`). Before: 3 of 4 parallel pages failed after 38–90 s. After: 10 heavy pages × 3 rounds in parallel, all 200 in 7.2–7.4 s wall (dev server). |
+| CR-01 | Fixed | Stable rule ids (uuid kept by the editor/`savePlan`; content hash for legacy rules); `source_key = <trigger>:<ruleId>:<eventId>:<userId>` + `ON CONFLICT DO NOTHING` on the unique index (`commissions/calc.ts`, `engine.ts`, `actions.ts`, `components/commissions/plans.tsx`). 0 accrual rows existed, so no key migration was needed. |
+| H-02 | Fixed | Clawback event time = last entry into a won stage from `deal_stage_history` (stage-service keeps clearing `won_at` on reopen/loss so won analytics stay right), go-live for `migration_launched`, accrual time as a never-early fallback (`clawbackEventAt`). |
+| H-03 | Fixed | Whole run in ONE transaction with `pg_try_advisory_xact_lock` (`withXactLock`); every query on `tx`; a concurrent run returns "already running". |
+| H-04 | Fixed | `reserveRun`: budget check + run insert under `pg_advisory_xact_lock('rso.scout.budget')`; a queued/running run reserves its full cap (plan `maxAllowedCents`), reconciled to actual cost when it finishes (stale > 1 day counts actual only). M-12: run lock is a DB lease on `enrichment_runs.lease_until`. |
+| H-01 | Fixed | Snapshots are open stages only; executive trend / "vs last week" read `override_weighted_cents` for incl. overrides and `weighted_cents` for excl. (was swapped) and ignore legacy non-open rows (`analytics/executive.ts` snapshot functions only, `notifications/snapshot-core.ts`, `snapshots.ts`). M-10 fixed with it. |
+| H-05 | Fixed | Dismissed alerts stay suppressed until the condition clears (then re-occurrence alerts again); user-resolved alerts get a 24 h cool-down (rule param `cooldownHours`), then re-raise quietly without a second notification (`alerts/suppression.ts`, `engine.ts`). Stored without a new column: on a closed alert `snoozed_until` = "suppression lifted at". |
+| H-06 | Fixed | NS-21 uses the R100 page's calendar month index and only months 1..`months` (default 3); clears when ticked. M-01 (interview fields) not in this pass. |
+| QA-04 | Fixed | Escalation (NS-12/25/26 and the escalation step) → manager → team lead → all active sales leaders → executives; escalation update guarded by state (L-19). Snooze dialog copy updated. Admin "escalation unconfigured" warning left to UX. |
+| H-07 | Not touched (security pass owns the escalation text) | |
+| H-08 | Fixed | `AbortSignal.timeout` 20 s fast / 60 s strong covering retries, `maxRetries: 1`, `maxOutputTokens` caps, token usage (+ gateway cost when reported) logged to `agent_runs`; all callers already fall back on throw. Copilot streaming route (M-24/M-25) not changed. |
+| H-09 | Fixed | Each flush chunk writes its rows and their `import_records` in one transaction; concurrent-commit guard; rollback is one transaction with the batch row locked; route `maxDuration = 300`. Batch `70404ba2` repair SQL documented (not applied) in `docs/IMPORT_REPORT.md`. |
+| H-10 | Fixed | Merge in one transaction (savepoint when nested) after locking both rows in id order; re-points restricted_access (merged), comments, approvals, alerts (colliding open ones resolved), scout `crm_match`; merged deals move invoices, email threads, meetings, transcripts, proposals, accruals, enrichment runs and the migration project when free. The merge action audits inside the transaction. |
+| H-11 | Fixed | Deal row `SELECT … FOR UPDATE`; already in target = no-op; moved by someone else = reload error; JSON columns merged onto the locked row; inline contact, audit and won side-effects in the same transaction; migration project guarded by the unique index, ADS won invoice by `source_key = won:<dealId>`. |
+| H-12 | Fixed | `setR100Stage` delegates to `moveDealToStage` (optional gate fields / reason pass through). |
+| H-13 | Fixed | `decide()` claims + applies in one transaction (handler modes `apply` / `applyWithClaim` / `applyAfter`); bulk overrides all-or-nothing with row locks; failures → status `failed` + reason; stage_gate "already there" = success; post-commit work never throws. |
+| M-06 / QA-12 | Fixed in owned modules | `src/lib/time.ts`: date-only inputs stored at 17:00 in the user's zone (clamped to the same UTC date); deal next step / close date / renewal / payment / documents / tasks / gate dates; snooze presets and pickers in the profile zone. Commission periods stay UTC months (accepted, documented in `calc.ts`). |
+| M-07 | Fixed (alerts side) | NS-23 counts calendar days in the org zone. |
+| M-09 | Fixed | "N business days" keep the wall-clock time (`businessDaysPassed`). |
+| M-20 | Fixed | List view: SQL filter/sort/pagination (100/page), SQL KPI totals (match the board exactly), URL-driven pager. |
+| M-21 | Fixed | Analytics limiter is per request (React `cache()`), 3 in flight; the global pool cap lives in `src/db`. |
+| M-23 | Fixed | One memoized directory load per transcript sync. |
+| M-26 | Fixed | `(app)/error.tsx`, `global-error.tsx`, `not-found.tsx` (404 status, branded). |
+| M-19 / §4 notify | Fixed | One `notify`/`notifyMany` (never throws; savepoint when given a tx); the deals-module notify and raw inserts in commissions, proposals, gmail, scout budget replaced. |
+| M-18 (partial) | Improved | audit() takes a tx; stage-move inline contact and onboarding audit now inside their transactions. `createDeal` orphan account (QA-07) left to the UX/QA pass. |
+| Others (M-01..M-05, M-08, M-11, M-13..M-17, M-22, M-24, M-25, M-27, M-28, L-*) | Deferred | Out of this pass's scope; unchanged. |
+
+Remaining time-zone call sites for the UX pass (format with `formatInTz(d, user.timezone)` on the server, or pass the
+zone / use `RelativeTime` on the client): `components/deals/record/{header-editors,side-panels,type-panels,timeline}.tsx`,
+`components/deals/{deal-bits,board/deals-table}.tsx` (`fmtDate(… "d MMM")`), `components/r100/r100-table.tsx`,
+`components/revenue/{invoices,billing}.tsx`, `components/onboarding/onboarding-view.tsx`,
+`components/{accounts/accounts-list,contacts/contacts-list,admin/users-admin,scout/searches-table,tasks/notification-list}.tsx`
+(`fmtRelative` → hydration mismatch, QA-15), `components/import/batch-table.tsx` and `app/(app)/import/history/[id]/page.tsx`
+(machine-local time, QA-12), `components/inbox/*`, `app/(app)/{deals/[id],accounts/[id],contacts/[id],calls/*,proposals/*,revenue,scout/*}/page.tsx`.
+Date-only parsers outside this pass: `revenue/actions.ts` and `onboarding/actions.ts` (`T12:00Z`), `commissions/actions.ts`
+`assignPlan` (UTC midnight), `admin/users-actions.ts` `accessExpiresAt`, `admin/audit-queries.ts` filters — switch to
+`parseUserDate(v, user.timezone)`.
