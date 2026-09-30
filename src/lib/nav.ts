@@ -7,6 +7,7 @@ export type NavItem = {
   module?: Module;
   action?: Action;
   anyOf?: Module[]; // visible if user can view any of these
+  unless?: { module: Module; action: Action }; // hidden when the user holds this permission (avoid duplicate entries)
   group: "work" | "programs" | "insights" | "system";
 };
 
@@ -28,6 +29,8 @@ export const NAV: NavItem[] = [
   { href: "/analytics", label: "Analytics", icon: "ChartNoAxesCombined", module: "analytics", group: "insights" },
   { href: "/import", label: "Import", icon: "Upload", module: "import", action: "import", group: "system" },
   { href: "/admin", label: "Admin", icon: "Settings2", module: "admin", action: "configure", group: "system" },
+  // executives / finance: audit log without the rest of the admin console (admins reach it inside /admin)
+  { href: "/admin/audit", label: "Audit log", icon: "ScrollText", module: "audit", action: "view", unless: { module: "admin", action: "configure" }, group: "system" },
 ];
 
 export const NAV_GROUP_LABELS: Record<NavItem["group"], string> = {

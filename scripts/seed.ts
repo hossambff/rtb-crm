@@ -231,6 +231,8 @@ const SETTINGS: Record<string, unknown> = {
   "email.retention_unlinked_days": 7,
   "r100.goal_live": 100,
   "commission.registration_protect_days": 90,
+  // proposals outside these guardrails need executive approval (src/lib/proposals/calc.ts approvalTriggers)
+  "proposal.approval_rules": { minRevSharePct: 0.4, maxGuaranteeMonthlyUsd: 250000, maxTermYears: 10 },
 };
 
 const TEAMS = [
