@@ -57,15 +57,24 @@ The **first user ever** to sign in becomes `super_admin`. Everyone after that la
 - **Dev accounts.** Before go-live, delete the seeded `dev.*` accounts: Admin → Users → deactivate, or `npm run db:purge-dev`.
 
 ## 7. Cron jobs (vercel.json)
-| Path | Schedule | What it does |
-|---|---|---|
-| `/api/cron/sweep` | hourly | Nothing-Slips alert engine |
-| `/api/cron/sync-email` | hourly | Gmail, Calendar and Granola sync |
-| `/api/cron/digest` | daily | "My Day" and manager digests |
-| `/api/cron/snapshot` | daily | Pipeline snapshots |
-| `/api/cron/scout` | daily | Scheduled Lead Scout searches |
+All schedules are **daily** so the project deploys on Vercel Hobby (Hobby rejects deployments with more frequent
+crons). Times are UTC. Every route requires `Authorization: Bearer $CRON_SECRET` (Vercel Cron sends it).
 
-The Hobby plan allows daily crons only. Upgrade to Pro for hourly jobs, or trigger them manually from Admin.
+| Path | Schedule (Hobby) | Recommended on Pro | What it does |
+|---|---|---|---|
+| `/api/cron/scout` | `0 5 * * *` | daily | Scheduled Lead Scout searches; resumes stalled runs |
+| `/api/cron/sweep` | `0 6 * * *` | `0 * * * *` (hourly) or `*/15 * * * *` | Nothing-Slips alert engine |
+| `/api/cron/sync-email` | `30 6 * * *` | `*/10 * * * *` (every 10 min) | Gmail, Calendar and Granola sync, email analysis |
+| `/api/cron/commissions` | `0 7 * * *` | daily | Commission accruals, clawbacks, registration expiry |
+| `/api/cron/digest` | `0 12 * * *` | daily | "My Day" and manager digests |
+| `/api/cron/snapshot` | `55 23 * * *` | daily | Pipeline snapshots |
+
+**In-app fallback (Hobby).** Because the sweep and inbox sync only run once a day on Hobby, opening **My Day**
+(`/home`) triggers a background catch-up after the page is sent (`after()` from `next/server`, non-blocking):
+the sweep runs if the last one (`app_settings` key `alerts.last_sweep_at`) is older than 60 minutes, and the
+signed-in user's own Gmail/Calendar/Granola sync runs if nothing synced for them in the last 15 minutes. Each job
+is claimed atomically in `app_settings`, so concurrent page loads don't run it twice. Admins can also run the sweep
+from Admin → Alerts. On Pro, switch `sweep` to hourly and `sync-email` to every 10 minutes in `vercel.json`.
 
 ## 8. Zoom (optional)
 1. Create a Zoom **Server-to-Server OAuth** or **General** app with the event `recording.transcript_completed`.

@@ -10,6 +10,7 @@ import { assertCan, ForbiddenError, inScope, scopeFor, type AppUser } from "@/li
 import { notify } from "@/lib/notifications/notify";
 import { runSweep } from "./engine";
 import { alertHref } from "./rules";
+import { recordSweep } from "@/lib/background";
 
 const id = z.string().uuid();
 const CLOSED = ["resolved", "dismissed"];
@@ -103,6 +104,7 @@ export const reassignAlert = action(z.object({ id, userId: z.string().min(1) }),
 export const runSweepNow = action(z.object({}), async (_input, user) => {
   await assertCan(user, "admin", "configure", "all");
   const stats = await runSweep();
+  await recordSweep();
   await audit({ actorId: user.id, action: "alerts.sweep_manual", entity: "alerts", after: stats });
   revalidate();
   return stats;

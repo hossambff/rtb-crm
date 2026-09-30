@@ -8,8 +8,13 @@ import { AttentionDeals, HeroStats, HomeSection, InboxAwaiting, MeetingsList } f
 import { loadMyDay } from "@/lib/tasks/home";
 import { fmtInTz } from "@/lib/tasks/core";
 import { toWall } from "@/lib/alerts/time";
+import { MailboxBanner } from "@/components/settings/mailbox-banner";
+import { needsMailboxConnection } from "@/lib/integrations/queries";
+import { scheduleHomeCatchUp } from "@/lib/background";
 
 export const metadata = { title: "My Day" };
+// the in-app catch-up (stale sweep / inbox sync) runs in after() within this budget
+export const maxDuration = 300;
 
 function greeting(now: Date, tz: string) {
   const h = toWall(now, tz).getUTCHours();
@@ -18,7 +23,8 @@ function greeting(now: Date, tz: string) {
 
 export default async function HomePage() {
   const user = await requireUser();
-  const d = await loadMyDay(user);
+  const [d, needsMailbox] = await Promise.all([loadMyDay(user), needsMailboxConnection(user)]);
+  scheduleHomeCatchUp(user.id);
   const tz = user.timezone;
   const first = user.name.split(" ")[0];
   const focus = [...d.buckets.overdue, ...d.buckets.today];
@@ -30,6 +36,8 @@ export default async function HomePage() {
         description={`${new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: tz }).format(d.now)}, ${fmtInTz(d.now, tz, "date")} — your tasks, alerts and meetings for today.`}
         actions={d.canTasks ? <NewTaskButton users={d.users} /> : null}
       />
+
+      {needsMailbox ? <MailboxBanner /> : null}
 
       <HeroStats overdue={d.buckets.overdue.length} dueToday={d.buckets.today.length} alerts={d.alertCounts} needNextStep={d.needNextStep} />
 
