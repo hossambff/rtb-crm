@@ -1,0 +1,269 @@
+"use client";
+import * as React from "react";
+import Link from "next/link";
+import { AudioLines, FileText, ListPlus, Loader2, PhoneCall, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { createDealTask, logDealActivity } from "@/lib/deals/actions";
+import { PRIORITY_LABELS, type ContactLite, type UserLite } from "@/lib/deals/types";
+import { useRun } from "./use-run";
+
+function nowLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+/** CARD-1 quick actions: log call/note, add task, upload transcript, generate proposal, ask Copilot. */
+export function QuickActions({
+  dealId,
+  contacts,
+  users,
+  ownerId,
+  currentUserId,
+  canLog,
+  canTask,
+  canUseAi,
+  showProposal,
+}: {
+  dealId: string;
+  contacts: ContactLite[];
+  users: UserLite[];
+  ownerId: string | null;
+  currentUserId: string;
+  canLog: boolean;
+  canTask: boolean;
+  canUseAi: boolean;
+  showProposal: boolean;
+}) {
+  const [dialog, setDialog] = React.useState<null | "log" | "task">(null);
+  return (
+    <div className="flex flex-wrap gap-2">
+      {canLog ? (
+        <Button size="sm" variant="secondary" onClick={() => setDialog("log")}>
+          <PhoneCall /> Log activity
+        </Button>
+      ) : null}
+      {canTask ? (
+        <Button size="sm" variant="secondary" onClick={() => setDialog("task")}>
+          <ListPlus /> Add task
+        </Button>
+      ) : null}
+      <Button size="sm" variant="secondary" asChild>
+        <Link href={`/calls/upload?dealId=${dealId}`}>
+          <AudioLines /> Upload transcript
+        </Link>
+      </Button>
+      {showProposal ? (
+        <Button size="sm" variant="secondary" asChild>
+          <Link href={`/proposals/new?dealId=${dealId}`}>
+            <FileText /> Generate proposal
+          </Link>
+        </Button>
+      ) : null}
+      {canUseAi ? (
+        <Button size="sm" variant="secondary" asChild>
+          <Link href={`/copilot?dealId=${dealId}`}>
+            <Sparkles /> Ask Copilot
+          </Link>
+        </Button>
+      ) : null}
+      {dialog === "log" ? <LogActivityDialog dealId={dealId} contacts={contacts} onClose={() => setDialog(null)} /> : null}
+      {dialog === "task" ? (
+        <AddTaskDialog dealId={dealId} users={users} defaultAssignee={ownerId ?? currentUserId} onClose={() => setDialog(null)} />
+      ) : null}
+    </div>
+  );
+}
+
+export function LogActivityDialog({ dealId, contacts, onClose, defaultType = "call" }: { dealId: string; contacts: ContactLite[]; onClose: () => void; defaultType?: "call" | "note" | "meeting" | "email" | "linkedin" }) {
+  const [type, setType] = React.useState(defaultType);
+  const [subject, setSubject] = React.useState("");
+  const [body, setBody] = React.useState("");
+  const [when, setWhen] = React.useState(nowLocal);
+  const [duration, setDuration] = React.useState("");
+  const [contactId, setContactId] = React.useState("");
+  const [direction, setDirection] = React.useState<"outbound" | "inbound">("outbound");
+  const [run, pending] = useRun();
+  return (
+    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
+      <DialogContent>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(
+              () =>
+                logDealActivity({
+                  dealId,
+                  type,
+                  subject: subject || undefined,
+                  body: body || undefined,
+                  occurredAt: when ? new Date(when).toISOString() : undefined,
+                  durationMin: duration ? Number(duration) : undefined,
+                  contactId: contactId || undefined,
+                  direction: type === "note" ? undefined : direction,
+                }),
+              { success: "Activity logged", onOk: onClose },
+            );
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Log activity</DialogTitle>
+            <DialogDescription>Logged touches update the deal&apos;s last activity and health.</DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label htmlFor="la-type">Type</Label>
+                <NativeSelect id="la-type" value={type} onChange={(e) => setType(e.target.value as typeof type)}>
+                  <option value="call">Call</option>
+                  <option value="meeting">Meeting</option>
+                  <option value="email">Email</option>
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="note">Note</option>
+                </NativeSelect>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="la-when">When</Label>
+                <Input id="la-when" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="[color-scheme:dark]" />
+              </div>
+              {type === "call" || type === "meeting" ? (
+                <div className="space-y-1">
+                  <Label htmlFor="la-dur">Minutes</Label>
+                  <Input id="la-dur" inputMode="numeric" value={duration} onChange={(e) => setDuration(e.target.value)} />
+                </div>
+              ) : type !== "note" ? (
+                <div className="space-y-1">
+                  <Label htmlFor="la-dir">Direction</Label>
+                  <NativeSelect id="la-dir" value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)}>
+                    <option value="outbound">Outbound</option>
+                    <option value="inbound">Inbound</option>
+                  </NativeSelect>
+                </div>
+              ) : null}
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="la-subject">Subject</Label>
+              <Input id="la-subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Pricing call with CRO" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="la-body">Notes</Label>
+              <Textarea id="la-body" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
+            </div>
+            {contacts.length ? (
+              <div className="space-y-1">
+                <Label htmlFor="la-contact">Contact</Label>
+                <NativeSelect id="la-contact" value={contactId} onChange={(e) => setContactId(e.target.value)}>
+                  <option value="">—</option>
+                  {contacts.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </div>
+            ) : null}
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={pending || (!subject.trim() && !body.trim())}>
+              {pending ? <Loader2 className="animate-spin" /> : null} Log
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function AddTaskDialog({ dealId, users, defaultAssignee, onClose }: { dealId: string; users: UserLite[]; defaultAssignee: string; onClose: () => void }) {
+  const [title, setTitle] = React.useState("");
+  const [due, setDue] = React.useState("");
+  const [assigneeId, setAssigneeId] = React.useState(defaultAssignee);
+  const [priority, setPriority] = React.useState("medium");
+  const [owedBy, setOwedBy] = React.useState<"us" | "them">("us");
+  const [description, setDescription] = React.useState("");
+  const [run, pending] = useRun();
+  return (
+    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
+      <DialogContent>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(
+              () =>
+                createDealTask({
+                  dealId,
+                  title,
+                  dueAt: due || undefined,
+                  assigneeId,
+                  priority: priority as "medium",
+                  owedBy,
+                  description: description || undefined,
+                }),
+              { success: "Task added", onOk: onClose },
+            );
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Add task</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <div className="space-y-1">
+              <Label htmlFor="at-title">Task</Label>
+              <Input id="at-title" value={title} onChange={(e) => setTitle(e.target.value)} required minLength={2} autoFocus placeholder="e.g. Send pro forma v2" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="at-due">Due</Label>
+                <Input id="at-due" type="date" value={due} onChange={(e) => setDue(e.target.value)} className="[color-scheme:dark]" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="at-assignee">Assignee</Label>
+                <NativeSelect id="at-assignee" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="at-priority">Priority</Label>
+                <NativeSelect id="at-priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
+                  {Object.entries(PRIORITY_LABELS).map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="at-owed">Commitment</Label>
+                <NativeSelect id="at-owed" value={owedBy} onChange={(e) => setOwedBy(e.target.value as "us" | "them")}>
+                  <option value="us">We owe</option>
+                  <option value="them">They owe</option>
+                </NativeSelect>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="at-desc">Details</Label>
+              <Textarea id="at-desc" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={pending || title.trim().length < 2}>
+              {pending ? <Loader2 className="animate-spin" /> : null} Add task
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
