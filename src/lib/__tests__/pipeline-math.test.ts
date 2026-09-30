@@ -34,3 +34,13 @@ describe("findClaimHits", () => {
     expect(hits[0]!.status).toBe("banned");
   });
 });
+
+describe("claims paraphrases (NEW-3)", () => {
+  it("flags near-instant / real-time payout claims", async () => {
+    const { CLAIM_PATTERNS } = await import("../claims-patterns");
+    const rules = [{ id: "p", text: "Paid in 8 seconds", pattern: CLAIM_PATTERNS.paidInSeconds, status: "banned", approvedAlternative: "beta" }];
+    expect(findClaimHits("we offer near-instant publisher payouts", rules)).toHaveLength(1);
+    expect(findClaimHits("real-time payouts for every partner", rules)).toHaveLength(1);
+    expect(findClaimHits("monthly payouts via bank transfer", rules)).toHaveLength(0);
+  });
+});

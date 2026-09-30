@@ -756,7 +756,7 @@ export async function getDealDetail(user: AppUser, id: string) {
       canUseAi,
       canCreateContact: canCreateContact && canEdit,
       canComment: true,
-      isApprover: user.role === "executive" || user.role === "super_admin",
+      isApprover: (user.role === "executive" || user.role === "super_admin") && approval?.requestedBy !== user.id, // SoD: requester never sees Approve/Reject
     },
     hiddenFields: [...hidden],
     currentUserId: user.id,

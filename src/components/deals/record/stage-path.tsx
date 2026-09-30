@@ -51,7 +51,7 @@ export function StagePath({
                 disabled={!canEdit || isCurrent || pending}
                 onClick={() => request({ ...deal, stageId: optimisticStage }, s)}
                 aria-current={isCurrent ? "step" : undefined}
-                title={`${s.name} · ${Math.round(s.probability * 100)}%${s.requiredFields.length ? ` · requires ${s.requiredFields.join(", ")}` : ""}`}
+                title={`${s.name} · ${Math.round(s.probability * 100)}%${s.requiredFields.length ? ` · requires ${s.requiredFields.map(fieldLabel).join(", ")}` : ""}`}
                 className={cn(
                   "relative flex h-8 items-center gap-1 whitespace-nowrap pl-5 pr-3 text-[12px] font-medium transition-colors duration-150 [clip-path:polygon(0_0,calc(100%-10px)_0,100%_50%,calc(100%-10px)_100%,0_100%,10px_50%)] first:pl-3 first:[clip-path:polygon(0_0,calc(100%-10px)_0,100%_50%,calc(100%-10px)_100%,0_100%)]",
                   isCurrent ? "bg-white text-black" : done ? "bg-surface-3 text-body" : "bg-surface-2 text-muted",
@@ -98,4 +98,16 @@ export function StagePath({
       {dialog}
     </div>
   );
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  muu: "MUU",
+  primaryContactId: "primary contact",
+  revSharePct: "revenue share",
+  contractValueCents: "contract value",
+  expectedCloseDate: "close date",
+  nextStep: "next step",
+};
+function fieldLabel(key: string): string {
+  return FIELD_LABELS[key] ?? key.replace(/([A-Z])/g, " $1").toLowerCase();
 }

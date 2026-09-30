@@ -6,7 +6,7 @@
  */
 export const CLAIM_PATTERNS = {
   paidInSeconds:
-    "(\\bpa(y|ys|id|ying|yout|youts)\\b.{0,60}\\b(in|within|under|after) (\\d+ |a few |few |mere )?seconds\\b|\\bsettle(s|d|ment|ments)?\\b.{0,40}\\b(in|within|under) (\\d+ |a few |few )?seconds\\b|powered by coinbase|coinbase[- ]custod)",
+    "(\\bpa(y|ys|id|ying|yout|youts)\\b.{0,60}\\b(in|within|under|after) (\\d+ |a few |few |mere )?seconds\\b|\\bsettle(s|d|ment|ments)?\\b.{0,40}\\b(in|within|under) (\\d+ |a few |few )?seconds\\b|\\b(near[- ]?)?instant(ly|aneous)? (publisher |partner )?(pay(outs?|ments?)|settlement)\\b(?!.{0,24}\\b(beta|upcoming|coming soon|pilot|planned)\\b)|\\breal[- ]time (publisher |partner )?(payouts?|settlement)\\b(?!.{0,24}\\b(beta|upcoming|coming soon|pilot|planned)\\b)|powered by coinbase|coinbase[- ]custod)",
   auditedRevenue100m:
     "(\\$?100 million\\b.{0,60}\\baudit(ed|s)?\\b|\\baudit(ed|s)?\\b.{0,60}\\$?100 million\\b|\\$?100\\s?m(illion)?\\s+(of\\s+)?audited)",
 } as const;

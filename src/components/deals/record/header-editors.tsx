@@ -45,8 +45,10 @@ export function NextStepEditor({
             <p className="text-sm text-fg">{nextStep}</p>
           ) : waitingReason ? (
             <p className="text-sm text-secondary">Waiting — {waitingReason}</p>
+          ) : isOpen ? (
+            <StatusBadge status="warning" label="No next step — required for open deals" />
           ) : (
-            <StatusBadge status="warning" label={isOpen ? "No next step — required for open deals" : "No next step"} />
+            <p className="text-sm text-muted">No next step (deal closed)</p>
           )}
           <div className="mt-1 flex items-center gap-2 text-xs text-muted">
             {dueAt ? <span className="tabular">Due {fmtDate(dueAt, "EEE d MMM")}</span> : null}

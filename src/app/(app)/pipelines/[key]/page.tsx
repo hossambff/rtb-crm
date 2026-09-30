@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, forbidden } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { can, requireUser } from "@/lib/rbac/server";
 import {
@@ -38,7 +38,7 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
   const pipeline = await getPipelineByKey(key);
   if (!pipeline) notFound();
   const perms = await pipelinePerms(user, key);
-  if (!perms.canView) notFound();
+  if (!perms.canView) forbidden(); // NEW-1: real 403
   // QA-19 (Appendix B "Export" row): the org-wide export grant (e.g. Finance) also covers board CSV export.
   const canExport = perms.canExport || (await can(user, "export", "export"));
 

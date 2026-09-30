@@ -151,7 +151,7 @@ export function CreateAccountDialog({ categories, owners, currentUserId }: { cat
                   {dups.map((d) => (
                     <li key={d.id} className="flex items-center justify-between gap-2 text-sm">
                       <span className="min-w-0 truncate">
-                        <span className="text-fg">{d.name}</span> <span className="text-xs text-muted">{d.domain ?? "no domain"}</span>
+                        <span className="text-fg">{d.name}</span> <span className="text-xs text-muted">{d.hidden ? "" : (d.domain ?? "no domain")}</span>
                       </span>
                       {d.hidden ? null : (
                         <Button asChild size="sm" variant="secondary">

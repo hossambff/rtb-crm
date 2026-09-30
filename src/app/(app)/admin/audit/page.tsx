@@ -1,7 +1,7 @@
+import { forbidden } from "next/navigation";
 import { can, requireUser } from "@/lib/rbac/server";
 import { parseAuditFilters } from "@/lib/admin/audit-core";
 import { AUDIT_PAGE_SIZE, auditFacets, listAudit } from "@/lib/admin/audit-queries";
-import { NoAccess } from "@/components/admin/admin-nav";
 import { AdminSection } from "@/components/admin/form";
 import { AuditFilterBar, AuditTable } from "@/components/admin/audit-log";
 
@@ -9,7 +9,7 @@ export const metadata = { title: "Audit log · Admin" };
 
 export default async function AuditLogPage({ searchParams }: PageProps<"/admin/audit">) {
   const user = await requireUser();
-  if (!(await can(user, "audit", "view"))) return <NoAccess />;
+  if (!(await can(user, "audit", "view"))) forbidden(); // NEW-1: real 403
   const f = parseAuditFilters(await searchParams);
   const facets = await auditFacets();
   const { rows, total } = await listAudit(user, f);

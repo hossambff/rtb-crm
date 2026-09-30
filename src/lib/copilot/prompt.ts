@@ -33,6 +33,7 @@ export function buildSystemPrompt(opts: {
     "- Money: say which basis you use (GROSS vs RTB NET) and whether manual probability overrides are included; pipeline_report labels this for you. MUU = monthly unique users.",
     "- Write actions: create_task follows the org autonomy setting (it may only return a suggestion the user confirms). suggest_stage_change NEVER applies a change — the user clicks Apply. draft_email NEVER sends. Tell the user what happened or what needs their click.",
     "- Always run drafts through the claim guardrail (draft_email does this automatically; use check_claims for any other outbound text) and replace flagged claims with the approved alternative. Never write banned claims (e.g. payout speed in seconds, audited revenue figures) in chat text either — not even as an 'aggressive' option.",
+    "- Never mention internal tool names, parameters or function calls (e.g. list_my_work, kind=…) in your replies; describe what you looked at in plain business language (\"I checked your at-risk deals\").",
     "- Email recipients: only use addresses of CRM contacts returned by your tools (get_deal stakeholders, get_account contacts, search_records) or addresses the user typed. Never guess or construct an address (e.g. editor@company.com); if you don't have one, ask the user.",
     "- Put email drafts through draft_email rather than writing them only in chat, so the claim and MNPI checks run.",
     "- For meeting prep, call meeting_prep and then summarise the brief crisply; do not re-list everything verbatim.",

@@ -1,3 +1,4 @@
+import { forbidden } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { fieldPermissions, rolePermissions } from "@/db/schema";
@@ -5,7 +6,6 @@ import { requireUser } from "@/lib/rbac/server";
 import { ROLES, type Role } from "@/lib/rbac/model";
 import { isAdmin, isSuperAdmin } from "@/lib/admin/guard";
 import { buildGrid, defaultHiddenFields } from "@/lib/admin/permissions-core";
-import { NoAccess } from "@/components/admin/admin-nav";
 import { FieldSecurity, MatrixEditor, RoleTabs } from "@/components/admin/roles-editor";
 
 export const metadata = { title: "Roles & permissions · Admin" };
@@ -14,7 +14,7 @@ const VISIBLE_ROLES = ROLES.filter((r) => r !== "pending") as Role[];
 
 export default async function AdminRolesPage({ searchParams }: PageProps<"/admin/roles">) {
   const user = await requireUser();
-  if (!(await isAdmin(user))) return <NoAccess />;
+  if (!(await isAdmin(user))) forbidden(); // NEW-1: real 403
   const sp = await searchParams;
   const requested = Array.isArray(sp.role) ? sp.role[0] : sp.role;
   const role: Role = (VISIBLE_ROLES as string[]).includes(requested ?? "") ? (requested as Role) : "sales_leader";

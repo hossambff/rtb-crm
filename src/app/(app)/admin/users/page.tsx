@@ -1,17 +1,17 @@
+import { forbidden } from "next/navigation";
 import { asc } from "drizzle-orm";
 import { db } from "@/db";
 import { allowedDomains } from "@/db/schema";
 import { requireUser } from "@/lib/rbac/server";
 import { isAdmin, isSuperAdmin } from "@/lib/admin/guard";
 import { listAdminUsers, listTeamsLite, placeholderSummary } from "@/lib/admin/user-queries";
-import { NoAccess } from "@/components/admin/admin-nav";
 import { PlaceholdersPanel, UsersAdmin } from "@/components/admin/users-admin";
 
 export const metadata = { title: "Users · Admin" };
 
 export default async function AdminUsersPage() {
   const user = await requireUser();
-  if (!(await isAdmin(user))) return <NoAccess />;
+  if (!(await isAdmin(user))) forbidden(); // NEW-1: real 403
   const users = await listAdminUsers();
   const teams = await listTeamsLite();
   const placeholders = await placeholderSummary();
