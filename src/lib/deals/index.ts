@@ -9,7 +9,7 @@ import "server-only";
  * Server actions live in ./actions ("use server"); pure helpers in ./health, ./gates, ./rules, ./summary-core.
  */
 export { getDealForUser, listDealsForBoard, getDealDetail, listVisiblePipelines, pipelineOverview, assignableUsers } from "./queries";
-export { recomputeDealHealth, recomputeHealthForDeals, logActivity, loadDealForWrite, hiddenDealFields, stripHidden, onDealWon, notify } from "./service";
+export { recomputeDealHealth, recomputeHealthForDeals, logActivity, loadDealForWrite, hiddenDealFields, stripHidden, onDealWon } from "./service";
 export type { LogActivityInput } from "./service";
 export { computeHealth } from "./health";
 export { buildDealSummary } from "./summary";

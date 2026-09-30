@@ -6,14 +6,16 @@ import { db } from "@/db";
 import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
+import { notifyMany } from "@/lib/notifications/notify";
 import { normalizeDomain } from "@/lib/domain";
 import { assertCan, can, dealModule, ForbiddenError, scopeFor, type AppUser } from "@/lib/rbac/server";
-import { RATE_TYPES, TRIGGERS } from "./calc";
+import { normalizeRules, RATE_TYPES, ruleContentId, TRIGGERS, type PlanRule } from "./calc";
 import { accrueCommissions } from "./engine";
 import { registrationConflicts } from "./registration";
 import { applyRegistrationDecision } from "./registration-service";
 
 const ruleSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
   trigger: z.enum(TRIGGERS),
   pipelineKeys: z.array(z.enum(["NET", "ENT", "SPT", "R100", "ADS", "PAY"])).max(6).optional(),
   rateType: z.enum(RATE_TYPES),
@@ -21,6 +23,26 @@ const ruleSchema = z.object({
   capCents: z.number().int().min(0).max(1_000_000_000).optional(),
   clawbackDays: z.number().int().min(0).max(730).optional(),
 });
+
+/**
+ * Stable rule ids (CR-01): keep an id the editor sent back if it belongs to this plan; a rule without one that is
+ * identical to a stored rule reuses that rule's (content-hash) id; anything else is a new rule with a fresh uuid.
+ * Accrual source keys embed the id, so editing/reordering/deleting rules never re-accrues past events.
+ */
+function assignRuleIds<T extends Omit<PlanRule, "id"> & { id?: string }>(incoming: T[], stored: (PlanRule & { id: string })[]): (T & { id: string })[] {
+  const storedIds = new Set(stored.map((r) => r.id));
+  const used = new Set<string>();
+  return incoming.map((r) => {
+    let id = r.id && storedIds.has(r.id) && !used.has(r.id) ? r.id : undefined;
+    if (!id) {
+      const content = ruleContentId(r);
+      const match = stored.find((x) => !used.has(x.id) && (x.id === content || ruleContentId(x) === content));
+      id = match?.id ?? crypto.randomUUID();
+    }
+    used.add(id);
+    return { ...r, id };
+  });
+}
 
 export const savePlan = action(
   z.object({
@@ -33,16 +55,18 @@ export const savePlan = action(
   async (input, user) => {
     await assertCan(user, "commissions", "configure", "all");
     for (const r of input.rules) if (r.rateType !== "flat" && r.rate > 100) throw new UserError("Percentage rates must be between 0 and 100.");
-    const rules = input.rules.map((r) => ({ ...r, pipelineKeys: r.pipelineKeys?.length ? r.pipelineKeys : undefined }));
+    const cleaned = input.rules.map((r) => ({ ...r, pipelineKeys: r.pipelineKeys?.length ? r.pipelineKeys : undefined }));
     if (input.id) {
       const [before] = await db.select().from(s.commissionPlans).where(eq(s.commissionPlans.id, input.id));
       if (!before) throw new UserError("Plan not found.");
+      const rules = assignRuleIds(cleaned, normalizeRules(before.rules));
       const patch = { name: input.name, description: input.description || null, active: input.active, rules };
       await db.update(s.commissionPlans).set(patch).where(eq(s.commissionPlans.id, input.id));
       await audit({ actorId: user.id, action: "commission_plan.update", entity: "commission_plan", entityId: input.id, before, after: patch });
       revalidatePath("/commissions");
       return { id: input.id };
     }
+    const rules = assignRuleIds(cleaned, []);
     const [row] = await db.insert(s.commissionPlans).values({ name: input.name, description: input.description || null, active: input.active, rules }).returning();
     await audit({ actorId: user.id, action: "commission_plan.create", entity: "commission_plan", entityId: row!.id, after: row });
     revalidatePath("/commissions");
@@ -73,6 +97,7 @@ export const unassignPlan = action(z.object({ userId: z.string().min(1), planId:
 export const runAccruals = action(z.object({}), async (_input, user) => {
   if (!(await can(user, "commissions", "create", "all")) && !(await can(user, "commissions", "configure", "all"))) throw new ForbiddenError();
   const res = await accrueCommissions({ actorId: user.id });
+  if (res.alreadyRunning) throw new UserError("An accrual run is already in progress. Try again in a minute.");
   revalidatePath("/commissions");
   return res;
 });
@@ -219,10 +244,10 @@ export const registerLead = action(
       payload: { accountId, accountName: account.name, conflicts: conflicts.map((c) => c.message) },
     });
     const approvers = await db.select({ id: s.user.id }).from(s.user).where(inArray(s.user.role, ["sales_leader", "admin"]));
-    if (approvers.length)
-      await db.insert(s.notifications).values(
-        approvers.map((a) => ({ userId: a.id, kind: "approval", title: `Lead registration: ${account.name}`, body: `${user.name} registered ${account.name}${conflicts.length ? ` (${conflicts.length} conflict${conflicts.length > 1 ? "s" : ""})` : ""}.`, href: "/commissions?tab=registrations" })),
-      );
+    await notifyMany(
+      approvers.map((a) => a.id),
+      { kind: "approval", title: `Lead registration: ${account.name}`, body: `${user.name} registered ${account.name}${conflicts.length ? ` (${conflicts.length} conflict${conflicts.length > 1 ? "s" : ""})` : ""}.`, href: "/commissions?tab=registrations" },
+    );
     await audit({ actorId: user.id, action: "lead_registration.create", entity: "lead_registration", entityId: reg!.id, after: { ...reg, conflicts } });
     revalidatePath("/commissions");
     return { id: reg!.id, conflicts };

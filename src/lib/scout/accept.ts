@@ -105,6 +105,8 @@ export async function acceptCandidatesAs(user: AppUser, input: z.infer<typeof ac
       }
 
       const muuConfidence = (raw.muuConfidence === "reported" ? "reported" : raw.muuConfidence === "verified" ? "verified" : "estimate") as "estimate" | "reported" | "verified";
+      // Permission check before the transaction: scopeFor reads through the pool, never inside an open tx (QA-01).
+      if (!existing && !(await canCreateAccountFor(user, ownerId))) throw new ForbiddenError();
       const now = new Date();
       const result = await db.transaction(async (tx) => {
         let accountId: string;
@@ -123,7 +125,6 @@ export async function acceptCandidatesAs(user: AppUser, input: z.infer<typeof ac
           if (!keepMuu && c.estMuu != null) Object.assign(patch, { muu: c.estMuu, muuSource: c.muuSource, muuConfidence, monthlyVisits: c.monthlyVisits ?? existing.monthlyVisits });
           await tx.update(s.accounts).set(patch).where(eq(s.accounts.id, accountId));
         } else {
-          if (!(await canCreateAccountFor(user, ownerId))) throw new ForbiddenError();
           const [a] = await tx
             .insert(s.accounts)
             .values({

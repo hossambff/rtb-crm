@@ -6,6 +6,7 @@ import { db } from "@/db";
 import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
+import { notifyMany } from "@/lib/notifications/notify";
 import { assertCan, type AppUser } from "@/lib/rbac/server";
 import { approvalRules, assertProposalDeal, proposalWhere } from "./access";
 import { approvalTriggers, canExport, computeProForma, COST_FUNCTIONS, isLocked, normalizeInputs, REVENUE_LINES, type ProFormaInputs } from "./calc";
@@ -46,10 +47,10 @@ async function applyApprovalState(user: AppUser, proposalId: string, inputs: Pro
     } else {
       await db.insert(s.approvals).values({ kind: "proposal", entity: "proposal", entityId: proposalId, requestedBy: user.id, approverRole: "executive", payload: { reasons, version, dealName } });
       const execs = await db.select({ id: s.user.id }).from(s.user).where(eq(s.user.role, "executive"));
-      if (execs.length)
-        await db.insert(s.notifications).values(
-          execs.map((e) => ({ userId: e.id, kind: "approval", title: `Proposal approval: ${dealName} v${version}`, body: reasons.join("; "), href: `/proposals/${proposalId}` })),
-        );
+      await notifyMany(
+        execs.map((e) => e.id),
+        { kind: "approval", title: `Proposal approval: ${dealName} v${version}`, body: reasons.join("; "), href: `/proposals/${proposalId}` },
+      );
     }
   } else {
     await db.update(s.proposals).set({ status: "draft", approvalReason: null }).where(eq(s.proposals.id, proposalId));

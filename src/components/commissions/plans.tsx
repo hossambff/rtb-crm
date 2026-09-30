@@ -70,8 +70,9 @@ export function PlansPanel({ plans, canConfigure }: { plans: Plan[]; canConfigur
   );
 }
 
-type RuleDraft = { trigger: Trigger; pipelineKeys: string[]; rateType: RateType; rate: string; cap: string; clawbackDays: string };
+type RuleDraft = { id?: string; trigger: Trigger; pipelineKeys: string[]; rateType: RateType; rate: string; cap: string; clawbackDays: string };
 const toDraft = (r: PlanRule): RuleDraft => ({
+  id: r.id, // stable rule identity — keeps past accruals bound to this rule across edits (CR-01)
   trigger: r.trigger,
   pipelineKeys: r.pipelineKeys ?? [],
   rateType: r.rateType,
@@ -93,6 +94,7 @@ function PlanDialog({ plan, onClose }: { plan: Plan | null; onClose: () => void 
   const submit = () =>
     start(async () => {
       const payload = rules.map((r) => ({
+        id: r.id,
         trigger: r.trigger,
         pipelineKeys: r.pipelineKeys as (typeof PIPES)[number][],
         rateType: r.rateType,

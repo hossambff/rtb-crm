@@ -4,7 +4,13 @@
  *
  * Conventions: money in cents; rule.rate is a percent 0..100 for pct_* rate types and cents for `flat`.
  * Caps (`capCents`) are cumulative per user × plan × rule × calendar month (period).
- * Idempotency: every accrual carries a stable key in its note (`[k:<key>]`); re-runs skip keys that already exist.
+ * Periods are UTC calendar months (`periodOf`) — an accepted simplification, documented in docs/audits/CODE_REVIEW.md
+ * (a deal won 22:00 ET on the last day of a month books to the next month).
+ *
+ * Idempotency (CR-01): every accrual carries `source_key` = `<trigger>:<ruleId>:<eventId>:<userId>`, backed by the unique
+ * index (user_id, plan_id, source_key) and written with ON CONFLICT DO NOTHING. `ruleId` is the rule's stable `id`
+ * (kept across plan edits) or, for rules saved before ids existed, a hash of the rule's content — never its position in
+ * the rules array, so deleting or reordering a rule can't re-accrue past events.
  */
 
 export const TRIGGERS = ["deal_won", "invoice_paid", "r100_live", "meeting_held", "migration_launched"] as const;
@@ -26,6 +32,8 @@ export const RATE_TYPE_LABELS: Record<RateType, string> = {
 };
 
 export type PlanRule = {
+  /** Stable identity (uuid assigned by savePlan, or `h…` content hash for legacy rules). Never the array index. */
+  id?: string;
   trigger: Trigger;
   pipelineKeys?: string[];
   rateType: RateType;
@@ -66,15 +74,55 @@ export type AccrualDraft = {
   status: AccrualStatus;
   period: string;
   note: string;
+  /** When the commission event happened (clawback windows are measured from it). */
+  eventAt?: Date;
 };
 
 export function periodOf(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-export function accrualKey(ruleIdx: number, trigger: string, sourceId: string): string {
-  return `${ruleIdx}|${trigger}|${sourceId}`;
+/** FNV-1a 32-bit, base36 — deterministic, dependency-free (runs on the client plan editor too). */
+function fnv1a(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
 }
+
+/** Content identity of a rule (what it pays for and how) — used only for rules that have no stored `id`. */
+export function ruleContentId(r: Omit<PlanRule, "id">): string {
+  const canon = [r.trigger, [...(r.pipelineKeys ?? [])].sort().join(","), r.rateType, r.rate, r.capCents ?? "", r.clawbackDays ?? ""].join("|");
+  return `h${fnv1a(canon)}`;
+}
+
+const cleanId = (id: string) => id.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+
+/** Give every rule a stable id: its stored `id`, else its content hash (duplicates of identical content get `-2`, `-3`…). */
+export function withRuleIds<T extends PlanRule>(rules: T[]): (T & { id: string })[] {
+  const seen = new Map<string, number>();
+  return rules.map((r) => {
+    let id = typeof r.id === "string" && cleanId(r.id) ? cleanId(r.id) : ruleContentId(r);
+    const n = (seen.get(id) ?? 0) + 1;
+    seen.set(id, n);
+    if (n > 1) id = `${id}-${n}`;
+    return { ...r, id };
+  });
+}
+
+/** Idempotency key for one accrual (stored in commission_accruals.source_key). */
+export function accrualKey(ruleId: string, trigger: string, sourceId: string, userId: string): string {
+  return `${trigger}:${ruleId}:${sourceId}:${userId}`;
+}
+/** The rule id inside an accrual key (or a clawback key). */
+export function ruleIdFromKey(key: string): string | null {
+  const k = key.startsWith(CLAWBACK_PREFIX) ? key.slice(CLAWBACK_PREFIX.length) : key;
+  const parts = k.split(":");
+  return parts.length >= 4 ? parts[1]! : null;
+}
+/** Legacy note prefix (`[k:<key>] …`) — accruals written before source_key existed; kept for display only. */
 export function keyNote(key: string, text: string): string {
   return `[k:${key}] ${text}`.trim();
 }
@@ -84,11 +132,12 @@ export function keyFromNote(note: string | null | undefined): string | null {
 }
 
 /** Normalize untrusted rules JSON from the DB. */
-export function normalizeRules(raw: unknown): PlanRule[] {
+export function normalizeRules(raw: unknown): (PlanRule & { id: string })[] {
   if (!Array.isArray(raw)) return [];
-  return raw
+  const rules: PlanRule[] = raw
     .filter((r) => r && typeof r === "object" && (TRIGGERS as readonly string[]).includes(r.trigger))
     .map((r) => ({
+      id: typeof r.id === "string" ? r.id : undefined,
       trigger: r.trigger as Trigger,
       pipelineKeys: Array.isArray(r.pipelineKeys) ? r.pipelineKeys.map(String).filter(Boolean) : undefined,
       rateType: (RATE_TYPES as readonly string[]).includes(r.rateType) ? (r.rateType as RateType) : "flat",
@@ -96,6 +145,7 @@ export function normalizeRules(raw: unknown): PlanRule[] {
       capCents: r.capCents != null && Number.isFinite(Number(r.capCents)) ? Math.max(0, Math.round(Number(r.capCents))) : undefined,
       clawbackDays: r.clawbackDays != null && Number.isFinite(Number(r.clawbackDays)) ? Math.max(0, Math.round(Number(r.clawbackDays))) : undefined,
     }));
+  return withRuleIds(rules);
 }
 
 /** Gross commission for one event before splits/caps. */
@@ -136,8 +186,8 @@ export function ruleMatches(rule: PlanRule, ev: CommissionEvent): boolean {
 /**
  * Decide the accruals to write for one assignment (user × plan). Pure and idempotent:
  * - only events at/after effectiveFrom where the user is a recipient;
- * - skips keys already in `existingKeys`;
- * - applies caps using `periodTotals` (key `${ruleIdx}|${period}` → cents already accrued), updated as it goes.
+ * - skips keys already in `existingKeys` (source keys, see `accrualKey`);
+ * - applies caps using `periodTotals` (key `${ruleId}|${period}` → cents already accrued), updated as it goes.
  */
 export function planAccruals(input: {
   userId: string;
@@ -151,18 +201,18 @@ export function planAccruals(input: {
 }): AccrualDraft[] {
   const drafts: AccrualDraft[] = [];
   const sorted = [...input.events].sort((a, b) => a.at.getTime() - b.at.getTime());
-  input.rules.forEach((rule, ruleIdx) => {
+  for (const rule of withRuleIds(input.rules)) {
     for (const ev of sorted) {
       if (!ruleMatches(rule, ev)) continue;
       if (ev.at.getTime() < input.effectiveFrom.getTime()) continue;
       const share = ev.recipients.find((r) => r.userId === input.userId);
       if (!share) continue;
-      const key = accrualKey(ruleIdx, ev.trigger, ev.sourceId);
+      const key = accrualKey(rule.id, ev.trigger, ev.sourceId, input.userId);
       if (input.existingKeys.has(key)) continue;
       const period = periodOf(ev.at);
       const gross = ruleAmountCents(rule, ev);
       const split = Math.round((gross * share.pct) / 100);
-      const capKey = `${ruleIdx}|${period}`;
+      const capKey = capKeyOf(rule.id, period);
       const already = input.periodTotals.get(capKey) ?? 0;
       const amount = applyCap(split, already, rule.capCents);
       if (amount <= 0) continue;
@@ -180,12 +230,15 @@ export function planAccruals(input: {
         amountCents: amount,
         status: "accrued",
         period,
-        note: keyNote(key, `${input.planName}: ${ev.label}${pctNote}${capNote}`),
+        eventAt: ev.at,
+        note: `${input.planName}: ${ev.label}${pctNote}${capNote}`,
       });
     }
-  });
+  }
   return drafts;
 }
+
+export const capKeyOf = (ruleId: string, period: string) => `${ruleId}|${period}`;
 
 /** Clawback applies when the deal was lost within `clawbackDays` of the commission event. */
 export function clawbackDue(p: { eventAt: Date | null; lostAt: Date | null; clawbackDays: number | undefined }): boolean {
@@ -194,9 +247,39 @@ export function clawbackDue(p: { eventAt: Date | null; lostAt: Date | null; claw
   return days >= 0 && days <= p.clawbackDays;
 }
 
-export function clawbackKey(originalKey: string): string {
-  return `clawback|${originalKey}`;
+/**
+ * When the commission event behind an accrual happened, for the clawback window (H-02). A lost deal no longer has
+ * `won_at` (stage-service clears it on leaving a won stage), so `deal_won` uses the last entry into a won stage from
+ * deal_stage_history (`lastWinAt`). Fallback when there is no such history (e.g. deals imported as won): the accrual's
+ * creation time, which is never earlier than the event — the window can only shrink, so no false clawbacks.
+ */
+export function clawbackEventAt(p: {
+  trigger: string;
+  paidAt?: Date | null;
+  firstPostDate?: string | null;
+  goLiveAt?: Date | null;
+  lastWinAt?: Date | null;
+  accruedAt: Date;
+}): Date {
+  const valid = (d: Date | null | undefined) => (d && !Number.isNaN(d.getTime()) ? d : null);
+  const win = valid(p.lastWinAt) ?? p.accruedAt;
+  switch (p.trigger) {
+    case "invoice_paid":
+      return valid(p.paidAt) ?? p.accruedAt;
+    case "r100_live":
+      return valid(p.firstPostDate ? new Date(p.firstPostDate) : null) ?? win;
+    case "migration_launched":
+      return valid(p.goLiveAt) ?? win;
+    default:
+      return win;
+  }
 }
+
+const CLAWBACK_PREFIX = "clawback:";
+export function clawbackKey(originalKey: string): string {
+  return `${CLAWBACK_PREFIX}${originalKey}`;
+}
+export const isClawbackKey = (key: string) => key.startsWith(CLAWBACK_PREFIX);
 
 /** Statement totals for a list of accrual rows. */
 export function statementTotals(rows: { amountCents: number; status: string }[]) {

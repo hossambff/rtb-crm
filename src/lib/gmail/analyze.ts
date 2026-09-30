@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
+import { notify } from "@/lib/notifications/notify";
 import { aiAvailable, aiObject, modelFor, untrusted } from "@/lib/ai";
 import { audit } from "@/lib/audit";
 import { getSetting } from "@/lib/settings";
@@ -133,8 +134,7 @@ export async function analyzeStoredMessage(messageRowId: string): Promise<Stored
     }
     const prefs = await getPrefs(owner.id);
     if (prefs.notifications.aiActions && prefs.notifications.inApp) {
-      await db.insert(s.notifications).values({
-        userId: owner.id,
+      await notify(owner.id, {
         kind: "system",
         title: `${analysis.commitments.length} task${analysis.commitments.length === 1 ? "" : "s"} created from email`,
         body: `From “${(row.t.subject ?? "(no subject)").slice(0, 120)}”. Review or undo in the Inbox.`,

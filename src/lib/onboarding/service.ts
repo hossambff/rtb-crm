@@ -1,6 +1,6 @@
 import "server-only";
 import { eq } from "drizzle-orm";
-import { db } from "@/db";
+import { db, type Executor } from "@/db";
 import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { defaultChecklist } from "./calc";
@@ -10,10 +10,9 @@ import { defaultChecklist } from "./calc";
  * project if there is one). No permission check: callers (stage-change automation, the createProject action) must have
  * authorized the deal transition already. Pass `q` (a transaction) when called inside the stage-change transaction —
  * the deals module's onDealWon does this, so there is one creation path. Returns null for deals that don't hand off to onboarding.
+ * Every query (audit included) runs on `q`, so no second pooled connection is needed while the caller's transaction is open.
  */
-type Q = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-export async function ensureMigrationProject(dealId: string, opts: { actorId: string | null; ownerId?: string | null; targetGoLive?: Date | null }, q: Q = db) {
+export async function ensureMigrationProject(dealId: string, opts: { actorId: string | null; ownerId?: string | null; targetGoLive?: Date | null }, q: Executor = db) {
   const [row] = await q
     .select({ deal: s.deals, key: s.pipelines.key })
     .from(s.deals)
@@ -22,6 +21,7 @@ export async function ensureMigrationProject(dealId: string, opts: { actorId: st
   if (!row || row.deal.status !== "won" || !["NET", "ENT", "SPT"].includes(row.key)) return null;
   const [existing] = await q.select().from(s.migrationProjects).where(eq(s.migrationProjects.dealId, dealId));
   if (existing) return { project: existing, created: false };
+  // unique migration_projects(deal_id): a concurrent won move waits on the other insert, then does nothing (H-11).
   const [project] = await q
     .insert(s.migrationProjects)
     .values({
@@ -32,7 +32,12 @@ export async function ensureMigrationProject(dealId: string, opts: { actorId: st
       targetGoLive: opts.targetGoLive ?? null,
       checklist: defaultChecklist(),
     })
+    .onConflictDoNothing()
     .returning();
-  await audit({ actorId: opts.actorId, actorKind: opts.actorId ? "user" : "system", action: "migration.create", entity: "migration", entityId: project!.id, after: project });
-  return { project: project!, created: true };
+  if (!project) {
+    const [again] = await q.select().from(s.migrationProjects).where(eq(s.migrationProjects.dealId, dealId));
+    return again ? { project: again, created: false } : null;
+  }
+  await audit({ actorId: opts.actorId, actorKind: opts.actorId ? "user" : "system", action: "migration.create", entity: "migration", entityId: project.id, after: project }, q);
+  return { project, created: true };
 }
