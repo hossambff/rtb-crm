@@ -56,10 +56,14 @@ export function arAging(invoices: { status: string; dueAt: Date; amountCents: nu
   return AGING_BUCKETS.map((bucket) => ({ bucket, ...out[bucket] }));
 }
 
-/** ADS stage keys → exec-summary category (ADS-1). */
+/**
+ * ADS stage keys → exec-summary category (ADS-1). Mirrors the Chris & Will "Summary" tab (AT-10, QA-08): the "Active
+ * Deal" bucket is every stage past Warm (Negotiation, Verbal, Signed LOI) and "Warm deals in negotiation" is the Warm
+ * Deal stage only.
+ */
 export const ADS_CATEGORY: Record<string, "warm" | "active" | "current" | "renewal" | "churned"> = {
   warm: "warm",
-  negotiation: "warm",
+  negotiation: "active",
   verbal: "active",
   loi: "active",
   won: "active",
@@ -76,13 +80,23 @@ export type AdsDeal = {
   renewalAt: Date | null;
   accountId: string | null;
   accountName: string | null;
+  /** Expected next collection from a current client (imported "upcoming payment" column or set on the deal). */
+  nextPaymentCents?: number | null;
+  nextPaymentAt?: Date | null;
 };
+
+export type SummaryInvoice = { status: string; dueAt: Date; amountCents: number; dealId?: string };
 
 const dealCents = (d: AdsDeal) => d.contractValueCents ?? d.annualizedValueCents ?? 0;
 const annualCents = (d: AdsDeal) => d.annualizedValueCents ?? d.contractValueCents ?? 0;
 
-/** C&W exec summary widgets (ADS-3). */
-export function revenueSummary(deals: AdsDeal[], invoices: { status: string; dueAt: Date; amountCents: number }[], now: Date) {
+/**
+ * C&W exec summary widgets (ADS-3).
+ * Upcoming collections (60 days) = open invoices due in the window, plus — for current/renewal clients with no open
+ * invoice yet — the deal's scheduled next payment (undated, or dated within the window). This is how the imported
+ * sheet expresses collections before Finance starts invoicing in the CRM, so the tile reproduces the C&W $260K / 7.
+ */
+export function revenueSummary(deals: AdsDeal[], invoices: SummaryInvoice[], now: Date) {
   const active = deals.filter((d) => ADS_CATEGORY[d.stageKey] === "active");
   const current = deals.filter((d) => ADS_CATEGORY[d.stageKey] === "current" || ADS_CATEGORY[d.stageKey] === "renewal");
   const warm = deals.filter((d) => ADS_CATEGORY[d.stageKey] === "warm");
@@ -91,8 +105,10 @@ export function revenueSummary(deals: AdsDeal[], invoices: { status: string; due
   let upcomingCents = 0;
   let overdueCount = 0;
   let overdueCents = 0;
+  const invoicedDeals = new Set<string>();
   for (const inv of invoices) {
     const st = effectiveStatus(inv, now);
+    if (st !== "paid" && st !== "written_off" && inv.dealId) invoicedDeals.add(inv.dealId);
     if (st === "overdue") {
       overdueCount++;
       overdueCents += inv.amountCents;
@@ -101,10 +117,20 @@ export function revenueSummary(deals: AdsDeal[], invoices: { status: string; due
       upcomingCents += inv.amountCents;
     }
   }
+  let scheduledCount = 0;
+  const today = startOfDay(now).getTime();
+  for (const d of current) {
+    if (invoicedDeals.has(d.id) || !d.nextPaymentCents || d.nextPaymentCents <= 0) continue;
+    const at = d.nextPaymentAt?.getTime();
+    if (at != null && (at < today || at > horizon)) continue;
+    upcomingCount++;
+    scheduledCount++;
+    upcomingCents += d.nextPaymentCents;
+  }
   return {
     activeClosing: { count: active.length, cents: active.reduce((a, d) => a + dealCents(d), 0) },
     currentAnnualized: { count: current.length, cents: current.reduce((a, d) => a + annualCents(d), 0) },
-    upcomingCollections: { count: upcomingCount, cents: upcomingCents },
+    upcomingCollections: { count: upcomingCount, cents: upcomingCents, fromDealSchedule: scheduledCount },
     overdue: { count: overdueCount, cents: overdueCents },
     warmNegotiation: { count: warm.length, cents: warm.reduce((a, d) => a + dealCents(d), 0) },
   };

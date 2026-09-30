@@ -7,8 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { mergeAccountInto, searchAccountsAction } from "@/lib/accounts/actions";
+import { fmtDate } from "@/lib/format";
 
-type Pick = { id: string; name: string; domain?: string | null };
+type Pick = { id: string; name: string; domain?: string | null; ownerName?: string | null; createdAt?: string | null };
+
+/** "domain · Owner · created 29 Sep 2026" — tells same-name accounts apart (QA-22). */
+function pickMeta(p: Pick) {
+  return [p.domain ?? "no domain", p.ownerName ?? "Unassigned", p.createdAt ? `created ${fmtDate(p.createdAt)}` : null].filter(Boolean).join(" · ");
+}
 
 /** Debounced account search combobox (keyboard: ↑/↓/Enter/Esc). */
 export function AccountPicker({ id, value, onChange, excludeId, placeholder }: { id?: string; value: Pick | null; onChange: (v: Pick | null) => void; excludeId?: string; placeholder?: string }) {
@@ -37,7 +43,7 @@ export function AccountPicker({ id, value, onChange, excludeId, placeholder }: {
     return (
       <div className="flex h-9 items-center justify-between rounded-md border border-border bg-surface-3/40 px-3 text-sm">
         <span className="truncate text-fg">
-          {value.name} {value.domain ? <span className="text-xs text-muted">{value.domain}</span> : null}
+          {value.name} <span className="text-xs text-muted">{pickMeta(value)}</span>
         </span>
         <button type="button" aria-label="Clear selection" className="text-muted hover:text-fg" onClick={() => onChange(null)}>
           <X className="size-4" />
@@ -83,10 +89,10 @@ export function AccountPicker({ id, value, onChange, excludeId, placeholder }: {
                 setQ("");
                 setHits([]);
               }}
-              className={`flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 ${i === active ? "bg-surface-3" : ""}`}
+              className={`flex cursor-pointer flex-col gap-0.5 rounded px-2 py-1.5 ${i === active ? "bg-surface-3" : ""}`}
             >
               <span className="truncate text-fg">{h.name}</span>
-              <span className="truncate text-xs text-muted">{h.domain ?? ""}</span>
+              <span className="truncate text-xs text-muted">{pickMeta(h)}</span>
             </li>
           ))}
         </ul>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { forbidden } from "next/navigation";
 import { History } from "lucide-react";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -15,7 +15,7 @@ export const metadata = { title: "Import" };
 
 export default async function ImportPage() {
   const user = await requireUser();
-  if (!(await can(user, "import", "import"))) notFound();
+  if (!(await can(user, "import", "import"))) forbidden();
   const [pipelines, batches] = await Promise.all([
     db.select({ key: s.pipelines.key, name: s.pipelines.name }).from(s.pipelines).where(eq(s.pipelines.active, true)).orderBy(asc(s.pipelines.sortOrder)),
     batchRowsFor(user, 5),

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CheckCircle2, AlertTriangle, AlertOctagon, XCircle } from "lucide-react";
+import { CheckCircle2, AlertTriangle, AlertOctagon, Info, Loader2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATUS_COLORS } from "@/lib/palette";
 
@@ -15,14 +15,25 @@ export function Badge({ className, ...props }: React.HTMLAttributes<HTMLSpanElem
   );
 }
 
-const ICONS = { good: CheckCircle2, warning: AlertTriangle, serious: AlertOctagon, critical: XCircle } as const;
+const ICONS = { good: CheckCircle2, warning: AlertTriangle, serious: AlertOctagon, critical: XCircle, info: Info, progress: Loader2 } as const;
+/** Neutral states (QA-27): "info" is not "good", and "in progress" is not a warning — both use the gray axis tone. */
+const NEUTRAL = "#828282";
 
 /** Status badge: color + icon + label (never color alone). */
-export function StatusBadge({ status, label, className }: { status: keyof typeof STATUS_COLORS; label: string; className?: string }) {
+export function StatusBadge({
+  status,
+  label,
+  className,
+}: {
+  status: keyof typeof STATUS_COLORS | "info" | "progress";
+  label: string;
+  className?: string;
+}) {
   const Icon = ICONS[status];
+  const color = status === "info" || status === "progress" ? NEUTRAL : STATUS_COLORS[status];
   return (
     <Badge className={cn("gap-1", className)}>
-      <Icon className="size-3" style={{ color: STATUS_COLORS[status] }} aria-hidden />
+      <Icon className={cn("size-3", status === "progress" && "animate-spin motion-reduce:animate-none")} style={{ color }} aria-hidden />
       <span>{label}</span>
     </Badge>
   );

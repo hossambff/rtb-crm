@@ -13,7 +13,8 @@ import { EditAccountDialog } from "@/components/accounts/edit-account-dialog";
 import { MergeAccountDialog } from "@/components/accounts/merge-account-dialog";
 import { ConfidenceBadge, MuuValue } from "@/components/accounts/muu-value";
 import { ContactFormDialog } from "@/components/contacts/contact-form-dialog";
-import { accountFilterOptions, getAccount360, type Account360 } from "@/lib/accounts/queries";
+import { accountFilterOptions, getAccount360, getVisibleAccount, type Account360 } from "@/lib/accounts/queries";
+import { ownerFilterOptions } from "@/lib/users";
 import { ACCOUNT_TYPES, LIFECYCLES, PRIORITIES, R100_TYPES, labelOf } from "@/lib/accounts/constants";
 import { seniorityLabel } from "@/lib/contacts/seniority";
 import { dealValue } from "@/lib/pipeline-math";
@@ -21,7 +22,12 @@ import { fmtDate, fmtNumber, fmtPct, fmtRelative, fmtUsd } from "@/lib/format";
 import { PIPELINE_COLORS } from "@/lib/palette";
 import { can, requireUser } from "@/lib/rbac/server";
 
-export const metadata = { title: "Account" };
+export async function generateMetadata(props: PageProps<"/accounts/[id]">) {
+  const user = await requireUser();
+  if (!(await can(user, "accounts", "view"))) return { title: "Account" };
+  const a = await getVisibleAccount(user, (await props.params).id);
+  return { title: a?.name ?? "Account" };
+}
 
 export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
   const user = await requireUser();
@@ -29,9 +35,9 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
   if (!(await can(user, "accounts", "view"))) notFound();
   const data = await getAccount360(user, id);
   if (!data) notFound();
-  const [opts, canAssign, canCreateContact] = await Promise.all([accountFilterOptions(), can(user, "accounts", "assign"), can(user, "contacts", "create")]);
+  const [opts, ownerOpts, canAssign, canCreateContact] = await Promise.all([accountFilterOptions(), ownerFilterOptions(), can(user, "accounts", "assign"), can(user, "contacts", "create")]);
   const { account: a } = data;
-  const owners = opts.owners.map((o) => ({ id: o.id, name: o.name }));
+  const owners = ownerOpts.map((o) => ({ id: o.id, name: o.name }));
 
   const deals = data.deals.map((d) => ({
     ...d,
@@ -124,9 +130,9 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
         </div>
       </header>
 
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <Kpi label="MUU">
-          <div className="flex items-baseline gap-2">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
             <MuuValue value={a.muu} confidence={a.muuConfidence} source={a.muuSource} className="font-display text-[26px] leading-9" />
             <ConfidenceBadge confidence={a.muuConfidence} />
           </div>
@@ -437,8 +443,10 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
 function Kpi({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0 rounded-lg border border-border bg-surface-1 px-4 py-3">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted">{label}</p>
-      <div className="mt-1.5">{children}</div>
+      <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted" title={label}>
+        {label}
+      </p>
+      <div className="mt-1.5 min-w-0">{children}</div>
     </div>
   );
 }

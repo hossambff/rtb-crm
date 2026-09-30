@@ -5,5 +5,5 @@ export const SOURCE_LABELS: Record<string, string> = { granola: "Granola", zoom:
 export function TranscriptStatus({ status }: { status: string }) {
   if (status === "ready") return <StatusBadge status="good" label="Analyzed" />;
   if (status === "failed") return <StatusBadge status="critical" label="Failed" />;
-  return <StatusBadge status="warning" label={status === "processing" ? "Analyzing" : "Queued"} />;
+  return <StatusBadge status="progress" label={status === "processing" ? "Analyzing" : "Queued"} />;
 }

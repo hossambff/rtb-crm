@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { requireUser } from "@/lib/rbac/server";
 import { GOOGLE_WORKSPACE_SCOPES } from "@/lib/auth";
 import { getSettingsState } from "@/lib/integrations/queries";
@@ -43,7 +42,7 @@ export default async function SettingsPage() {
         ))}
       </nav>
       <div className="space-y-6">
-        {showBanner ? <MailboxBanner /> : null}
+        {showBanner ? <MailboxBanner configured={state.google.configured} /> : null}
 
         <Card id="profile" className="scroll-mt-20">
           <CardHeader>
@@ -66,9 +65,7 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent className="divide-y divide-border p-0">
             <div className="px-5 py-5">
-              <Suspense>
-                <GoogleConnection state={state.google} scopes={GOOGLE_WORKSPACE_SCOPES} required={state.mailboxRequired} />
-              </Suspense>
+              <GoogleConnection state={state.google} scopes={GOOGLE_WORKSPACE_SCOPES} required={state.mailboxRequired} />
             </div>
             <div className="px-5 py-5">
               <GranolaForm conn={state.granola} />

@@ -8,7 +8,7 @@ export type AdminNavItem = { href: string; label: string };
 export function AdminNav({ items }: { items: AdminNavItem[] }) {
   const pathname = usePathname();
   return (
-    <nav aria-label="Admin sections" className="-mx-1 flex gap-1 overflow-x-auto border-b border-border pb-px lg:mx-0 lg:flex-col lg:border-b-0 lg:pb-0">
+    <nav aria-label="Admin sections" className="-mx-1 flex gap-1 overflow-x-auto border-b border-border pb-px xl:mx-0 xl:flex-col xl:border-b-0 xl:pb-0">
       {items.map((it) => {
         const active = it.href === "/admin" ? pathname === "/admin" : pathname.startsWith(it.href);
         return (

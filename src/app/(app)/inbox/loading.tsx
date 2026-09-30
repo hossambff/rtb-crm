@@ -4,7 +4,7 @@ export default function InboxLoading() {
   return (
     <div aria-busy="true" aria-label="Loading inbox">
       <Skeleton className="mb-2 h-9 w-40" />
-      <Skeleton className="mb-6 h-4 w-80" />
+      <Skeleton className="mb-6 h-4 w-80 max-w-full" />
       <div className="mb-4 flex gap-2">
         {Array.from({ length: 5 }, (_, i) => (
           <Skeleton key={i} className="h-8 w-24" />

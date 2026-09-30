@@ -54,7 +54,7 @@ export function AlertsEditor({ rules }: { rules: AdminAlertRule[] }) {
           <tbody>
             {rules.map((r) => (
               <tr key={r.code} className={r.enabled ? undefined : "opacity-60"}>
-                <Td className="text-xs text-muted tabular">{r.code}</Td>
+                <Td className="whitespace-nowrap text-xs text-muted tabular">{r.code}</Td>
                 <Td>
                   <div className="font-medium text-fg">{r.name}</div>
                   {r.description ? <div className="text-xs text-muted">{r.description}</div> : null}

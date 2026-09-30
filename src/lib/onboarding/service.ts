@@ -28,7 +28,8 @@ export async function ensureMigrationProject(dealId: string, opts: { actorId: st
       dealId,
       accountId: row.deal.accountId,
       name: row.deal.name,
-      ownerId: opts.ownerId ?? null,
+      // QA-26: default the migration owner to the deal owner (the person who closed it) until onboarding reassigns.
+      ownerId: opts.ownerId ?? row.deal.ownerId ?? null,
       targetGoLive: opts.targetGoLive ?? null,
       checklist: defaultChecklist(),
     })

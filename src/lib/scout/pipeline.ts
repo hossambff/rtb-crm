@@ -157,7 +157,7 @@ async function runScoutInner(runId: string): Promise<void> {
       const before = kept.length;
       // list domains first, then lookalikes by similarity, then SERP order
       kept = kept.sort((a, b) => rank(a) - rank(b)).slice(0, affordable);
-      const notes = [`${kept.length} new domain${kept.length === 1 ? "" : "s"}`];
+      const notes = [`${kept.length} domain${kept.length === 1 ? "" : "s"} to score`];
       if (dropped) notes.push(`${dropped} excluded (already scouted, suppressed, rejected <6 mo, or excluded)`);
       if (before > kept.length) notes.push(`${before - kept.length} over the per-run cap/budget`);
       return { output: kept, note: notes.join("; ") };

@@ -1,4 +1,5 @@
 import "server-only";
+import { ownerFilterOptions } from "@/lib/users";
 import { cache } from "react";
 import { limited, limitedAll } from "./limit";
 import { and, eq, exists, inArray, not, or, sql, type SQL } from "drizzle-orm";
@@ -98,5 +99,9 @@ export function accountVisibleWhere(user: AppUser): SQL {
 export async function ownerOptions(ctx: AnalyticsContext): Promise<{ id: string; name: string }[]> {
   if (ctx.scope === "own") return [];
   const where = ctx.ownerIds ? inArray(s.user.id, ctx.ownerIds) : sql`true`;
-  return limited(db.select({ id: s.user.id, name: s.user.name }).from(s.user).where(where).orderBy(s.user.name));
+  // QA-20: active people + inactive/placeholder users that still own records — never empty junk placeholders.
+  const listed = await ownerFilterOptions();
+  const ok = new Set(listed.map((u) => u.id));
+  const rows = await limited(db.select({ id: s.user.id, name: s.user.name }).from(s.user).where(where).orderBy(s.user.name));
+  return rows.filter((r) => ok.has(r.id));
 }

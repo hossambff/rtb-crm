@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { forbidden, notFound } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,7 @@ const HREF: Record<string, string> = { account: "/accounts/", contact: "/contact
 
 export default async function ImportBatchPage(props: PageProps<"/import/history/[id]">) {
   const user = await requireUser();
-  if (!(await can(user, "import", "import"))) notFound();
+  if (!(await can(user, "import", "import"))) forbidden();
   const { id } = await props.params;
   const detail = await getBatchDetail(id);
   if (!detail) notFound();

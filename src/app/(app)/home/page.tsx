@@ -42,7 +42,7 @@ export default async function HomePage() {
       <HeroStats overdue={d.buckets.overdue.length} dueToday={d.buckets.today.length} alerts={d.alertCounts} needNextStep={d.needNextStep} />
 
       <div className="grid gap-6 xl:grid-cols-5">
-        <div className="space-y-6 xl:col-span-3">
+        <div className="min-w-0 space-y-6 xl:col-span-3">
           {d.canTasks ? (
             <HomeSection title="Overdue & today" href="/tasks?tab=mine" count={focus.length}>
               <TaskList
@@ -64,7 +64,7 @@ export default async function HomePage() {
             <AttentionDeals deals={d.attentionDeals} tz={tz} />
           </HomeSection>
         </div>
-        <div className="space-y-6 xl:col-span-2">
+        <div className="min-w-0 space-y-6 xl:col-span-2">
           <HomeSection title="Today's meetings" href="/calls" hrefLabel="Calls" count={d.meetings.length}>
             <MeetingsList meetings={d.meetings} tz={tz} nowIso={d.now.toISOString()} />
           </HomeSection>

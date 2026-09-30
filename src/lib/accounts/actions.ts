@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { and, eq, ilike, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import * as s from "@/db/schema";
@@ -236,5 +236,14 @@ export const addAudienceMetric = action(
 
 export const searchAccountsAction = action(z.object({ q: z.string().trim().min(1).max(100) }), async (input, user) => {
   await assertCan(user, "accounts", "view");
-  return searchAccounts(user, input.q, 10);
+  const hits = await searchAccounts(user, input.q, 10);
+  if (!hits.length) return [];
+  // QA-22: disambiguate same-name accounts in pickers (merge dialog) with owner + created date.
+  const extra = await db
+    .select({ id: s.accounts.id, createdAt: s.accounts.createdAt, ownerName: s.user.name })
+    .from(s.accounts)
+    .leftJoin(s.user, eq(s.user.id, s.accounts.ownerId))
+    .where(inArray(s.accounts.id, hits.map((h) => h.id)));
+  const byId = new Map(extra.map((e) => [e.id, e]));
+  return hits.map((h) => ({ ...h, ownerName: byId.get(h.id)?.ownerName ?? null, createdAt: byId.get(h.id)?.createdAt.toISOString() ?? null }));
 });

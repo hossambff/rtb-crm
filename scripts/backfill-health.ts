@@ -45,6 +45,7 @@ async function main() {
         nextStepWaitingReason: deal.nextStepWaitingReason,
         stakeholderRoles: roles.get(deal.id) ?? [],
         overdueTaskCount: overdue.get(deal.id) ?? 0,
+        imported: deal.tags?.includes("imported") ?? false,
       });
       if (h.score == null) byBand.unscored++;
       else if (h.score >= 70) byBand.healthy++;

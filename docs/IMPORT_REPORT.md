@@ -237,3 +237,19 @@ Placeholder users are `<first>.placeholder@roundtable.invalid`, role viewer, ban
 - NetDev “Monthly visits” (CLEANED, Spanish, NETDEV Pipeline, and v7 rows sourced from “NetDev Pipeline”) are stored as audience metric **visits**; MUU is derived as visits ÷ 2.5 and flagged *estimate*. Blue MUU cells in v7 are stored as “BFF research estimate”.
 - Every imported deal: tag `imported`, next step from the sheet or “Review imported deal”, due import date + 7 days, source = sheet name.
 - Removed (off model) accounts are lifecycle *disqualified* (reason in notes/customFields) and do not get early-stage deals from other list tabs.
+
+## Post-import cleanup (30 Sep 2026, QA remediation)
+
+Applied to the live database after the QA pass (docs/audits/QA_REPORT.md). Every script is idempotent (a re-run is a
+no-op) and writes `audit_log` rows with a `system:*` actor. This section is maintained by hand — the import script
+does not regenerate it.
+
+| # | QA | Script | Change | Rows |
+|---|---|---|---|---|
+| 1 | QA-03 / AT-09 | `scripts/backfill-override-approvals.ts` | One **bulk** `probability_override` approval (approver role executive, requested by `system:import`, note “Imported overrides per J. Heckman 29 Sep 2026”, `payload.dealIds` = every deal with `override_status = 'pending'`). Executives got one notification. Nothing was approved or rejected. | 1 approval covering 147 deals |
+| 2 | QA-17 | `scripts/backfill-health.ts` (after the health fix) | Health recomputed for every deal: no logged activity now counts as idle time, and imported deals with no activity since the migration are capped at 60 (“needs review”). | 3,073 deals changed. Bands after: healthy 29 · watch 3,105 · at risk 0 · critical 0 · unscored (closed) 44. Before: 3,085 of 3,117 open imported deals were “Healthy” (avg 89) |
+| 3 | QA-20 | `scripts/cleanup-placeholders.ts` | Non-person placeholder owners (import tokens that aren’t a known rep): **News**, **Politics**, **Zed**. Their records are set to unassigned — they owned 0 deals / 0 accounts / 0 contacts; Zed’s only split row is on a soft-deleted test deal (`[test-import] Gamma Post`) and was left untouched. All three stay banned with the ban reason “Non-person owner string from the spreadsheet import (QA-20)…”, so no owner picker or filter lists them. Real-rep placeholders (Andres, Ben, Casey, Chris, Daniel, Erik, Kade, Kevin, Liz, Mariah, Mehab, SW, Will, Yousef) are unchanged. | 3 users updated, 0 records reassigned |
+| 4 | QA-20 | `scripts/cleanup-placeholders.ts` | Account **9F Inc.** had `domain = facebook.com` (a social link), which blocked dedupe for a real Facebook/Meta account. Domain and website cleared; a note on the account explains why. | 1 account |
+
+Owner lists in the app now come from `src/lib/users.ts`: pickers offer active people only; owner filters offer active
+people plus inactive/placeholder users that still own records (so “Erik (placeholder)” deals stay filterable).

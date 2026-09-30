@@ -19,7 +19,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   // best-effort activity stamp (no await on the render path's critical data)
   void db.update(userTable).set({ lastActiveAt: new Date() }).where(eq(userTable.id, user.id)).catch(() => {});
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen overflow-x-clip bg-bg">
       <Sidebar items={nav} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
@@ -29,7 +29,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           nav={nav}
           impersonating={Boolean(user.impersonatedBy)}
         />
-        <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 md:px-8">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 px-4 py-6 md:px-8">{children}</main>
       </div>
     </div>
   );

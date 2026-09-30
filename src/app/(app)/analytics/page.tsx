@@ -82,7 +82,7 @@ export default async function ExecutiveOverviewPage({ searchParams }: PageProps<
         <KpiTile
           label="Manual override exposure"
           value={`${overrideDelta >= 0 ? "+" : "−"}${fmtUsd(Math.abs(overrideDelta), { compact: true })}`}
-          basis={`${moneyLabel} weighted · ${overriddenDeals} deals overridden${pending ? ` · ${pending} pending approval` : ""}${f.overrides ? "" : " · excluded"}`}
+          basis={`${moneyLabel} weighted · ${overriddenDeals} ${overriddenDeals === 1 ? "deal" : "deals"} overridden${pending ? ` · ${pending} pending approval` : ""}${f.overrides ? "" : " · excluded"}`}
         />
         <KpiTile label="Roundtable 100 live" value={`${r100.live} / ${r100.goal}`} basis={`${fmtPct(r100.goal ? r100.live / r100.goal : 0)} of goal`} trend={r100.trend} trendColor={PIPELINE_COLORS.R100} />
         <KpiTile label="TheStreet annualized" value={fmtUsd(ads.annualized, { compact: true })} basis={`Gross · ${ads.clients} current clients · bookings ${fmtUsd(ads.bookings, { compact: true })} in range`} />

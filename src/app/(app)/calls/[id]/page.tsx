@@ -1,3 +1,4 @@
+import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
@@ -17,7 +18,13 @@ import { ApplyReview } from "@/components/calls/apply-review";
 import { AttachDeal, AutoRefresh, ReanalyzeTranscriptButton } from "@/components/calls/call-controls";
 import { SOURCE_LABELS, TranscriptStatus } from "@/components/calls/transcript-status";
 
-export const metadata = { title: "Call" };
+// One load per request, shared by generateMetadata and the page (QA-27 record-named tab titles).
+const loadCall = cache(async (id: string) => (/^[0-9a-f-]{36}$/i.test(id) ? getTranscriptForUser(await requireUser(), id) : null));
+
+export async function generateMetadata({ params }: PageProps<"/calls/[id]">) {
+  const d = await loadCall((await params).id);
+  return { title: d?.transcript.title ? `${d.transcript.title} · Call` : "Call" };
+}
 
 const FIELD_COLS = { muu: "muu", next_step: "nextStep", expected_close_date: "expectedCloseDate" } as const;
 
@@ -25,7 +32,7 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
   const user = await requireUser();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const detail = await getTranscriptForUser(user, id);
+  const detail = await loadCall(id);
   if (!detail) notFound();
   const { transcript: t, analysis, deal } = detail;
 

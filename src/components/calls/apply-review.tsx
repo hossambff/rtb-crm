@@ -27,7 +27,26 @@ function matchStage(stages: Stage[], suggestion: string | null): string {
   return stages.find((s) => s.name === name)?.id ?? "";
 }
 
-/** CALL-7 review screen: accept/edit/reject each task, field update, stage change and the follow-up draft. */
+/** What earlier "Apply selected" runs recorded on the analysis (src/lib/transcripts/apply.ts history). */
+function appliedHistory(analysis: TranscriptAnalysis) {
+  const raw = (analysis as TranscriptAnalysis & { applied?: unknown }).applied;
+  const runs = Array.isArray(raw) ? (raw as { itemIds?: unknown; fieldKeys?: unknown }[]) : [];
+  const ids = new Set<string>();
+  const fields = new Set<string>();
+  let legacy = false; // runs recorded before item ids were stored: we can't tell which items were applied
+  for (const r of runs) {
+    if (!Array.isArray(r.itemIds)) legacy = true;
+    for (const x of Array.isArray(r.itemIds) ? r.itemIds : []) if (typeof x === "string") ids.add(x);
+    for (const x of Array.isArray(r.fieldKeys) ? r.fieldKeys : []) if (typeof x === "string") fields.add(x);
+  }
+  return { ids, fields, legacy, any: runs.length > 0 };
+}
+
+/**
+ * CALL-7 review screen: accept/edit/reject each task, field update, stage change and the follow-up draft.
+ * QA-11: items already applied stay marked "Applied" and unchecked (re-applying is an explicit opt-in), and the AI
+ * stage suggestion is never pre-selected.
+ */
 export function ApplyReview({
   id,
   analysis,
@@ -51,14 +70,18 @@ export function ApplyReview({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [history] = useState(() => appliedHistory(analysis));
+  const wasApplied = (itemId: string) => history.ids.has(itemId) || (history.legacy && Boolean(appliedAt));
   const [items, setItems] = useState(
-    analysis.action_items.map((a) => ({ ...a, include: true, dueInput: toDateInput(a.due), owner: a.owner === "us" || a.owner === "them" ? a.owner : a.owner })),
+    analysis.action_items.map((a) => ({ ...a, include: !wasApplied(a.id), applied: wasApplied(a.id), dueInput: toDateInput(a.due) })),
   );
   const [fields, setFields] = useState(
-    analysis.field_updates.filter((f) => !hiddenFields.includes(f.field)).map((f) => ({ ...f, include: Boolean(deal) })),
+    analysis.field_updates
+      .filter((f) => !hiddenFields.includes(f.field))
+      .map((f) => ({ ...f, applied: history.fields.has(f.field), include: Boolean(deal) && !history.fields.has(f.field) && !(history.legacy && appliedAt) })),
   );
   const suggestedStageId = matchStage(stages, analysis.suggested_stage.stage);
-  const [stageOn, setStageOn] = useState(Boolean(suggestedStageId && deal && suggestedStageId !== deal.stageId));
+  const [stageOn, setStageOn] = useState(false);
   const [stageId, setStageId] = useState(suggestedStageId || "");
   const [draftOpen, setDraftOpen] = useState(false);
 
@@ -77,6 +100,7 @@ export function ApplyReview({
           due: i.dueInput ? new Date(`${i.dueInput}T17:00:00Z`).toISOString() : null,
           evidence: i.evidence,
           timestamp: i.timestamp,
+          itemId: i.id,
         })),
         fieldUpdates: chosenFields.map((f) => ({ field: f.field, value: f.value.trim() })),
         stageId: stageChange,
@@ -88,6 +112,12 @@ export function ApplyReview({
       toast.success(
         `Applied: ${r.data.tasks} task${r.data.tasks === 1 ? "" : "s"}${r.data.fields ? `, ${r.data.fields} field update${r.data.fields === 1 ? "" : "s"}` : ""}${r.data.stageChanged ? ", stage moved" : ""}.`,
       );
+      // Mark what was just applied right away so a second click can't duplicate it.
+      const doneIds = new Set(chosenTasks.map((i) => i.id));
+      const doneFields = new Set(chosenFields.map((f) => f.field));
+      setItems((xs) => xs.map((x) => (doneIds.has(x.id) ? { ...x, include: false, applied: true } : x)));
+      setFields((xs) => xs.map((x) => (doneFields.has(x.field) ? { ...x, include: false, applied: true } : x)));
+      setStageOn(false);
       router.refresh();
     });
   }
@@ -108,6 +138,11 @@ export function ApplyReview({
         <ul className="space-y-2">
           {items.map((it, i) => (
             <li key={it.id} className={`rounded-md border px-3 py-2.5 ${it.include ? "border-border-strong" : "border-border opacity-60"}`}>
+              {it.applied ? (
+                <p className="mb-1.5 flex items-center gap-2 text-[11px] text-muted">
+                  <StatusBadge status="good" label="Applied" /> Task created — tick again only if you want a duplicate.
+                </p>
+              ) : null}
               <div className="flex items-start gap-3">
                 <input
                   type="checkbox"
@@ -176,7 +211,10 @@ export function ApplyReview({
                   aria-label={`Update ${FIELD_LABELS[f.field]}`}
                   onChange={(e) => setFields((xs) => xs.map((x, j) => (j === i ? { ...x, include: e.target.checked } : x)))}
                 />
-                <span className="w-28 text-xs text-secondary">{FIELD_LABELS[f.field] ?? f.field}</span>
+                <span className="w-28 text-xs text-secondary">
+                  {FIELD_LABELS[f.field] ?? f.field}
+                  {f.applied ? <span className="block text-[10px] text-muted">applied</span> : null}
+                </span>
                 <span className="text-xs text-muted">
                   {f.field === "muu" ? fmtNumber(deal.muu) : f.field === "next_step" ? (deal.nextStep ?? "—") : "—"} →
                 </span>

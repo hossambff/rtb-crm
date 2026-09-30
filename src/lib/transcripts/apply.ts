@@ -38,7 +38,8 @@ export async function applyStageChange(user: AppUser, dealId: string, toStageId:
 }
 
 export type ApplyInput = {
-  actionItems: { task: string; owner: string; due: string | null; evidence: string; timestamp: string | null }[];
+  /** itemId = the analysis action item's id; recorded so the review screen can show it as applied (QA-11). */
+  actionItems: { task: string; owner: string; due: string | null; evidence: string; timestamp: string | null; itemId?: string }[];
   fieldUpdates: { field: "muu" | "next_step" | "expected_close_date"; value: string }[];
   stageId: string | null;
 };
@@ -131,7 +132,21 @@ export async function applyTranscriptReview(user: AppUser, transcriptId: string,
     .update(s.transcripts)
     .set({
       appliedAt: new Date(),
-      analysis: { ...analysis, applied: [...history, { at: new Date().toISOString(), by: user.id, taskIds, ...applied }] } as Record<string, unknown>,
+      analysis: {
+        ...analysis,
+        applied: [
+          ...history,
+          {
+            at: new Date().toISOString(),
+            by: user.id,
+            taskIds,
+            itemIds: input.actionItems.map((a) => a.itemId).filter(Boolean),
+            fieldKeys: input.fieldUpdates.map((f) => f.field),
+            stageId: input.stageId,
+            ...applied,
+          },
+        ],
+      } as Record<string, unknown>,
     })
     .where(eq(s.transcripts.id, t.id));
   await audit({ actorId: user.id, action: "transcript.apply", entity: "transcript", entityId: t.id, after: { tasks: taskIds.length, ...applied } });

@@ -30,23 +30,23 @@ export default async function RevenuePage({ searchParams }: PageProps<"/revenue"
       />
 
       <section aria-label="Executive summary" className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Active deals closing" value={usd(s.activeClosing.cents)} hint={`${fmtNumber(s.activeClosing.count)} deals · verbal, LOI or signed`} />
+        <Stat label="Active deals closing" value={usd(s.activeClosing.cents)} hint={`${fmtNumber(s.activeClosing.count)} deals · negotiation, verbal or LOI`} />
         <Stat label="Current-client annualized" value={usd(s.currentAnnualized.cents)} hint={`${fmtNumber(s.currentAnnualized.count)} current clients`} />
         <Stat
           label="Upcoming collections · 60d"
           value={usd(s.upcomingCollections.cents)}
           hint={
             s.overdue.count ? (
-              <span className="inline-flex items-center gap-1.5">
-                {fmtNumber(s.upcomingCollections.count)} invoices ·
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                {collectionsHint(s.upcomingCollections)} ·
                 <StatusBadge status="critical" label={`${usd(s.overdue.cents)} overdue`} />
               </span>
             ) : (
-              `${fmtNumber(s.upcomingCollections.count)} invoices due`
+              collectionsHint(s.upcomingCollections)
             )
           }
         />
-        <Stat label="Warm deals in negotiation" value={usd(s.warmNegotiation.cents)} hint={`${fmtNumber(s.warmNegotiation.count)} deals`} />
+        <Stat label="Warm deals in negotiation" value={usd(s.warmNegotiation.cents)} hint={`${fmtNumber(s.warmNegotiation.count)} deals · warm stage`} />
       </section>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
@@ -124,4 +124,13 @@ export default async function RevenuePage({ searchParams }: PageProps<"/revenue"
       </Tabs>
     </div>
   );
+}
+
+/** "3 invoices + 4 scheduled payments" — scheduled = current clients' next payment with no invoice yet (QA-08). */
+function collectionsHint(u: { count: number; fromDealSchedule: number }) {
+  const inv = u.count - u.fromDealSchedule;
+  const parts = [];
+  if (inv || !u.fromDealSchedule) parts.push(`${fmtNumber(inv)} invoice${inv === 1 ? "" : "s"} due`);
+  if (u.fromDealSchedule) parts.push(`${fmtNumber(u.fromDealSchedule)} scheduled client payment${u.fromDealSchedule === 1 ? "" : "s"}`);
+  return parts.join(" + ");
 }
