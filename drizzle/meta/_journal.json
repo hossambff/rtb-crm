@@ -22,6 +22,13 @@
       "when": 1790724012049,
       "tag": "0002_restricted_access",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790733600407,
+      "tag": "0003_audit_hardening",
+      "breakpoints": true
     }
   ]
 }

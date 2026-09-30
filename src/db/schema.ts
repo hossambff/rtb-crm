@@ -258,7 +258,7 @@ export const restrictedAccess = rso.table(
     grantedBy: text("granted_by"),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.entity, t.entityId, t.userId] })],
+  (t) => [primaryKey({ columns: [t.entity, t.entityId, t.userId] }), index("restricted_access_user_idx").on(t.userId)],
 );
 
 export const allowedDomains = rso.table("allowed_domains", {
@@ -366,6 +366,8 @@ export const accounts = rso.table(
     uniqueIndex("accounts_domain_uq").on(t.domain).where(sql`${t.domain} is not null and ${t.deletedAt} is null`),
     index("accounts_owner_idx").on(t.ownerId),
     index("accounts_name_idx").on(t.name),
+    index("accounts_name_trgm").using("gin", sql`lower(${t.name}) extensions.gin_trgm_ops`),
+    index("accounts_domain_trgm").using("gin", sql`${t.domain} extensions.gin_trgm_ops`),
   ],
 );
 
@@ -420,6 +422,9 @@ export const contacts = rso.table(
   (t) => [
     index("contacts_account_idx").on(t.accountId),
     index("contacts_email_idx").on(t.email),
+    index("contacts_owner_idx").on(t.ownerId),
+    index("contacts_rel_owner_idx").on(t.relationshipOwnerId),
+    index("contacts_name_trgm").using("gin", sql`lower(${t.fullName}) extensions.gin_trgm_ops`),
   ],
 );
 
@@ -503,6 +508,9 @@ export const deals = rso.table(
     index("deals_owner_idx").on(t.ownerId),
     index("deals_account_idx").on(t.accountId),
     index("deals_next_step_idx").on(t.nextStepDueAt),
+    index("deals_stage_idx").on(t.stageId),
+    index("deals_primary_contact_idx").on(t.primaryContactId),
+    index("deals_name_trgm").using("gin", sql`lower(${t.name}) extensions.gin_trgm_ops`),
   ],
 );
 
@@ -518,7 +526,7 @@ export const dealSplits = rso.table(
     pct: doublePrecision("pct").notNull(), // 0..100
     role: text("role").default("owner"), // owner | sourcer | closer | collaborator
   },
-  (t) => [primaryKey({ columns: [t.dealId, t.userId] })],
+  (t) => [primaryKey({ columns: [t.dealId, t.userId] }), index("deal_splits_user_idx").on(t.userId)],
 );
 
 export const dealContacts = rso.table(
@@ -532,7 +540,7 @@ export const dealContacts = rso.table(
       .references(() => contacts.id, { onDelete: "cascade" }),
     role: text("role"), // decision_maker | champion | influencer | legal | tech | blocker
   },
-  (t) => [primaryKey({ columns: [t.dealId, t.contactId] })],
+  (t) => [primaryKey({ columns: [t.dealId, t.contactId] }), index("deal_contacts_contact_idx").on(t.contactId)],
 );
 
 export const dealStageHistory = rso.table(
@@ -549,6 +557,19 @@ export const dealStageHistory = rso.table(
     changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("stage_hist_deal_idx").on(t.dealId)],
+);
+
+export const dealHealthHistory = rso.table(
+  "deal_health_history",
+  {
+    id: id(),
+    dealId: uuid("deal_id")
+      .notNull()
+      .references(() => deals.id, { onDelete: "cascade" }),
+    score: integer("score").notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("deal_health_history_deal_idx").on(t.dealId, t.takenAt)],
 );
 
 export const dealLineItems = rso.table("deal_line_items", {
@@ -604,6 +625,7 @@ export const activities = rso.table(
     index("activities_deal_idx").on(t.dealId, t.occurredAt),
     index("activities_account_idx").on(t.accountId, t.occurredAt),
     index("activities_actor_idx").on(t.actorId, t.occurredAt),
+    index("activities_contact_idx").on(t.contactId),
   ],
 );
 
@@ -627,11 +649,17 @@ export const tasks = rso.table(
     evidenceSource: text("evidence_source"), // e.g. email:<id> | transcript:<id>@00:12:31
     snoozeCount: integer("snooze_count").notNull().default(0),
     snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    snoozeReason: text("snooze_reason"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("tasks_assignee_idx").on(t.assigneeId, t.status, t.dueAt), index("tasks_deal_idx").on(t.dealId)],
+  (t) => [
+    index("tasks_assignee_idx").on(t.assigneeId, t.status, t.dueAt),
+    index("tasks_deal_idx").on(t.dealId),
+    index("tasks_account_idx").on(t.accountId),
+    index("tasks_contact_idx").on(t.contactId),
+  ],
 );
 
 export const comments = rso.table("comments", {
@@ -642,7 +670,8 @@ export const comments = rso.table("comments", {
   body: text("body").notNull(),
   mentions: text("mentions").array().notNull().default(sql`'{}'::text[]`),
   createdAt: createdAt(),
-});
+},
+(t) => [index("comments_entity_idx").on(t.entity, t.entityId)]);
 
 /* ───────────────────────────── Email, calendar, calls ───────────────────────────── */
 
@@ -661,7 +690,10 @@ export const integrationConnections = rso.table(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex("integration_user_provider").on(t.userId, t.provider)],
+  (t) => [
+    uniqueIndex("integration_user_provider").on(t.userId, t.provider),
+    uniqueIndex("integration_org_provider").on(t.provider).where(sql`${t.userId} is null`),
+  ],
 );
 
 export const emailThreads = rso.table(
@@ -683,7 +715,11 @@ export const emailThreads = rso.table(
     aiIntent: text("ai_intent"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("email_threads_uq").on(t.mailboxUserId, t.gmailThreadId)],
+  (t) => [
+    uniqueIndex("email_threads_uq").on(t.mailboxUserId, t.gmailThreadId),
+    index("email_threads_deal_idx").on(t.dealId),
+    index("email_threads_account_idx").on(t.accountId),
+  ],
 );
 
 export const emailMessages = rso.table(
@@ -699,6 +735,7 @@ export const emailMessages = rso.table(
     ccAddrs: text("cc_addrs").array().notNull().default(sql`'{}'::text[]`),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     direction: text("direction"), // inbound | outbound
+    messageIdHeader: text("message_id_header"),
     bodyText: text("body_text"),
     analysis: jsonb("analysis").$type<Record<string, unknown>>(),
     analyzedAt: timestamp("analyzed_at", { withTimezone: true }),
@@ -724,7 +761,11 @@ export const meetings = rso.table(
     consentConfirmed: boolean("consent_confirmed").default(false),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("meetings_owner_event").on(t.ownerId, t.calendarEventId)],
+  (t) => [
+    uniqueIndex("meetings_owner_event").on(t.ownerId, t.calendarEventId),
+    index("meetings_deal_idx").on(t.dealId),
+    index("meetings_account_idx").on(t.accountId),
+  ],
 );
 
 export const transcripts = rso.table(
@@ -749,7 +790,12 @@ export const transcripts = rso.table(
     error: text("error"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("transcripts_source_ext").on(t.source, t.externalId)],
+  (t) => [
+    uniqueIndex("transcripts_source_ext").on(t.source, t.externalId),
+    index("transcripts_deal_idx").on(t.dealId),
+    index("transcripts_account_idx").on(t.accountId),
+    index("transcripts_uploaded_by_idx").on(t.uploadedBy),
+  ],
 );
 
 export const documents = rso.table("documents", {
@@ -761,16 +807,19 @@ export const documents = rso.table("documents", {
   url: text("url"),
   status: docStatus("status").notNull().default("draft"),
   version: integer("version").notNull().default(1),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
   signedAt: timestamp("signed_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   uploadedBy: text("uploaded_by"),
   createdAt: createdAt(),
-});
+},
+(t) => [index("documents_deal_idx").on(t.dealId), index("documents_account_idx").on(t.accountId)]);
 
 /* ───────────────────────────── Proposals / pro formas ───────────────────────────── */
 
 export const proposals = rso.table("proposals", {
   id: id(),
+  title: text("title"),
   dealId: uuid("deal_id")
     .notNull()
     .references(() => deals.id, { onDelete: "cascade" }),
@@ -780,9 +829,13 @@ export const proposals = rso.table("proposals", {
   status: text("status").notNull().default("draft"), // draft | pending_approval | approved | sent | locked
   approvalReason: text("approval_reason"),
   approvedBy: text("approved_by"),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  mask: jsonb("mask").$type<Record<string, boolean>>(),
   createdBy: text("created_by"),
   createdAt: createdAt(),
-});
+  updatedAt: updatedAt(),
+},
+(t) => [index("proposals_deal_idx").on(t.dealId)]);
 
 /* ───────────────────────────── Onboarding / migration ───────────────────────────── */
 
@@ -804,7 +857,12 @@ export const migrationProjects = rso.table("migration_projects", {
   notes: text("notes"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
-});
+},
+(t) => [
+  uniqueIndex("migration_projects_deal_uq").on(t.dealId).where(sql`${t.dealId} is not null`),
+  index("migration_projects_account_idx").on(t.accountId),
+  index("migration_projects_owner_idx").on(t.ownerId),
+]);
 
 /* ───────────────────────────── Revenue (ADS) ───────────────────────────── */
 
@@ -818,9 +876,18 @@ export const invoices = rso.table("invoices", {
   status: invoiceStatus("status").notNull().default("scheduled"),
   paidAt: timestamp("paid_at", { withTimezone: true }),
   paidInKind: text("paid_in_kind"),
+  pikValueCents: bigint("pik_value_cents", { mode: "number" }),
+  pikApprovedBy: text("pik_approved_by"),
+  sourceKey: text("source_key"), // idempotency key for automated creation (e.g. "won:<dealId>")
+  sentAt: timestamp("sent_at", { withTimezone: true }),
   notes: text("notes"),
   createdAt: createdAt(),
-});
+  updatedAt: updatedAt(),
+},
+(t) => [
+  index("invoices_deal_idx").on(t.dealId),
+  uniqueIndex("invoices_source_key_uq").on(t.sourceKey).where(sql`${t.sourceKey} is not null`),
+]);
 
 /* ───────────────────────────── Commissions ───────────────────────────── */
 
@@ -856,7 +923,7 @@ export const commissionAssignments = rso.table(
       .references(() => commissionPlans.id, { onDelete: "cascade" }),
     effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.planId] })],
+  (t) => [primaryKey({ columns: [t.userId, t.planId] }), index("commission_assignments_plan_idx").on(t.planId)],
 );
 
 export const commissionAccruals = rso.table("commission_accruals", {
@@ -871,9 +938,14 @@ export const commissionAccruals = rso.table("commission_accruals", {
   amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
   status: text("status").notNull().default("accrued"), // accrued | approved | paid | disputed | clawed_back
   period: text("period").notNull(), // YYYY-MM
+  sourceKey: text("source_key"), // stable idempotency key: <trigger>:<ruleId|hash>:<eventId>
   note: text("note"),
   createdAt: createdAt(),
-});
+},
+(t) => [
+  uniqueIndex("commission_accruals_source_uq").on(t.userId, t.planId, t.sourceKey).where(sql`${t.sourceKey} is not null`),
+  index("commission_accruals_deal_idx").on(t.dealId),
+]);
 
 export const leadRegistrations = rso.table("lead_registrations", {
   id: id(),
@@ -888,7 +960,8 @@ export const leadRegistrations = rso.table("lead_registrations", {
   decidedBy: text("decided_by"),
   note: text("note"),
   createdAt: createdAt(),
-});
+},
+(t) => [index("lead_registrations_account_idx").on(t.accountId), index("lead_registrations_user_idx").on(t.userId)]);
 
 /* ───────────────────────────── Nothing Slips (alerts) & notifications ───────────────────────────── */
 
@@ -928,6 +1001,8 @@ export const alerts = rso.table(
       .on(t.ruleCode, t.entity, t.entityId, t.recipientId)
       .where(sql`${t.state} in ('open','acknowledged','snoozed','escalated')`),
     index("alerts_recipient_idx").on(t.recipientId, t.state),
+    index("alerts_rule_state_idx").on(t.ruleCode, t.state),
+    index("alerts_entity_idx").on(t.entity, t.entityId),
   ],
 );
 
@@ -961,7 +1036,8 @@ export const approvals = rso.table("approvals", {
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   note: text("note"),
   createdAt: createdAt(),
-});
+},
+(t) => [index("approvals_entity_idx").on(t.entity, t.entityId, t.status), index("approvals_status_idx").on(t.status, t.approverRole)]);
 
 /* ───────────────────────────── Lead Scout & enrichment ───────────────────────────── */
 
@@ -1000,6 +1076,7 @@ export const scoutSearches = rso.table("scout_searches", {
     .notNull()
     .default({}),
   schedule: text("schedule").notNull().default("once"), // once | weekly | monthly
+  status: text("status").notNull().default("draft"), // draft | running | done | failed
   budgetCapCents: integer("budget_cap_cents"),
   lastRunAt: timestamp("last_run_at", { withTimezone: true }),
   createdAt: createdAt(),
@@ -1028,12 +1105,15 @@ export const scoutCandidates = rso.table(
     crmMatch: jsonb("crm_match").$type<{ accountId?: string; dealId?: string; ownerId?: string; stage?: string }>(),
     state: candidateState("state").notNull().default("new"),
     rejectReason: text("reject_reason"),
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    suppressedUntil: timestamp("suppressed_until", { withTimezone: true }),
+    muuConfidence: metricConfidence("muu_confidence"),
     reviewerId: text("reviewer_id"),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("scout_candidates_search_domain").on(t.searchId, t.domain)],
+  (t) => [uniqueIndex("scout_candidates_search_domain").on(t.searchId, t.domain), index("scout_candidates_domain_state").on(t.domain, t.state)],
 );
 
 export const enrichmentRuns = rso.table("enrichment_runs", {
@@ -1041,6 +1121,8 @@ export const enrichmentRuns = rso.table("enrichment_runs", {
   kind: text("kind").notNull(), // scout | enrich
   accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
   searchId: uuid("search_id"),
+  dealId: uuid("deal_id"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
   requestedBy: text("requested_by").references(() => user.id, { onDelete: "set null" }),
   targetRoles: text("target_roles").array().notNull().default(sql`'{}'::text[]`),
   actors: jsonb("actors").$type<{ actorId: string; runId?: string; status?: string; costUsd?: number }[]>().notNull().default([]),
@@ -1143,6 +1225,9 @@ export const importBatches = rso.table("import_batches", {
 export const importRecords = rso.table(
   "import_records",
   {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    sheet: text("sheet"),
+    rowNumber: integer("row_number"),
     batchId: uuid("batch_id")
       .notNull()
       .references(() => importBatches.id, { onDelete: "cascade" }),
