@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/rbac/server";
 import { env } from "@/lib/env";
-import { Logo } from "@/components/shell/sidebar";
+import { Logo, LogoLockup } from "@/components/shell/sidebar";
 import { SignInForm } from "./sign-in-form";
 
 export const metadata = { title: "Sign in" };
@@ -14,10 +14,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="hidden flex-col justify-between border-r border-border bg-surface-1 p-12 lg:flex">
-        <div className="flex items-center gap-3">
-          <Logo size={28} />
-          <span className="font-display text-xl text-fg">Roundtable</span>
-        </div>
+        <LogoLockup height={112} />
         <div>
           <p className="font-display text-[40px] leading-[48px] text-fg">
             Nothing slips.
@@ -33,8 +30,8 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <Logo size={28} />
-            <span className="font-display text-xl text-fg">Roundtable</span>
+            <Logo size={32} />
+            <span className="text-lg font-semibold uppercase tracking-[0.08em] text-fg">Roundtable</span>
           </div>
           <h1 className="font-display text-[28px] leading-9 text-fg">Sign in</h1>
           <p className="mt-2 text-sm text-muted">Use your roundtable.io or blockchainff.com Google account.</p>

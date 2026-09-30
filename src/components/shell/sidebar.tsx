@@ -15,8 +15,8 @@ export function Sidebar({ items }: { items: NavItem[] }) {
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col self-start border-r border-border bg-surface-1 md:flex">
       <Link href="/home" className="flex h-14 items-center gap-2.5 border-b border-border px-5">
         <Logo />
-        <span className="font-display text-[17px] font-medium tracking-tight text-fg">Roundtable</span>
-        <span className="ml-auto rounded border border-border-strong px-1 text-[10px] uppercase tracking-wider text-muted">Sales OS</span>
+        <span className="text-[15px] font-semibold uppercase tracking-[0.08em] text-fg">Roundtable</span>
+        <span className="ml-auto whitespace-nowrap rounded border border-border-strong px-1 text-[10px] uppercase tracking-wider text-muted">Sales OS</span>
       </Link>
       <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Main">
         {groups.map(({ g, items }) =>
@@ -53,11 +53,13 @@ export function Sidebar({ items }: { items: NavItem[] }) {
 }
 
 export function Logo({ size = 22 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
-      <circle cx="16" cy="16" r="14.5" stroke="#fff" strokeWidth="1.5" />
-      <circle cx="16" cy="16" r="8" stroke="#fff" strokeWidth="1.5" />
-      <circle cx="16" cy="16" r="2.25" fill="#fff" />
-    </svg>
-  );
+  // Official Roundtable mark (white, transparent) — public/brand/roundtable-mark-white.png
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/brand/roundtable-mark-white.png" width={size} height={size} alt="" aria-hidden className="shrink-0" />;
+}
+
+/** Full ROUNDTABLE lockup (emblem + wordmark), white on transparent. */
+export function LogoLockup({ height = 96, className }: { height?: number; className?: string }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/brand/roundtable-lockup-white.png" alt="Roundtable" height={height} style={{ height, width: "auto" }} className={className} />;
 }
