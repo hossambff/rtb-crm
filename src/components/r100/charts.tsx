@@ -3,6 +3,7 @@ import * as React from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CHART_AXIS, PIPELINE_COLORS, VIZ_OTHER } from "@/lib/palette";
 import { fmtNumber } from "@/lib/format";
+import { useMounted } from "@/components/charts/theme";
 
 const R100 = PIPELINE_COLORS.R100!;
 const tick = { fill: CHART_AXIS.tick, fontSize: 12 };
@@ -61,7 +62,7 @@ export function BurnUpChart({ data, goal }: { data: { label: string; live: numbe
   const rows = data.map((d) => ({ ...d, goal }));
   const ticks = goalTicks(goal, Math.max(0, ...data.map((d) => d.live)));
   return (
-    <ChartFrame table={<SimpleTable head={["Month", "Live", "Goal"]} rows={data.map((d) => [d.label, fmtNumber(d.live), fmtNumber(goal)])} />}>
+    <ChartFrame height={240} table={<SimpleTable head={["Month", "Live", "Goal"]} rows={data.map((d) => [d.label, fmtNumber(d.live), fmtNumber(goal)])} />}>
       <ResponsiveContainer width="100%" height={240} initialDimension={INITIAL_DIM}>
         <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
           <CartesianGrid stroke={CHART_AXIS.grid} vertical={false} />
@@ -80,7 +81,7 @@ export function BurnUpChart({ data, goal }: { data: { label: string; live: numbe
 /** Funnel by stage — thin horizontal bars, 4px rounded data ends. */
 export function FunnelChart({ data }: { data: { name: string; count: number; live: boolean }[] }) {
   return (
-    <ChartFrame table={<SimpleTable head={["Stage", "Companies"]} rows={data.map((d) => [d.name, fmtNumber(d.count)])} />}>
+    <ChartFrame height={Math.max(160, data.length * 26 + 20)} table={<SimpleTable head={["Stage", "Companies"]} rows={data.map((d) => [d.name, fmtNumber(d.count)])} />}>
       <ResponsiveContainer width="100%" height={Math.max(160, data.length * 26 + 20)} initialDimension={{ width: INITIAL_DIM.width, height: Math.max(160, data.length * 26 + 20) }}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, bottom: 0, left: 8 }} barCategoryGap={2}>
           <CartesianGrid stroke={CHART_AXIS.grid} horizontal={false} />
@@ -95,8 +96,17 @@ export function FunnelChart({ data }: { data: { name: string; count: number; liv
 }
 
 /** Chart + "view as table" toggle (PRD §16A.4 accessibility). */
-export function ChartFrame({ children, table }: { children: React.ReactNode; table: React.ReactNode }) {
+export function ChartFrame({ children, table, height = 220 }: { children: React.ReactNode; table: React.ReactNode; height?: number }) {
   const [asTable, setAsTable] = React.useState(false);
+  const mounted = useMounted();
+  // QA-25: Recharts only draws after hydration; hold the space with a skeleton instead of an empty card.
+  if (!mounted)
+    return (
+      <div aria-busy="true" aria-label="Loading chart">
+        <div className="mb-1 h-4" />
+        <div className="animate-pulse rounded bg-surface-2/60" style={{ height }} />
+      </div>
+    );
   return (
     <div>
       <div className="mb-1 flex justify-end">

@@ -31,9 +31,13 @@ export function KpiTile({
     delta == null || delta.direction === "flat" ? "#828282" : delta.good ? STATUS_COLORS.good : STATUS_COLORS.serious;
   return (
     <div className={cn("flex min-w-0 flex-col justify-between rounded-lg border border-border bg-surface-1 px-4 py-3.5", className)}>
-      <p className="text-xs font-medium text-secondary">{label}</p>
-      <div className="mt-1.5 flex items-end justify-between gap-2">
-        <p className="truncate font-display text-[28px] leading-9 text-fg">{value}</p>
+      <p className="truncate text-xs font-medium text-secondary" title={label}>
+        {label}
+      </p>
+      <div className="mt-1.5 flex min-w-0 items-end justify-between gap-2">
+        <p className="min-w-0 truncate font-display text-[28px] leading-9 text-fg" title={typeof value === "string" || typeof value === "number" ? String(value) : undefined}>
+          {value}
+        </p>
         {trend && trend.length > 1 ? <Sparkline values={trend} color={trendColor} label={`${label} trend`} /> : null}
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
