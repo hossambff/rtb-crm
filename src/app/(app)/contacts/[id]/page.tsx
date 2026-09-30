@@ -7,7 +7,7 @@ import { Avatar } from "@/components/ui/misc";
 import { ActivityTimeline } from "@/components/accounts/activity-timeline";
 import { ContactFormDialog } from "@/components/contacts/contact-form-dialog";
 import { DealLinks } from "@/components/contacts/deal-links";
-import { assignableUsers } from "@/lib/accounts/queries";
+import { ownerFilterOptions } from "@/lib/users";
 import { getContactDetail } from "@/lib/contacts/queries";
 import { seniorityLabel } from "@/lib/contacts/seniority";
 import { fmtDate, fmtRelative } from "@/lib/format";
@@ -22,7 +22,7 @@ export default async function ContactPage(props: PageProps<"/contacts/[id]">) {
   const data = await getContactDetail(user, id);
   if (!data) notFound();
   const { contact: c } = data;
-  const owners = (await assignableUsers()).map((o) => ({ id: o.id, name: o.name }));
+  const owners = (await ownerFilterOptions()).map((o) => ({ id: o.id, name: o.name }));
   const emails = [c.email, ...(c.altEmails ?? [])].filter((e): e is string => !!e);
 
   return (
