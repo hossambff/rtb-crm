@@ -22,6 +22,7 @@ import { stageRank, type StageLite } from "./status";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ImportDb = PostgresJsDatabase<typeof s> | PostgresJsDatabase<any>;
+type Tx = Parameters<Parameters<PostgresJsDatabase<typeof s>["transaction"]>[0]>[0];
 
 type Row = Record<string, unknown>;
 type Entity = "account" | "contact" | "deal" | "activity" | "audience_metric" | "deal_split" | "deal_contact" | "deal_stage_history" | "migration_project" | "user";
@@ -163,18 +164,6 @@ function chunk<T>(arr: T[], n: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
   return out;
-}
-
-async function pool<T>(items: T[], limit: number, fn: (t: T) => Promise<void>) {
-  let i = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (i < items.length) {
-        const item = items[i++]!;
-        await fn(item);
-      }
-    }),
-  );
 }
 
 export function emptyStats(): BatchStats {
@@ -976,6 +965,13 @@ export class ImportEngine {
     }
     const db = this.d;
     const log = opts.log ?? (() => {});
+    // Two commits at once would both resolve identities before either writes (duplicate name-matched accounts).
+    const [running] = await db
+      .select({ id: s.importBatches.id })
+      .from(s.importBatches)
+      .where(and(eq(s.importBatches.status, "running"), sql`${s.importBatches.createdAt} > now() - interval '15 minutes'`))
+      .limit(1);
+    if (running) throw new Error("Another import is still running. Wait for it to finish, then try again.");
     await db.insert(s.importBatches).values({
       id: batch.id,
       fileName: batch.meta.fileName,
@@ -987,45 +983,82 @@ export class ImportEngine {
       stats: stats as unknown as Record<string, number>,
       createdBy: this.actorId,
     });
-    const insertAll = async (label: string, rows: Row[], table: Parameters<typeof db.insert>[0], size = 400, ignoreConflicts = false) => {
+
+    // H-09: every chunk is ONE transaction that writes the rows AND their import_records (the rollback ledger), so
+    // whatever has committed is always covered by rollbackBatch — a failure mid-flush leaves a "failed" batch whose
+    // committed chunks can be rolled back, never rows without a ledger.
+    type Rec = (typeof this.recs)[number];
+    const pendingRecs = new Map<string, Rec[]>();
+    for (const r of this.recs) {
+      const k = `${r.entity}|${r.entityId}`;
+      const list = pendingRecs.get(k);
+      if (list) list.push(r);
+      else pendingRecs.set(k, [r]);
+    }
+    const takeRecs = (entity: Entity, ids: string[]): Rec[] => {
+      const out: Rec[] = [];
+      for (const id of ids) {
+        const k = `${entity}|${id}`;
+        const list = pendingRecs.get(k);
+        if (list) {
+          out.push(...list);
+          pendingRecs.delete(k);
+        }
+      }
+      return out;
+    };
+    const writeRecs = async (tx: Tx, recs: Rec[]) => {
+      for (const part of chunk(recs, 1000))
+        await tx.insert(s.importRecords).values(part.map((r) => ({ batchId: batch.id, entity: r.entity, entityId: r.entityId, action: r.action, before: (r.before ?? null) as never })));
+    };
+    const insertAll = async (label: string, rows: Row[], table: Parameters<typeof db.insert>[0], entity: Entity, idOf: (r: Row) => string, size = 400, ignoreConflicts = false) => {
       for (const part of chunk(rows, size)) {
-        const q = db.insert(table).values(part as never);
-        await (ignoreConflicts ? q.onConflictDoNothing() : q);
+        await db.transaction(async (tx) => {
+          const q = tx.insert(table).values(part as never);
+          await (ignoreConflicts ? q.onConflictDoNothing() : q);
+          await writeRecs(tx, takeRecs(entity, [...new Set(part.map(idOf))]));
+        });
       }
       if (rows.length) log(`  inserted ${rows.length} ${label}`);
     };
+    const byId = (r: Row) => r.id as string;
+    const byDeal = (r: Row) => r.dealId as string;
     try {
-      await insertAll("placeholder users", this.ins.users, s.user, 400, true);
-      await insertAll("accounts", this.ins.accounts, s.accounts, 300);
-      await insertAll("contacts", this.ins.contacts, s.contacts);
-      await insertAll("deals", this.ins.deals, s.deals, 200);
-      await insertAll("deal splits", this.ins.splits, s.dealSplits, 400, true);
-      await insertAll("deal contacts", this.ins.dealContacts, s.dealContacts, 400, true);
-      await insertAll("stage history", this.ins.history, s.dealStageHistory);
-      await insertAll("activities", this.ins.activities, s.activities);
-      await insertAll("audience metrics", this.ins.metrics, s.audienceMetrics);
-      await insertAll("migration projects", this.ins.migrations, s.migrationProjects);
+      await insertAll("placeholder users", this.ins.users, s.user, "user", byId, 400, true);
+      await insertAll("accounts", this.ins.accounts, s.accounts, "account", byId, 300);
+      await insertAll("contacts", this.ins.contacts, s.contacts, "contact", byId);
+      await insertAll("deals", this.ins.deals, s.deals, "deal", byId, 200);
+      await insertAll("deal splits", this.ins.splits, s.dealSplits, "deal_split", byDeal, 400, true);
+      await insertAll("deal contacts", this.ins.dealContacts, s.dealContacts, "deal_contact", byDeal, 400, true);
+      await insertAll("stage history", this.ins.history, s.dealStageHistory, "deal_stage_history", byId);
+      await insertAll("activities", this.ins.activities, s.activities, "activity", byId);
+      await insertAll("audience metrics", this.ins.metrics, s.audienceMetrics, "audience_metric", byId);
+      await insertAll("migration projects", this.ins.migrations, s.migrationProjects, "migration_project", byId);
       const updates = [...this.upd.values()];
       const tables = { accounts: s.accounts, deals: s.deals, contacts: s.contacts } as const;
-      await pool(updates, 3, async (u) => {
-        const t = tables[u.table];
-        await db.update(t).set(u.patch as never).where(eq(t.id, u.id));
-      });
+      const entityOf = { accounts: "account", deals: "deal", contacts: "contact" } as const;
+      for (const part of chunk(updates, 100)) {
+        await db.transaction(async (tx) => {
+          for (const u of part) {
+            const tbl = tables[u.table];
+            await tx.update(tbl).set(u.patch as never).where(eq(tbl.id, u.id));
+          }
+          for (const tbl of ["accounts", "deals", "contacts"] as const)
+            await writeRecs(tx, takeRecs(entityOf[tbl], part.filter((u) => u.table === tbl).map((u) => u.id)));
+        });
+      }
       if (updates.length) log(`  updated ${updates.length} existing rows`);
-      await insertAll(
-        "import records",
-        this.recs.map((r) => ({ batchId: batch.id, entity: r.entity, entityId: r.entityId, action: r.action, before: (r.before ?? null) as never })),
-        s.importRecords,
-        1000,
-      );
-      await db.update(s.importBatches).set({ status: "completed", stats: stats as unknown as Record<string, number> }).where(eq(s.importBatches.id, batch.id));
-      await db.insert(s.auditLog).values({
-        actorId: this.actorId,
-        actorKind: this.actorId ? "user" : "system",
-        action: "import.commit",
-        entity: "import_batch",
-        entityId: batch.id,
-        after: { ...batch.meta, mapping: undefined, stats } as never,
+      await db.transaction(async (tx) => {
+        await writeRecs(tx, [...pendingRecs.values()].flat()); // anything not tied to a written chunk (defensive)
+        await tx.update(s.importBatches).set({ status: "completed", stats: stats as unknown as Record<string, number> }).where(eq(s.importBatches.id, batch.id));
+        await tx.insert(s.auditLog).values({
+          actorId: this.actorId,
+          actorKind: this.actorId ? "user" : "system",
+          action: "import.commit",
+          entity: "import_batch",
+          entityId: batch.id,
+          after: { ...batch.meta, mapping: undefined, stats } as never,
+        });
       });
     } catch (e) {
       await db
@@ -1067,8 +1100,13 @@ function reviveBefore(before: unknown): Row {
  * splits / links / history / migration projects, and restore `before` for updated rows. Placeholder users are kept.
  */
 export async function rollbackBatch(db: ImportDb, batchId: string, actorId: string | null) {
-  const d = db as PostgresJsDatabase<typeof s>;
-  const [batch] = await d.select().from(s.importBatches).where(eq(s.importBatches.id, batchId));
+  // One transaction (H-09/M-17): the rollback applies completely or not at all; the batch row is locked so two
+  // concurrent rollbacks can't interleave.
+  return (db as PostgresJsDatabase<typeof s>).transaction((tx) => rollbackBatchTx(tx, batchId, actorId));
+}
+
+async function rollbackBatchTx(d: Tx, batchId: string, actorId: string | null) {
+  const [batch] = await d.select().from(s.importBatches).where(eq(s.importBatches.id, batchId)).for("update");
   if (!batch) throw new Error("Import batch not found");
   if (batch.status === "rolled_back") return { restored: 0, removed: 0 };
   const recs = await d.select().from(s.importRecords).where(eq(s.importRecords.batchId, batchId));
@@ -1079,18 +1117,14 @@ export async function rollbackBatch(db: ImportDb, batchId: string, actorId: stri
 
   // 1) restore updated rows
   const tables = { account: s.accounts, deal: s.deals, contact: s.contacts, activity: s.activities, task: s.tasks, document: s.documents, audience_metric: s.audienceMetrics, migration_project: s.migrationProjects, deal_stage_history: s.dealStageHistory } as const;
-  await pool(
-    recs.filter((r) => (r.action === "updated" || r.action === "merged") && r.entity in tables),
-    3,
-    async (r) => {
-      const t = tables[r.entity as keyof typeof tables];
-      const before = reviveBefore(r.before);
-      if (Object.keys(before).length) {
-        await d.update(t).set(before as never).where(eq(t.id, r.entityId));
-        restored++;
-      }
-    },
-  );
+  for (const r of recs.filter((x) => (x.action === "updated" || x.action === "merged") && x.entity in tables)) {
+    const t = tables[r.entity as keyof typeof tables];
+    const before = reviveBefore(r.before);
+    if (Object.keys(before).length) {
+      await d.update(t).set(before as never).where(eq(t.id, r.entityId));
+      restored++;
+    }
+  }
   // 2) remove created child rows
   for (const part of chunk(ids("activity"), 500)) removed += (await d.delete(s.activities).where(inArray(s.activities.id, part)).returning({ id: s.activities.id })).length;
   for (const part of chunk(ids("audience_metric"), 500)) removed += (await d.delete(s.audienceMetrics).where(inArray(s.audienceMetrics.id, part)).returning({ id: s.audienceMetrics.id })).length;

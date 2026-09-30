@@ -12,7 +12,7 @@ import { encryptSecret, maskSecret } from "@/lib/crypto";
 import { assertCan, canSeeRestricted, ForbiddenError, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { SCOPE_RANK } from "@/lib/rbac/model";
 import { setSetting } from "@/lib/settings";
-import { checkRunBudget, consumeOverride, notifyApprovers, pendingBudgetRequest } from "./budget";
+import { checkRunBudget, notifyApprovers, pendingBudgetRequest, reserveRun } from "./budget";
 import { addMonths, REJECT_SUPPRESS_MONTHS, SNOOZE_DAYS } from "./core";
 import { coerceAiCriteria, criteriaSchema, describeCriteria, heuristicCriteria, nlCriteriaSchema, type Criteria } from "./criteria";
 import { suppressedDomains, suppressedEmails } from "./crm-match";
@@ -275,24 +275,18 @@ async function startEnrichmentFor(user: AppUser, input: z.infer<typeof enrichInp
   await assertEnrichable(user, input.accountId);
   if (!(await getApifyToken())) throw new UserError("Connect Apify to find executives.");
   const est = await estimateEnrichment();
-  const decision = await checkRunBudget(user, est.cents, { entity: "account", entityId: input.accountId });
-  if (!decision.allowed) {
-    const [b] = await db
-      .insert(s.enrichmentRuns)
-      .values({ kind: "enrich", accountId: input.accountId, requestedBy: user.id, targetRoles: input.targetRoles, status: "blocked", estimatedCostCents: est.cents, error: decision.message, finishedAt: new Date() })
-      .returning({ id: s.enrichmentRuns.id });
-    return { runId: b!.id, blocked: true, message: decision.message, canRequestMore: decision.canRequestMore, estimateCents: est.cents };
-  }
-  const plan: EnrichPlan = { maxAllowedCents: decision.maxAllowedCents, estimateCents: est.cents, dealId: input.dealId ?? null, candidateId: input.candidateId ?? null, overrideApprovalId: decision.overrideApprovalId };
-  const planStep: StepState = { key: "plan", label: "Plan & budget", actorId: "", status: "succeeded", output: plan, finishedAt: new Date().toISOString() };
-  const [run] = await db
-    .insert(s.enrichmentRuns)
-    .values({ kind: "enrich", accountId: input.accountId, requestedBy: user.id, targetRoles: input.targetRoles, status: "queued", estimatedCostCents: est.cents, actors: [planStep] as never, startedAt: new Date() })
-    .returning({ id: s.enrichmentRuns.id });
-  if (decision.overrideApprovalId) await consumeOverride(decision.overrideApprovalId, run!.id);
-  await audit({ actorId: user.id, action: "enrichment.start", entity: "account", entityId: input.accountId, after: { runId: run!.id, roles: input.targetRoles, estimateCents: est.cents, dealId: input.dealId } });
-  runInBackground(run!.id);
-  return { runId: run!.id, blocked: false, message: decision.message, canRequestMore: false, estimateCents: est.cents };
+  // Budget check + run insert are serialized; the run reserves its full cap until it finishes (H-04).
+  const { decision, runId } = await reserveRun(user, est.cents, { entity: "account", entityId: input.accountId }, (d) => {
+    if (!d.allowed)
+      return { kind: "enrich", accountId: input.accountId, dealId: input.dealId ?? null, requestedBy: user.id, targetRoles: input.targetRoles, status: "blocked", estimatedCostCents: est.cents, error: d.message, finishedAt: new Date() };
+    const plan: EnrichPlan = { maxAllowedCents: d.maxAllowedCents, estimateCents: est.cents, dealId: input.dealId ?? null, candidateId: input.candidateId ?? null, overrideApprovalId: d.overrideApprovalId };
+    const planStep: StepState = { key: "plan", label: "Plan & budget", actorId: "", status: "succeeded", output: plan, finishedAt: new Date().toISOString() };
+    return { kind: "enrich", accountId: input.accountId, dealId: input.dealId ?? null, requestedBy: user.id, targetRoles: input.targetRoles, status: "queued", estimatedCostCents: est.cents, actors: [planStep] as never, startedAt: new Date() };
+  });
+  if (!decision.allowed) return { runId, blocked: true, message: decision.message, canRequestMore: decision.canRequestMore, estimateCents: est.cents };
+  await audit({ actorId: user.id, action: "enrichment.start", entity: "account", entityId: input.accountId, after: { runId, roles: input.targetRoles, estimateCents: est.cents, dealId: input.dealId } });
+  runInBackground(runId);
+  return { runId, blocked: false, message: decision.message, canRequestMore: false, estimateCents: est.cents };
 }
 
 /** Preview for the EnrichButton dialog: default roles for the motion, estimate, budget, Apify status. */

@@ -5,6 +5,9 @@ import { ImportEngine } from "@/lib/import/engine";
 import { assertCanImport, buildRecords, pipelineForTarget } from "@/lib/import/server";
 import { authed, errorResponse, json, readImportForm } from "../shared";
 
+/** Big files: chunked transactions can take minutes on the remote pooler (H-09). */
+export const maxDuration = 300;
+
 /** Commit an import (IMP-1/5/6): one import_batches row, row-level import_records with `before`, audited. */
 export async function POST(req: Request) {
   const user = await authed();

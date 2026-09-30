@@ -4,7 +4,7 @@ import { db } from "@/db";
 import * as s from "@/db/schema";
 import { UserError } from "@/lib/actions";
 import { getApifyToken } from "@/lib/apify/client";
-import { checkRunBudget, consumeOverride } from "./budget";
+import { reserveRun } from "./budget";
 import { criteriaSchema } from "./criteria";
 import { estimateScout, type ScoutPlan } from "./pipeline";
 import type { StepState } from "./runs";
@@ -21,22 +21,16 @@ export async function startScoutRunFor(user: { id: string; role: string }, searc
   const [settings, token] = await Promise.all([getScoutSettings(), getApifyToken()]);
   const est = await estimateScout(criteria, settings.budget.maxDomainsPerRun, Boolean(token));
   if (!criteria.domains.length && !token) throw new UserError("Connect Apify to discover domains, or add a domain list to score without Apify.");
-  const decision = await checkRunBudget(user, est.cents, { entity: "scout_search", entityId: search.id });
-  // a search-level budget cap tightens the allowed spend further
-  const cap = search.budgetCapCents != null ? Math.min(search.budgetCapCents, decision.maxAllowedCents) : decision.maxAllowedCents;
-  if (!decision.allowed) {
-    const [blocked] = await db
-      .insert(s.enrichmentRuns)
-      .values({ kind: "scout", searchId: search.id, requestedBy: user.id, status: "blocked", estimatedCostCents: est.cents, error: decision.message, finishedAt: new Date() })
-      .returning({ id: s.enrichmentRuns.id });
-    return { runId: blocked!.id, blocked: true, message: decision.message, canRequestMore: decision.canRequestMore, estimateCents: est.cents };
-  }
-  const plan: ScoutPlan = { maxAllowedCents: cap, estimateCents: est.cents, criteria, overrideApprovalId: decision.overrideApprovalId };
-  const planStep: StepState = { key: "plan", label: "Plan & budget", actorId: "", status: "succeeded", output: plan, note: `Estimated $${(est.cents / 100).toFixed(2)}; cap $${(cap / 100).toFixed(2)}`, finishedAt: new Date().toISOString() };
-  const [run] = await db
-    .insert(s.enrichmentRuns)
-    .values({ kind: "scout", searchId: search.id, requestedBy: user.id, status: "queued", estimatedCostCents: est.cents, actors: [planStep] as never, startedAt: new Date() })
-    .returning({ id: s.enrichmentRuns.id });
-  if (decision.overrideApprovalId) await consumeOverride(decision.overrideApprovalId, run!.id);
-  return { runId: run!.id, blocked: false, message: decision.message, canRequestMore: false, estimateCents: est.cents };
+  // Budget check + run insert are serialized; the run reserves its full cap until it finishes (H-04).
+  const { decision, runId } = await reserveRun(user, est.cents, { entity: "scout_search", entityId: search.id }, (d) => {
+    if (!d.allowed)
+      return { kind: "scout", searchId: search.id, requestedBy: user.id, status: "blocked", estimatedCostCents: est.cents, error: d.message, finishedAt: new Date() };
+    // a search-level budget cap tightens the allowed spend further
+    const cap = search.budgetCapCents != null ? Math.min(search.budgetCapCents, d.maxAllowedCents) : d.maxAllowedCents;
+    const plan: ScoutPlan = { maxAllowedCents: cap, estimateCents: est.cents, criteria, overrideApprovalId: d.overrideApprovalId };
+    const planStep: StepState = { key: "plan", label: "Plan & budget", actorId: "", status: "succeeded", output: plan, note: `Estimated $${(est.cents / 100).toFixed(2)}; cap $${(cap / 100).toFixed(2)}`, finishedAt: new Date().toISOString() };
+    return { kind: "scout", searchId: search.id, requestedBy: user.id, status: "queued", estimatedCostCents: est.cents, actors: [planStep] as never, startedAt: new Date() };
+  });
+  if (!decision.allowed) return { runId, blocked: true, message: decision.message, canRequestMore: decision.canRequestMore, estimateCents: est.cents };
+  return { runId, blocked: false, message: decision.message, canRequestMore: false, estimateCents: est.cents };
 }

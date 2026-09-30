@@ -2,8 +2,12 @@
  * Account merge (PRD ACC-5): fold a duplicate account into a surviving one. Takes the drizzle client as a parameter
  * (no server-only import) so the UI action and the import repair pass share it. The caller is responsible for
  * permission checks and the audit entry; this returns a `before` snapshot of every row it touched.
+ *
+ * Atomic (H-10): every write runs in ONE transaction (a savepoint when the caller already passes a transaction),
+ * after locking both account rows in id order — a partial failure can't split children across the two accounts, and
+ * concurrent A→B / B→A merges serialize instead of soft-deleting both.
  */
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as s from "../../db/schema";
 import { fillEmpty } from "../import/dedupe";
@@ -62,11 +66,23 @@ export type MergeResult = {
   sourceBefore: Record<string, unknown>;
 };
 
+type Tx = Parameters<Parameters<PostgresJsDatabase<typeof s>["transaction"]>[0]>[0];
+
 export async function mergeAccounts(db: Db, opts: { targetId: string; sourceId: string }): Promise<MergeResult> {
-  const d = db as PostgresJsDatabase<typeof s>;
   if (opts.targetId === opts.sourceId) throw new Error("Cannot merge an account into itself");
-  const [target] = await d.select().from(s.accounts).where(and(eq(s.accounts.id, opts.targetId), isNull(s.accounts.deletedAt)));
-  const [source] = await d.select().from(s.accounts).where(and(eq(s.accounts.id, opts.sourceId), isNull(s.accounts.deletedAt)));
+  return (db as PostgresJsDatabase<typeof s>).transaction((tx) => mergeAccountsTx(tx, opts));
+}
+
+async function mergeAccountsTx(d: Tx, opts: { targetId: string; sourceId: string }): Promise<MergeResult> {
+  // Lock both rows (id order → no lock-order deadlock between concurrent merges), then re-read them live.
+  const locked = await d
+    .select()
+    .from(s.accounts)
+    .where(and(inArray(s.accounts.id, [opts.targetId, opts.sourceId]), isNull(s.accounts.deletedAt)))
+    .orderBy(s.accounts.id)
+    .for("update");
+  const target = locked.find((a) => a.id === opts.targetId);
+  const source = locked.find((a) => a.id === opts.sourceId);
   if (!target || !source) throw new Error("Account not found (or already merged)");
 
   const moved: Record<string, string[]> = {};
@@ -81,6 +97,14 @@ export async function mergeAccounts(db: Db, opts: { targetId: string; sourceId: 
   // child brands of the duplicate now roll up to the survivor
   const kids = await d.update(s.accounts).set({ parentId: target.id }).where(eq(s.accounts.parentId, source.id)).returning({ id: s.accounts.id });
   if (kids.length) moved.child_account = kids.map((k) => k.id);
+  Object.assign(moved, await repointPolymorphic(d, "account", source.id, target.id));
+  // Lead Scout candidates that matched the duplicate now point at the survivor.
+  const cands = await d
+    .update(s.scoutCandidates)
+    .set({ crmMatch: sql`jsonb_set(${s.scoutCandidates.crmMatch}, '{accountId}', to_jsonb(${target.id}::text))` })
+    .where(sql`${s.scoutCandidates.crmMatch}->>'accountId' = ${source.id}`)
+    .returning({ id: s.scoutCandidates.id });
+  if (cands.length) moved.scout_candidate = cands.map((c) => c.id);
 
   // survivor keeps its values; empty fields are filled from the duplicate; domains are unioned
   const { patch, before } = fillEmpty(pick(target, MERGE_FILL_FIELDS), pick(source, MERGE_FILL_FIELDS));
@@ -117,9 +141,13 @@ export async function mergeAccounts(db: Db, opts: { targetId: string; sourceId: 
  * r100 / customFields are filled from the other, children are re-pointed and the other deal is soft-deleted.
  */
 export async function mergeDeals(db: Db, opts: { keepId: string; dropId: string }) {
-  const d = db as PostgresJsDatabase<typeof s>;
-  const [keep] = await d.select().from(s.deals).where(eq(s.deals.id, opts.keepId));
-  const [drop] = await d.select().from(s.deals).where(eq(s.deals.id, opts.dropId));
+  return (db as PostgresJsDatabase<typeof s>).transaction((tx) => mergeDealsTx(tx, opts));
+}
+
+async function mergeDealsTx(d: Tx, opts: { keepId: string; dropId: string }) {
+  const locked = await d.select().from(s.deals).where(inArray(s.deals.id, [opts.keepId, opts.dropId])).orderBy(s.deals.id).for("update");
+  const keep = locked.find((x) => x.id === opts.keepId);
+  const drop = locked.find((x) => x.id === opts.dropId);
   if (!keep || !drop) throw new Error("Deal not found");
   const FILL = ["ownerId", "priority", "nextStep", "nextStepDueAt", "muu", "contractValueCents", "annualizedValueCents", "nextPaymentCents", "primaryContactId", "lastActivityAt", "probabilityOverride", "overrideReason", "overrideStatus", "expectedCloseDate"] as const;
   const { patch, before } = fillEmpty(pick(keep, FILL), pick(drop, FILL));
@@ -142,17 +170,31 @@ export async function mergeDeals(db: Db, opts: { keepId: string; dropId: string 
     ["task", s.tasks, s.tasks.dealId, s.tasks.id],
     ["document", s.documents, s.documents.dealId, s.documents.id],
     ["deal_stage_history", s.dealStageHistory, s.dealStageHistory.dealId, s.dealStageHistory.id],
+    // H-10: money and conversations of the dropped deal must follow it (invoices would vanish from AR otherwise)
+    ["invoice", s.invoices, s.invoices.dealId, s.invoices.id],
+    ["email_thread", s.emailThreads, s.emailThreads.dealId, s.emailThreads.id],
+    ["meeting", s.meetings, s.meetings.dealId, s.meetings.id],
+    ["transcript", s.transcripts, s.transcripts.dealId, s.transcripts.id],
+    ["proposal", s.proposals, s.proposals.dealId, s.proposals.id],
+    ["commission_accrual", s.commissionAccruals, s.commissionAccruals.dealId, s.commissionAccruals.id],
+    ["enrichment_run", s.enrichmentRuns, s.enrichmentRuns.dealId, s.enrichmentRuns.id],
   ] as const) {
     const rows = await d.update(table).set({ dealId: keep.id } as never).where(eq(col, drop.id)).returning({ id });
     if (rows.length) moved[name] = rows.map((r) => r.id);
   }
+  // migration_projects is unique per deal: move the dropped deal's project only when the survivor has none.
+  const [keepProject] = await d.select({ id: s.migrationProjects.id }).from(s.migrationProjects).where(eq(s.migrationProjects.dealId, keep.id));
+  if (!keepProject) {
+    const rows = await d.update(s.migrationProjects).set({ dealId: keep.id }).where(eq(s.migrationProjects.dealId, drop.id)).returning({ id: s.migrationProjects.id });
+    if (rows.length) moved.migration_project = rows.map((r) => r.id);
+  }
+  Object.assign(moved, await repointPolymorphic(d, "deal", drop.id, keep.id));
   // stakeholders / splits: copy the ones the survivor doesn't have
-  const [keepContacts, dropContacts, keepSplits, dropSplits] = await Promise.all([
-    d.select().from(s.dealContacts).where(eq(s.dealContacts.dealId, keep.id)),
-    d.select().from(s.dealContacts).where(eq(s.dealContacts.dealId, drop.id)),
-    d.select().from(s.dealSplits).where(eq(s.dealSplits.dealId, keep.id)),
-    d.select().from(s.dealSplits).where(eq(s.dealSplits.dealId, drop.id)),
-  ]);
+  // sequential: one transaction = one connection
+  const keepContacts = await d.select().from(s.dealContacts).where(eq(s.dealContacts.dealId, keep.id));
+  const dropContacts = await d.select().from(s.dealContacts).where(eq(s.dealContacts.dealId, drop.id));
+  const keepSplits = await d.select().from(s.dealSplits).where(eq(s.dealSplits.dealId, keep.id));
+  const dropSplits = await d.select().from(s.dealSplits).where(eq(s.dealSplits.dealId, drop.id));
   const haveC = new Set(keepContacts.map((c) => c.contactId));
   const addC = dropContacts.filter((c) => !haveC.has(c.contactId)).map((c) => ({ dealId: keep.id, contactId: c.contactId, role: c.role }));
   if (addC.length) await d.insert(s.dealContacts).values(addC).onConflictDoNothing();
@@ -160,6 +202,45 @@ export async function mergeDeals(db: Db, opts: { keepId: string; dropId: string 
   await d.update(s.deals).set(patch as never).where(eq(s.deals.id, keep.id));
   await d.update(s.deals).set({ deletedAt: new Date(), customFields: { ...(drop.customFields ?? {}), mergedInto: keep.id } }).where(eq(s.deals.id, drop.id));
   return { keepBefore: before, dropBefore: { deletedAt: null, customFields: drop.customFields }, moved, addedContacts: addC.map((c) => c.contactId), copiedSplits: !keepSplits.length ? dropSplits.map((sp) => sp.userId) : [] };
+}
+
+/**
+ * Re-point the polymorphic (entity, entity_id) references from `fromId` to `toId`: restricted-access grants (merged,
+ * so the survivor keeps every grant when it becomes restricted), comments, approvals, and alerts. Open alerts that
+ * would collide with an open alert on the survivor (same rule + recipient) are resolved instead of moved.
+ */
+async function repointPolymorphic(d: Tx, entity: "account" | "deal", fromId: string, toId: string): Promise<Record<string, string[]>> {
+  const moved: Record<string, string[]> = {};
+  const granted = await d.execute(sql`
+    insert into ${s.restrictedAccess} (entity, entity_id, user_id, granted_by, created_at)
+    select entity, ${toId}::uuid, user_id, granted_by, created_at from ${s.restrictedAccess} where entity = ${entity} and entity_id = ${fromId}::uuid
+    on conflict do nothing returning user_id`);
+  const grantedIds = (granted as unknown as { user_id: string }[]).map((r) => r.user_id);
+  await d.delete(s.restrictedAccess).where(and(eq(s.restrictedAccess.entity, entity), eq(s.restrictedAccess.entityId, fromId)));
+  if (grantedIds.length) moved.restricted_access = grantedIds;
+
+  const comments = await d.update(s.comments).set({ entityId: toId }).where(and(eq(s.comments.entity, entity), eq(s.comments.entityId, fromId))).returning({ id: s.comments.id });
+  if (comments.length) moved.comment = comments.map((c) => c.id);
+
+  const approvals = await d.update(s.approvals).set({ entityId: toId }).where(and(eq(s.approvals.entity, entity), eq(s.approvals.entityId, fromId))).returning({ id: s.approvals.id });
+  if (approvals.length) moved.approval = approvals.map((a) => a.id);
+
+  const OPEN = ["open", "acknowledged", "snoozed", "escalated"] as const;
+  await d
+    .update(s.alerts)
+    .set({ state: "resolved", resolvedAt: new Date(), resolution: "Merged into another record" })
+    .where(
+      and(
+        eq(s.alerts.entity, entity),
+        eq(s.alerts.entityId, fromId),
+        inArray(s.alerts.state, [...OPEN]),
+        sql`exists (select 1 from ${s.alerts} o where o.rule_code = ${s.alerts.ruleCode} and o.entity = ${entity} and o.entity_id = ${toId}
+          and o.recipient_id is not distinct from ${s.alerts.recipientId} and o.state in ('open','acknowledged','snoozed','escalated'))`,
+      ),
+    );
+  const alerts = await d.update(s.alerts).set({ entityId: toId }).where(and(eq(s.alerts.entity, entity), eq(s.alerts.entityId, fromId))).returning({ id: s.alerts.id });
+  if (alerts.length) moved.alert = alerts.map((a) => a.id);
+  return moved;
 }
 
 /** Undo helper for mergeAccounts' child moves (used by rollback of repair batches). */
