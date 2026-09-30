@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
-import { db } from "@/db";
+import { db, type Tx } from "@/db";
 import * as s from "@/db/schema";
 import { UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
@@ -18,7 +18,7 @@ export async function applyRegistrationDecision(
   id: string,
   decision: "approved" | "rejected",
   note: string | null,
-  opts: { syncApproval: boolean },
+  opts: { syncApproval: boolean; withinTx?: (tx: Tx) => Promise<void> },
 ) {
   const [reg] = await db.select().from(s.leadRegistrations).where(eq(s.leadRegistrations.id, id));
   if (!reg) throw new UserError("Registration not found.");
@@ -32,7 +32,13 @@ export async function applyRegistrationDecision(
     note: note ? `${reg.note ? `${reg.note}\n` : ""}Decision (${user.name}): ${note}` : reg.note,
   };
   await db.transaction(async (tx) => {
-    await tx.update(s.leadRegistrations).set(patch).where(eq(s.leadRegistrations.id, id));
+    // Conditional on still pending: a concurrent decision can't apply twice.
+    const claimed = await tx
+      .update(s.leadRegistrations)
+      .set(patch)
+      .where(and(eq(s.leadRegistrations.id, id), eq(s.leadRegistrations.status, "pending")))
+      .returning({ id: s.leadRegistrations.id });
+    if (!claimed.length) throw new UserError("This registration was already decided.");
     if (opts.syncApproval)
       await tx
         .update(s.approvals)
@@ -48,7 +54,8 @@ export async function applyRegistrationDecision(
       body: note ?? null,
       href: "/commissions?tab=registrations",
     });
+    await audit({ actorId: user.id, action: `lead_registration.${decision}`, entity: "lead_registration", entityId: id, before: reg, after: patch }, tx);
+    await opts.withinTx?.(tx);
   });
-  await audit({ actorId: user.id, action: `lead_registration.${decision}`, entity: "lead_registration", entityId: id, before: reg, after: patch });
   return { id, status: decision };
 }

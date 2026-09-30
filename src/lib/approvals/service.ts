@@ -1,14 +1,17 @@
 import "server-only";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db } from "@/db";
+import { db, type Tx } from "@/db";
 import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { ForbiddenError, type AppUser } from "@/lib/rbac/server";
 import { UserError } from "@/lib/actions";
+import { logServerError } from "@/lib/errors";
 import { notify, notifyMany } from "@/lib/notifications/notify";
 import { canDecide, getApprovalHandler, type ApprovalDecision, type ApprovalRow } from "./registry";
 
 export { registerApprovalHandler } from "./registry";
+
+class AlreadyDecided extends Error {}
 
 /**
  * Create an approval request and notify the approver role. Other modules call this (e.g. deals when a probability
@@ -57,34 +60,70 @@ export async function decide(user: AppUser, id: string, decision: ApprovalDecisi
   if (decision === "rejected" && !note?.trim()) throw new UserError("Add a reason when rejecting.");
 
   const handler = getApprovalHandler(approval.kind);
-  // Claim the row first (only if still pending) so concurrent deciders can't both apply side effects.
-  const [after] = await db
-    .update(s.approvals)
-    .set({ status: decision, decidedBy: user.id, decidedAt: new Date(), note: note ? `${approval.note ? `${approval.note}\n` : ""}Decision: ${note}` : approval.note })
-    .where(and(eq(s.approvals.id, id), eq(s.approvals.status, "pending")))
-    .returning();
-  if (!after) throw new UserError("This request was already decided.");
+  const ctx = { approval, decision, user, note };
+  // The claim flips the row only while it is still pending, so concurrent deciders can't both apply side effects.
+  // It runs inside the same transaction as the side effects (H-13): both commit, or neither does.
+  let after: ApprovalRow | undefined;
+  const claim = async (tx: Tx) => {
+    const [row] = await tx
+      .update(s.approvals)
+      .set({ status: decision, decidedBy: user.id, decidedAt: new Date(), note: note ? `${approval.note ? `${approval.note}\n` : ""}Decision: ${note}` : approval.note })
+      .where(and(eq(s.approvals.id, id), eq(s.approvals.status, "pending")))
+      .returning();
+    if (!row) throw new AlreadyDecided();
+    await audit({ actorId: user.id, action: `approval.${decision}`, entity: "approval", entityId: id, before: approval, after: row }, tx);
+    after = row;
+  };
   try {
-    if (handler.apply) await handler.apply({ approval, decision, user, note });
+    if (handler.apply) {
+      const apply = handler.apply;
+      await db.transaction(async (tx) => {
+        await claim(tx);
+        await apply({ ...ctx, tx });
+      });
+    } else if (handler.applyWithClaim) {
+      await handler.applyWithClaim({ ...ctx, claim });
+      if (!after) await db.transaction(claim); // the handler found nothing to do (e.g. already applied): record the decision
+    } else {
+      await db.transaction(claim);
+      if (handler.applyAfter) await handler.applyAfter(ctx);
+    }
   } catch (e) {
-    await db.update(s.approvals).set({ status: "pending", decidedBy: null, decidedAt: null, note: approval.note }).where(eq(s.approvals.id, id));
+    if (e instanceof AlreadyDecided) throw new UserError("This request was already decided.");
+    // Clear error state: status "failed" + reason (the side effects were rolled back, or — applyAfter — partly done
+    // and listed in the audit). Never back to "pending", where it would sit stuck and could be half-applied again.
+    const reason = e instanceof UserError || e instanceof ForbiddenError ? e.message : "Unexpected error while applying the decision.";
+    try {
+      await db
+        .update(s.approvals)
+        .set({ status: "failed", decidedBy: user.id, decidedAt: new Date(), note: `${approval.note ? `${approval.note}\n` : ""}Apply failed (${decision} by ${user.name}): ${reason}` })
+        .where(and(eq(s.approvals.id, id), inArray(s.approvals.status, ["pending", decision])));
+      await audit({ actorId: user.id, action: "approval.apply_failed", entity: "approval", entityId: id, before: approval, after: { decision, reason } });
+    } catch (e2) {
+      logServerError("approvals.mark_failed", e2);
+    }
     throw e;
   }
-  await audit({ actorId: user.id, action: `approval.${decision}`, entity: "approval", entityId: id, before: approval, after });
+  if (!after) throw new UserError("This request was already decided.");
 
-  const res = handler.resolvesAlerts?.(approval);
-  if (res?.entityIds.length)
-    await db
-      .update(s.alerts)
-      .set({ state: "resolved", resolvedAt: new Date(), resolution: `Approval ${decision} by ${user.name}` })
-      .where(
-        and(
-          eq(s.alerts.ruleCode, res.ruleCode),
-          eq(s.alerts.entity, res.entity),
-          inArray(s.alerts.entityId, res.entityIds),
-          inArray(s.alerts.state, ["open", "acknowledged", "snoozed", "escalated"]),
-        ),
-      );
+  // After commit: never throw (the decision is recorded).
+  try {
+    const res = handler.resolvesAlerts?.(approval);
+    if (res?.entityIds.length)
+      await db
+        .update(s.alerts)
+        .set({ state: "resolved", resolvedAt: new Date(), resolution: `Approval ${decision} by ${user.name}` })
+        .where(
+          and(
+            eq(s.alerts.ruleCode, res.ruleCode),
+            eq(s.alerts.entity, res.entity),
+            inArray(s.alerts.entityId, res.entityIds),
+            inArray(s.alerts.state, ["open", "acknowledged", "snoozed", "escalated"]),
+          ),
+        );
+  } catch (e) {
+    logServerError("approvals.resolve_alerts", e);
+  }
 
   if (approval.requestedBy !== user.id)
     await notify(approval.requestedBy, {
