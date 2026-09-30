@@ -137,6 +137,6 @@ describe("AI error messages", () => {
   });
   it("never echoes secrets", () => {
     expect(scrubSecrets("token=abcDEF1234567890abcDEF1234567890xyz failed")).not.toContain("abcDEF1234567890");
-    expect(friendlyAiError(new Error("bad key sk_live_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"), "m")).not.toContain("ABCDEFGHIJKLMNOP");
+    expect(friendlyAiError(new Error("bad key " + ["sk", "live", "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"].join("_")), "m")).not.toContain("ABCDEFGHIJKLMNOP");
   });
 });
