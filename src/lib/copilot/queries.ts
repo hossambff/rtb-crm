@@ -5,8 +5,8 @@ import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { untrusted } from "@/lib/ai";
 import { dealValue } from "@/lib/pipeline-math";
-import { DEFAULT_HIDDEN_FIELDS, type Role } from "@/lib/rbac/model";
-import { dealAccessWhere, ownedEntityWhere, scopeFor, type AppUser } from "@/lib/rbac/server";
+import type { Role } from "@/lib/rbac/model";
+import { dealAccessWhere, getHiddenFields, ownedEntityWhere, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { clip, isUuid, looksLikeInjection } from "./guards";
 import { aggregatePipeline, type ReportDealRow } from "./report";
 import { dealRiskReasons } from "./risk";
@@ -29,26 +29,9 @@ export async function logDenied(user: AppUser, run: RunState | null, tool: strin
 
 /* ───────────── field security ───────────── */
 
-/** Deal fields hidden for a role = code defaults ∪ admin overrides in field_permissions. */
+/** Deal fields hidden for a role = code defaults ∪ admin overrides in field_permissions (shared rbac helper). */
 export async function hiddenDealFields(role: Role): Promise<Set<string>> {
-  const hidden = new Set<string>();
-  for (const [key, roles] of Object.entries(DEFAULT_HIDDEN_FIELDS)) {
-    const [entity, field] = key.split(".");
-    if (entity === "deal" && field && roles.includes(role)) hidden.add(field);
-  }
-  try {
-    const rows = await db
-      .select({ field: s.fieldPermissions.field, access: s.fieldPermissions.access })
-      .from(s.fieldPermissions)
-      .where(and(eq(s.fieldPermissions.role, role), eq(s.fieldPermissions.entity, "deal")));
-    for (const r of rows) {
-      if (r.access === "hidden") hidden.add(r.field);
-      else hidden.delete(r.field);
-    }
-  } catch {
-    /* table may be empty/unavailable — defaults still apply */
-  }
-  return hidden;
+  return getHiddenFields(role, "deal");
 }
 
 function accountRestrictedOk(user: AppUser): SQL {

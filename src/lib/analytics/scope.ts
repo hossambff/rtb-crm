@@ -5,8 +5,7 @@ import { and, eq, exists, inArray, not, or, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/db";
 import * as s from "@/db/schema";
-import { isFieldHidden } from "@/lib/rbac/model";
-import { can, dealAccessWhere, scopeFor, type AppUser } from "@/lib/rbac/server";
+import { can, dealAccessWhere, getHiddenFields, scopeFor, type AppUser } from "@/lib/rbac/server";
 import type { AnalyticsFilters } from "./filters";
 
 /**
@@ -32,7 +31,8 @@ export async function analyticsContext(user: AppUser, filters: AnalyticsFilters)
   const scope = await scopeFor(user, "analytics", "view");
   if (scope === "none") return null;
   const ownerIds = scope === "own" ? [user.id] : scope === "team" ? (user.teamMemberIds.length ? user.teamMemberIds : [user.id]) : null;
-  const netAllowed = !isFieldHidden(user.role, "deal", "revSharePct");
+  const hiddenDeal = await getHiddenFields(user.role, "deal");
+  const netAllowed = !hiddenDeal.has("revSharePct");
   const [revenueAllowed, scoutAllowed] = await limitedAll([can(user, "revenue", "view"), can(user, "scout", "view")]);
   // Owner filter must stay inside the allowed set.
   let owner = filters.owner;
@@ -43,7 +43,7 @@ export async function analyticsContext(user: AppUser, filters: AnalyticsFilters)
     ownerIds,
     filters: { ...filters, owner, basis: netAllowed ? filters.basis : "gross" },
     netAllowed,
-    guaranteeAllowed: !isFieldHidden(user.role, "deal", "guaranteeMonthlyCents"),
+    guaranteeAllowed: !hiddenDeal.has("guaranteeMonthlyCents"),
     revenueAllowed,
     scoutAllowed,
     orgWide: scope === "all" && !owner && !filters.pipeline,

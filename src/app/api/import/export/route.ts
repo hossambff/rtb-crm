@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { audit } from "@/lib/audit";
 import { listAccounts, parseAccountListParams } from "@/lib/accounts/queries";
 import { listContacts, parseContactListParams } from "@/lib/contacts/queries";
-import { can, scopeFor } from "@/lib/rbac/server";
+import { can, getHiddenFields, scopeFor } from "@/lib/rbac/server";
 import { authed, json } from "../shared";
 
 const MAX_ROWS = 20_000;
@@ -29,20 +29,52 @@ export async function GET(req: NextRequest) {
   const sp = Object.fromEntries(req.nextUrl.searchParams.entries());
   const inScope = (ownerId: string | null) => scope === "all" || scope === "pipeline" || (scope === "team" ? !!ownerId && user.teamMemberIds.includes(ownerId) : ownerId === user.id);
 
+  // [csv header, entity field (for field-level security), value]
+  type Col<R> = [string, string, (r: R) => unknown];
+  const hidden = await getHiddenFields(user.role, entity === "accounts" ? "account" : "contact");
+  if (hidden.has("*")) return json({ error: "You don't have permission to export." }, 403);
+  const pick = <R,>(cols: Col<R>[]) => cols.filter(([, field]) => !hidden.has(field));
   let header: string[];
   let lines: unknown[][];
   if (entity === "accounts") {
     const res = await listAccounts(user, { ...parseAccountListParams(sp), page: 1, pageSize: MAX_ROWS });
-    header = ["id", "name", "domain", "type", "category", "lifecycle", "priority", "muu", "muu_source", "muu_confidence", "owner", "open_deals", "pipelines", "restricted", "updated_at"];
-    lines = res.rows
-      .filter((r) => inScope(r.ownerId))
-      .map((r) => [r.id, r.name, r.domain, r.type, r.category, r.lifecycle, r.priority, r.muu, r.muuSource, r.muuConfidence, r.ownerName, r.openDeals, r.pipelines, r.restricted, r.updatedAt]);
+    type R = (typeof res.rows)[number];
+    const cols = pick<R>([
+      ["id", "id", (r) => r.id],
+      ["name", "name", (r) => r.name],
+      ["domain", "domain", (r) => r.domain],
+      ["type", "type", (r) => r.type],
+      ["category", "category", (r) => r.category],
+      ["lifecycle", "lifecycle", (r) => r.lifecycle],
+      ["priority", "priority", (r) => r.priority],
+      ["muu", "muu", (r) => r.muu],
+      ["muu_source", "muuSource", (r) => r.muuSource],
+      ["muu_confidence", "muuConfidence", (r) => r.muuConfidence],
+      ["owner", "ownerId", (r) => r.ownerName],
+      ["open_deals", "openDeals", (r) => r.openDeals],
+      ["pipelines", "pipelines", (r) => r.pipelines],
+      ["restricted", "restricted", (r) => r.restricted],
+      ["updated_at", "updatedAt", (r) => r.updatedAt],
+    ]);
+    header = cols.map((c) => c[0]);
+    lines = res.rows.filter((r) => inScope(r.ownerId)).map((r) => cols.map((c) => c[2](r)));
   } else {
     const res = await listContacts(user, { ...parseContactListParams(sp), page: 1, pageSize: MAX_ROWS });
-    header = ["id", "full_name", "title", "email", "phone", "account", "relationship_owner", "status", "do_not_contact", "last_contacted_at"];
-    lines = res.rows
-      .filter((r) => inScope(r.ownerId))
-      .map((r) => [r.id, r.fullName, r.title, r.email, r.phone, r.accountName, r.relationshipOwner, r.status, r.doNotContact, r.lastContactedAt]);
+    type R = (typeof res.rows)[number];
+    const cols = pick<R>([
+      ["id", "id", (r) => r.id],
+      ["full_name", "fullName", (r) => r.fullName],
+      ["title", "title", (r) => r.title],
+      ["email", "email", (r) => r.email],
+      ["phone", "phone", (r) => r.phone],
+      ["account", "accountId", (r) => r.accountName],
+      ["relationship_owner", "relationshipOwner", (r) => r.relationshipOwner],
+      ["status", "status", (r) => r.status],
+      ["do_not_contact", "doNotContact", (r) => r.doNotContact],
+      ["last_contacted_at", "lastContactedAt", (r) => r.lastContactedAt],
+    ]);
+    header = cols.map((c) => c[0]);
+    lines = res.rows.filter((r) => inScope(r.ownerId)).map((r) => cols.map((c) => c[2](r)));
   }
   const stamp = new Date().toISOString();
   const csv = [`# Roundtable Sales OS — confidential. Exported by ${user.email} at ${stamp}. ${lines.length} rows.`, header.join(","), ...lines.map((l) => l.map(csvCell).join(","))].join("\r\n");

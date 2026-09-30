@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { requireUser } from "@/lib/rbac/server";
-import { isFieldHidden } from "@/lib/rbac/model";
+import { getHiddenFields, requireUser } from "@/lib/rbac/server";
 import { getTranscriptForUser } from "@/lib/transcripts/queries";
 import { getGoogleAccount } from "@/lib/integrations/google";
 import { GMAIL_SEND_SCOPE, hasScope } from "@/lib/integrations/core";
@@ -34,7 +33,8 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
   const followUpTo = [...new Set([...(detail.meeting?.attendees ?? []), ...t.participants].map((p) => normalizeEmail(p)).filter((e): e is string => Boolean(e)))]
     .filter((e) => !isInternal(e, internal))
     .slice(0, 5);
-  const hiddenFields = (Object.keys(FIELD_COLS) as (keyof typeof FIELD_COLS)[]).filter((f) => isFieldHidden(user.role, "deal", FIELD_COLS[f]));
+  const hiddenDeal = await getHiddenFields(user.role, "deal");
+  const hiddenFields = (Object.keys(FIELD_COLS) as (keyof typeof FIELD_COLS)[]).filter((f) => hiddenDeal.has(FIELD_COLS[f]));
   const stages = detail.stages.filter((st) => (st.category === "open" || st.category === "hold") && !st.requiresApproval).map((st) => ({ id: st.id, name: st.name }));
   const busy = t.status === "pending" || t.status === "processing";
 

@@ -7,7 +7,7 @@ import { db } from "@/db";
 import * as s from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { DEFAULT_MATRIX } from "./defaults";
-import { PIPELINE_MODULE, ROLES, SCOPE_RANK, type Action, type Matrix, type Module, type Role, type Scope } from "./model";
+import { DEFAULT_HIDDEN_FIELDS, PIPELINE_MODULE, ROLES, SCOPE_RANK, type Action, type Matrix, type Module, type Role, type Scope } from "./model";
 
 export type AppUser = {
   id: string;
@@ -209,4 +209,39 @@ export async function ownedEntityWhere(
     default:
       return sql`false`;
   }
+}
+
+/* ───────────── Field-level security (PRD §7.1) ───────────── */
+
+/**
+ * Fields of `entity` hidden from `role`: code defaults (DEFAULT_HIDDEN_FIELDS, incl. `entity.*` → "*") merged with the
+ * admin overrides in rso.field_permissions — access "hidden" adds the field, "read_only"/"editable" removes a default.
+ * Cached per request. Server-side strip code must use this (isFieldHidden in ./model only knows the code defaults and
+ * stays for client-safe hints).
+ */
+export const getHiddenFields = cache(async (role: Role, entity: string): Promise<Set<string>> => {
+  const hidden = new Set<string>();
+  for (const [key, roles] of Object.entries(DEFAULT_HIDDEN_FIELDS)) {
+    const dot = key.indexOf(".");
+    if (key.slice(0, dot) === entity && roles.includes(role)) hidden.add(key.slice(dot + 1));
+  }
+  try {
+    const rows = await db
+      .select({ field: s.fieldPermissions.field, access: s.fieldPermissions.access })
+      .from(s.fieldPermissions)
+      .where(and(eq(s.fieldPermissions.role, role), eq(s.fieldPermissions.entity, entity)));
+    for (const r of rows) {
+      if (r.access === "hidden") hidden.add(r.field);
+      else hidden.delete(r.field);
+    }
+  } catch (e) {
+    console.error("[rbac] field_permissions unavailable — using code defaults", e instanceof Error ? e.message.slice(0, 120) : "");
+  }
+  return hidden;
+});
+
+/** Is `field` (or the whole entity via "*") hidden from `role`, including admin overrides? */
+export async function isFieldHiddenFor(role: Role, entity: string, field: string): Promise<boolean> {
+  const hidden = await getHiddenFields(role, entity);
+  return hidden.has(field) || hidden.has("*");
 }

@@ -4,8 +4,7 @@ import { db } from "@/db";
 import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { UserError } from "@/lib/actions";
-import { isFieldHidden } from "@/lib/rbac/model";
-import { ForbiddenError, type AppUser } from "@/lib/rbac/server";
+import { ForbiddenError, getHiddenFields, type AppUser } from "@/lib/rbac/server";
 import { getAccessibleDeal } from "@/lib/integrations/deal-access";
 import { parseAudience } from "@/lib/domain";
 import { getPicklist } from "@/lib/deals/queries";
@@ -80,9 +79,10 @@ export async function applyTranscriptReview(user: AppUser, transcriptId: string,
     const deal = await getAccessibleDeal(user, t.dealId, "edit");
     if (!deal) throw new ForbiddenError("You can't edit this deal.");
     const set: Partial<typeof s.deals.$inferInsert> = {};
+    const hidden = await getHiddenFields(user.role, "deal");
     for (const f of input.fieldUpdates) {
       const col = FIELD_COLUMN[f.field];
-      if (!col || isFieldHidden(user.role, "deal", col)) throw new ForbiddenError(`You can't edit ${f.field.replace(/_/g, " ")}.`);
+      if (!col || hidden.has(col) || hidden.has("*")) throw new ForbiddenError(`You can't edit ${f.field.replace(/_/g, " ")}.`);
       if (f.field === "muu") {
         const n = parseAudience(f.value);
         if (!n) throw new UserError("MUU must be a number (e.g. 2500000 or 2.5M).");

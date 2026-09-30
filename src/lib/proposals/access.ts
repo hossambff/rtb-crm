@@ -2,14 +2,14 @@ import "server-only";
 import { and, eq, exists, inArray, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
-import { dealAccessWhere, ForbiddenError, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
-import { isFieldHidden, type Action } from "@/lib/rbac/model";
+import { dealAccessWhere, ForbiddenError, inScope, isFieldHiddenFor, scopeFor, type AppUser } from "@/lib/rbac/server";
+import type { Action } from "@/lib/rbac/model";
 import { getSetting } from "@/lib/settings";
 import { DEFAULT_APPROVAL_RULES, type ApprovalRules } from "./calc";
 
 /** SQL filter on proposals (joined to deals) for the user's proposals-module scope + deal visibility. */
 export async function proposalWhere(user: AppUser, action: Action = "view"): Promise<SQL> {
-  if (isFieldHidden(user.role, "proposal", "*")) return sql`false`;
+  if (await isFieldHiddenFor(user.role, "proposal", "*")) return sql`false`;
   const [scope, visible] = await Promise.all([scopeFor(user, "proposals", action), dealAccessWhere(user, "view")]);
   const members = user.teamMemberIds.length ? user.teamMemberIds : [user.id];
   const split = (ids: string[]) =>
@@ -34,7 +34,7 @@ export async function proposalWhere(user: AppUser, action: Action = "view"): Pro
 
 /** Check the user can create/edit proposals on this deal (module scope on the deal record + deal visibility). */
 export async function assertProposalDeal(user: AppUser, dealId: string, action: "create" | "edit") {
-  if (isFieldHidden(user.role, "proposal", "*")) throw new ForbiddenError();
+  if (await isFieldHiddenFor(user.role, "proposal", "*")) throw new ForbiddenError();
   const scope = await scopeFor(user, "proposals", action);
   if (scope === "none") throw new ForbiddenError();
   const [row] = await db

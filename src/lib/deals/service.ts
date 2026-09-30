@@ -1,10 +1,9 @@
 import "server-only";
-import { cache } from "react";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
-import { DEFAULT_HIDDEN_FIELDS, type Role } from "@/lib/rbac/model";
-import { assertCan, dealAccessWhere, dealModule, ForbiddenError, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
+import type { Role } from "@/lib/rbac/model";
+import { assertCan, dealAccessWhere, dealModule, ForbiddenError, getHiddenFields, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { UserError } from "@/lib/actions";
 import { computeHealth } from "./health";
 import { ensureMigrationProject } from "@/lib/onboarding/service";
@@ -15,22 +14,7 @@ export type DbOrTx = typeof db | Tx;
 /* ───────────── Field-level security ───────────── */
 
 /** Deal fields hidden for a role: code defaults (DEFAULT_HIDDEN_FIELDS) + admin overrides in rso.field_permissions. */
-export const hiddenDealFields = cache(async (role: Role): Promise<Set<string>> => {
-  const hidden = new Set<string>();
-  for (const [key, roles] of Object.entries(DEFAULT_HIDDEN_FIELDS)) {
-    const [entity, field] = key.split(".");
-    if (entity === "deal" && field && field !== "*" && roles.includes(role)) hidden.add(field);
-  }
-  const rows = await db
-    .select({ field: s.fieldPermissions.field, access: s.fieldPermissions.access })
-    .from(s.fieldPermissions)
-    .where(and(eq(s.fieldPermissions.role, role), eq(s.fieldPermissions.entity, "deal")));
-  for (const r of rows) {
-    if (r.access === "hidden") hidden.add(r.field);
-    else hidden.delete(r.field);
-  }
-  return hidden;
-});
+export const hiddenDealFields = (role: Role): Promise<Set<string>> => getHiddenFields(role, "deal");
 
 /** Remove hidden keys from a deal-shaped object (server-side, before anything reaches the client). */
 export function stripHidden<T extends Record<string, unknown>>(obj: T, hidden: Set<string>): T {

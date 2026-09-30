@@ -12,7 +12,10 @@ export function clip(text: string | null | undefined, max = 600): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/** Remove fields the role may not see (server-side strip, PRD §7.1). Returns a new object. */
+/**
+ * Remove fields the role may not see by the CODE DEFAULTS only (pure, unit-tested). Server code with DB access should
+ * strip with getHiddenFields(role, entity) from @/lib/rbac/server, which also applies admin field_permissions.
+ */
 export function stripHiddenFields<T extends Record<string, unknown>>(role: Role, entity: string, obj: T): Partial<T> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
