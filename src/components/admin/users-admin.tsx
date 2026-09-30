@@ -277,15 +277,28 @@ function ProvisionDialog({
 }) {
   const [f, setF] = React.useState({ email: "", name: "", title: "", role: "sdr", teamId: "", managerId: "", employmentType: "staff", accessExpiresAt: "" });
   const { run, pending, errors } = useAction(preProvisionUser, { success: "User pre-provisioned — they can sign in with Google", onSuccess: onClose });
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((p) => ({ ...p, [k]: e.target.value }));
+  // QA-21: the email field shows its own error (domain allowlist checked inline; server message mapped back to the field).
+  const [emailErr, setEmailErr] = React.useState<string | null>(null);
+  const domainError = (email: string) => {
+    const domain = email.trim().toLowerCase().split("@")[1];
+    if (!domain) return null;
+    return allowedDomains.map((d) => d.toLowerCase()).includes(domain) ? null : `Use a ${allowedDomains.map((d) => `@${d}`).join(" or ")} address — other domains can't sign in.`;
+  };
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (k === "email") setEmailErr(null);
+    setF((p) => ({ ...p, [k]: e.target.value }));
+  };
   const roles = ASSIGNABLE_ROLES.filter((r) => isSuperAdmin || !(PRIVILEGED_ROLES as readonly string[]).includes(r));
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-xl">
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            run({ ...f, title: f.title || null, teamId: f.teamId || null, managerId: f.managerId || null, accessExpiresAt: f.accessExpiresAt || null, employmentType: f.employmentType as never });
+            const inline = domainError(f.email);
+            if (inline) return setEmailErr(inline);
+            const res = await run({ ...f, title: f.title || null, teamId: f.teamId || null, managerId: f.managerId || null, accessExpiresAt: f.accessExpiresAt || null, employmentType: f.employmentType as never });
+            if (!res.ok && !res.fieldErrors?.email && /email|domain|already/i.test(res.error)) setEmailErr(res.error);
           }}
         >
           <DialogHeader>
@@ -295,8 +308,19 @@ function ProvisionDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="grid gap-4 sm:grid-cols-2">
-            <Field label="Work email" htmlFor="pp-email" error={errors.email} className="sm:col-span-2">
-              <Input id="pp-email" type="email" autoComplete="off" value={f.email} onChange={set("email")} placeholder={`name@${allowedDomains[0] ?? "roundtable.io"}`} required />
+            <Field label="Work email" htmlFor="pp-email" error={emailErr ?? errors.email} className="sm:col-span-2">
+              <Input
+                id="pp-email"
+                type="email"
+                autoComplete="off"
+                value={f.email}
+                onChange={set("email")}
+                onBlur={() => setEmailErr(domainError(f.email))}
+                aria-invalid={Boolean(emailErr ?? errors.email) || undefined}
+                aria-describedby={emailErr ?? errors.email ? "pp-email-error" : undefined}
+                placeholder={`name@${allowedDomains[0] ?? "roundtable.io"}`}
+                required
+              />
             </Field>
             <Field label="Full name" htmlFor="pp-name" error={errors.name}>
               <Input id="pp-name" value={f.name} onChange={set("name")} required />

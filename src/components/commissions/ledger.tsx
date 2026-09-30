@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Play } from "lucide-react";
 import { Badge, StatusBadge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ export function AccrualStatusBadge({ status }: { status: string }) {
 }
 
 export function RunAccrualsButton() {
+  const router = useRouter();
   const [pending, start] = React.useTransition();
   return (
     <Button
@@ -31,9 +33,24 @@ export function RunAccrualsButton() {
       disabled={pending}
       onClick={() =>
         start(async () => {
-          const res = await runAccruals({});
+          let res: Awaited<ReturnType<typeof runAccruals>>;
+          try {
+            res = await runAccruals({});
+          } catch {
+            return void toast.error("Couldn't run accruals — the request failed. Try again.");
+          }
           if (!res.ok) return void toast.error(res.error);
           const r = res.data;
+          // QA-24: say why nothing happened instead of a silent "0 new".
+          if (!r.assignments) {
+            return void toast.warning("No commission plans are assigned yet, so there is nothing to accrue.", {
+              description: "Assign a plan to each rep in the Assignments tab, then run accruals again.",
+              action: { label: "Assignments", onClick: () => router.push("/commissions?tab=assignments") },
+            });
+          }
+          if (!r.created && !r.clawbacks && !r.expiredRegistrations) {
+            return void toast.info(`Accruals are up to date — ${r.assignments} assignment${r.assignments === 1 ? "" : "s"} checked, nothing new to accrue.`);
+          }
           toast.success(
             `Accruals run: ${r.created} new (${fmtUsd(r.createdCents, { cents: true })})${r.clawbacks ? `, ${r.clawbacks} clawbacks` : ""}${r.expiredRegistrations ? `, ${r.expiredRegistrations} registrations expired` : ""}.`,
           );
