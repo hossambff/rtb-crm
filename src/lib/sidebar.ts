@@ -6,6 +6,7 @@
 export type SidebarMode = "auto" | "expanded" | "collapsed";
 export const SIDEBAR_COOKIE = "rso_sidebar";
 
+/** Default is the icon rail ("collapsed") until the user expands it. */
 export function parseSidebarMode(v: string | undefined | null): SidebarMode {
-  return v === "expanded" || v === "collapsed" ? v : "auto";
+  return v === "expanded" ? "expanded" : "collapsed";
 }

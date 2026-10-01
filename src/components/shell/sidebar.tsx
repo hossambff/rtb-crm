@@ -70,11 +70,11 @@ const CLS = {
 
 /**
  * Left navigation, grouped by intent (My Day + Copilot + Tasks on top, then Sell, Engage, Programs, Insights, System).
- * Every permitted item is visible — no "More" menu. Collapses to an icon rail (button at the bottom or ⌘\); groups
+ * Every permitted item is visible — no "More" menu. Collapses to an icon rail (header button or ⌘\; closed by default); groups
  * collapse too (remembered per browser), and the group holding the current page always stays open.
  * `variant="drawer"` renders the full list inside the mobile navigation sheet.
  */
-export function Sidebar({ items, mode: initialMode = "auto", variant = "desktop" }: { items: NavItem[]; mode?: SidebarMode; variant?: "desktop" | "drawer" }) {
+export function Sidebar({ items, mode: initialMode = "collapsed", variant = "desktop" }: { items: NavItem[]; mode?: SidebarMode; variant?: "desktop" | "drawer" }) {
   const pathname = usePathname();
   const [modeState, setModeState] = useState<SidebarMode>(initialMode);
   const mode: SidebarMode = variant === "drawer" ? "expanded" : modeState;
@@ -107,7 +107,6 @@ export function Sidebar({ items, mode: initialMode = "auto", variant = "desktop"
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleRail, variant]);
 
-  const railCollapsedNow = mode === "collapsed";
   return (
     <aside
       data-mode={mode}
@@ -116,13 +115,47 @@ export function Sidebar({ items, mode: initialMode = "auto", variant = "desktop"
         variant === "drawer" ? "flex w-full border-0" : cn("hidden md:flex", CLS.width[mode]),
       )}
     >
-      <Link href="/home" className={cn("flex h-14 shrink-0 items-center gap-2.5 border-b border-border", CLS.brand[mode])} aria-label="Roundtable — My Day">
-        <Logo />
-        <span className={cn("min-w-0 flex-1 items-center gap-2.5", CLS.wordmark[mode])}>
-          <span className="text-[15px] font-semibold uppercase tracking-[0.08em] text-fg">Roundtable</span>
-          <span className="ml-auto whitespace-nowrap rounded border border-border-strong px-1 text-[10px] uppercase tracking-wider text-muted">Sales OS</span>
-        </span>
-      </Link>
+      {variant === "drawer" || mode === "expanded" ? (
+        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border pl-5 pr-3">
+          <Link href="/home" className="flex min-w-0 flex-1 items-center gap-2.5" aria-label="Roundtable — My Day">
+            <Logo />
+            <span className="truncate text-[15px] font-semibold uppercase tracking-[0.08em] text-fg">Roundtable</span>
+          </Link>
+          {variant === "desktop" ? (
+            <Tooltip content={<>Collapse sidebar <ModKey then="\\" /></>} side="right">
+              <button
+                type="button"
+                onClick={toggleRail}
+                aria-label="Collapse sidebar"
+                className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+              >
+                <Icons.PanelLeftClose className="size-4" strokeWidth={1.5} aria-hidden />
+              </button>
+            </Tooltip>
+          ) : null}
+        </div>
+      ) : (
+        // icon rail: the Roundtable mark doubles as the expand button (shows the expand icon on hover / focus)
+        <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
+          <Tooltip content={<>Expand sidebar <ModKey then="\\" /></>} side="right">
+            <button
+              type="button"
+              onClick={toggleRail}
+              aria-label="Expand sidebar"
+              className="group/expand relative flex size-9 items-center justify-center rounded-md transition-colors hover:bg-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            >
+              <span className="transition-opacity duration-150 group-hover/expand:opacity-0 group-focus-visible/expand:opacity-0">
+                <Logo />
+              </span>
+              <Icons.PanelLeftOpen
+                className="absolute size-4 text-fg opacity-0 transition-opacity duration-150 group-hover/expand:opacity-100 group-focus-visible/expand:opacity-100"
+                strokeWidth={1.5}
+                aria-hidden
+              />
+            </button>
+          </Tooltip>
+        </div>
+      )}
       <nav className={cn("flex-1 overflow-y-auto overflow-x-hidden py-4", CLS.navPad[mode])} aria-label="Main">
         {groups.map(({ g, items }, gi) => {
           const label = NAV_GROUP_LABELS[g];
@@ -166,24 +199,6 @@ export function Sidebar({ items, mode: initialMode = "auto", variant = "desktop"
           );
         })}
       </nav>
-      {variant === "desktop" ? (
-        <div className={cn("shrink-0 border-t border-border py-2", CLS.navPad[mode])}>
-          <Tooltip content={<>{railCollapsedNow ? "Expand" : "Collapse"} sidebar <ModKey then="\\" /></>} side="right">
-            <button
-              type="button"
-              onClick={toggleRail}
-              aria-label="Toggle sidebar"
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-md py-1.5 text-sm text-muted transition-colors hover:bg-surface-2/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
-                CLS.link[mode],
-              )}
-            >
-              <Icons.PanelLeft className="size-4 shrink-0" strokeWidth={1.5} aria-hidden />
-              <span className={CLS.label[mode]}>Collapse</span>
-            </button>
-          </Tooltip>
-        </div>
-      ) : null}
     </aside>
   );
 }
