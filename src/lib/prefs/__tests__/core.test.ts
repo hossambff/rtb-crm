@@ -3,26 +3,19 @@ import { NAV } from "@/lib/nav";
 import { NAV_CUSTOMIZED, SLACK_MEMBER_ID, leadWithMotions, resolveMotions, shapeNav, toNavHidden } from "../core";
 import { computeChecklist, type ChecklistFacts } from "../checklist-core";
 
-const more = (items: ReturnType<typeof shapeNav>) => items.filter((i) => i.more).map((i) => i.href);
+const shown = (items: ReturnType<typeof shapeNav>) => items.map((i) => i.href);
 
-describe("role-shaped nav", () => {
-  it("interns / SDRs / commission reps start short; the rest sits under More", () => {
-    const shaped = shapeNav(NAV, "sdr", []);
-    const main = shaped.filter((i) => !i.more).map((i) => i.href);
-    expect(main).toEqual(["/home", "/pipelines", "/contacts", "/inbox", "/sequences", "/scout", "/copilot"]);
-    expect(shaped).toHaveLength(NAV.length); // nothing removed
+describe("sidebar personalization", () => {
+  it("shows every permitted item by default — no More menu", () => {
+    expect(shapeNav(NAV, [])).toHaveLength(NAV.length);
+    expect(shapeNav(NAV, [NAV_CUSTOMIZED])).toHaveLength(NAV.length);
   });
-  it("other roles get their role default; a saved list wins", () => {
-    expect(more(shapeNav(NAV, "ae", []))).toContain("/r100");
-    expect(more(shapeNav(NAV, "ae", ["/r100"]))).toEqual(["/r100"]);
-    expect(more(shapeNav(NAV, "ae", [NAV_CUSTOMIZED]))).toEqual([]);
-  });
-  it("a customized short-nav user gets exactly their choice (even an empty More)", () => {
-    expect(more(shapeNav(NAV, "intern", [NAV_CUSTOMIZED]))).toEqual([]);
-    expect(more(shapeNav(NAV, "intern", [NAV_CUSTOMIZED, "/calls"]))).toEqual(["/calls"]);
+  it("hides exactly what the user switched off", () => {
+    expect(shown(shapeNav(NAV, [NAV_CUSTOMIZED, "/calls", "/r100"]))).not.toEqual(expect.arrayContaining(["/calls"]));
+    expect(shapeNav(NAV, [NAV_CUSTOMIZED, "/calls", "/r100"])).toHaveLength(NAV.length - 2);
   });
   it("My Day can never be hidden", () => {
-    expect(more(shapeNav(NAV, "ae", ["/home"]))).toEqual([]);
+    expect(shown(shapeNav(NAV, ["/home"]))).toContain("/home");
     expect(toNavHidden(["/home", "/calls", "/nope", "/calls"], NAV.map((n) => n.href))).toEqual([NAV_CUSTOMIZED, "/calls"]);
   });
 });
@@ -95,5 +88,56 @@ describe("first-run checklist", () => {
     const r = computeChecklist({ ...facts, manual: { google: "x", slack: "x" } as ChecklistFacts["manual"] });
     expect(r.steps.find((s) => s.id === "google")!.done).toBe(false);
     expect(r.steps.find((s) => s.id === "slack")!.done).toBe(false);
+  });
+});
+
+describe("checklist ↔ /welcome wizard", () => {
+  const facts: ChecklistFacts = {
+    canEmail: true,
+    canCalls: true,
+    canDeals: true,
+    canCopilot: true,
+    canOwnDeals: true,
+    slackConfigured: true,
+    googleConnected: false,
+    granolaConnected: false,
+    hasMotions: false,
+    slackDm: false,
+    usedCopilot: false,
+    ownsOpenDeals: false,
+    manual: {},
+    wizardSteps: ["welcome", "profile", "sell", "book", "targets", "tools", "work", "done"],
+    wizardStatus: {},
+    hasQuota: false,
+  };
+  it("adds profile and targets items and deep-links open items into their wizard step", () => {
+    const r = computeChecklist(facts);
+    expect(r.steps.map((s) => s.id)).toEqual(["profile", "google", "granola", "motions", "claimDeals", "targets", "slack", "copilot", "alertBudget"]);
+    expect(r.steps.find((s) => s.id === "google")!.href).toBe("/welcome?step=tools");
+    expect(r.steps.find((s) => s.id === "motions")!.href).toBe("/welcome?step=sell");
+    expect(r.steps.find((s) => s.id === "copilot")!.href).toBe("/copilot");
+    expect(r.resumeHref).toBe("/welcome?step=profile");
+  });
+  it("a step finished in the wizard completes its items; skipped ones stay open and are marked", () => {
+    const r = computeChecklist({ ...facts, wizardStatus: { profile: "done", sell: "done", book: "done", work: "done", tools: "skipped" } });
+    const by = (id: string) => r.steps.find((s) => s.id === id)!;
+    expect(by("profile").done).toBe(true);
+    expect(by("motions").done).toBe(true);
+    expect(by("claimDeals").done).toBe(true); // "none of these are mine"
+    expect(by("alertBudget").done).toBe(true);
+    expect(by("google").done).toBe(false);
+    expect(by("google").skipped).toBe(true);
+    expect(r.resumeHref).toBe("/welcome?step=tools");
+  });
+  it("a tools step marked done never fakes a connection", () => {
+    const r = computeChecklist({ ...facts, wizardStatus: { tools: "done" } });
+    expect(r.steps.find((s) => s.id === "google")!.done).toBe(false);
+    expect(r.steps.find((s) => s.id === "slack")!.done).toBe(false);
+  });
+  it("targets complete with a quota; items outside the wizard keep their old links", () => {
+    expect(computeChecklist({ ...facts, hasQuota: true }).steps.find((s) => s.id === "targets")!.done).toBe(true);
+    const r = computeChecklist({ ...facts, wizardSteps: ["welcome", "profile", "work", "done"] });
+    expect(r.steps.find((s) => s.id === "claimDeals")!.href).toBe("/deals?owner=none");
+    expect(r.steps.map((s) => s.id)).not.toContain("targets");
   });
 });

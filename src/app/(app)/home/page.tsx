@@ -123,7 +123,7 @@ async function TodayMain({
           </Card>
         </div>
         <div className="min-w-0 space-y-5 xl:col-span-2">
-          {showChecklist && checklist ? <ChecklistCard steps={checklist.steps} done={checklist.done} total={checklist.total} /> : null}
+          {showChecklist && checklist ? <ChecklistCard steps={checklist.steps} done={checklist.done} total={checklist.total} resumeHref={checklist.resumeHref} wizardStarted={checklist.wizardStarted} /> : null}
           <GlanceStats overdue={d.stats.overdue} dueToday={d.stats.dueToday} alerts={d.stats.alerts} needNextStep={d.stats.needNextStep} />
           <HomeSection title="Today's meetings" href="/calls" hrefLabel="Calls" count={d.meetings.length}>
             <MeetingsList meetings={d.meetings} tz={d.tz} nowIso={d.now} />

@@ -38,7 +38,9 @@ export default async function SettingsPage() {
     loadChecklist(user),
     getSlackContext().catch(() => null),
   ]);
-  const moreSet = new Set(nav.filter((n) => n.more).map((n) => n.href));
+  // items the user switched off (permitted but not in their sidebar)
+  const shown = new Set(nav.map((n) => n.href));
+  const moreSet = new Set(allNav.filter((n) => !shown.has(n.href)).map((n) => n.href));
   let zones: string[] = [];
   try {
     zones = Intl.supportedValuesOf("timeZone");

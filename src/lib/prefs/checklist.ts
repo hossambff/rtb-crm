@@ -9,8 +9,11 @@ import { getConnection } from "@/lib/integrations/store";
 import { CALENDAR_READ_SCOPE, GMAIL_READ_SCOPE, hasScope } from "@/lib/integrations/core";
 import { getMyMotions, getPrefs } from "./index";
 import { computeChecklist } from "./checklist-core";
+import { applicableSteps, isSellingRole, type OnboardingState } from "@/lib/welcome/core";
+import { unclaimedPlaceholderExists } from "@/lib/welcome/queries";
+import { forecastWindow } from "@/lib/forecast/core";
 
-export type ChecklistView = ReturnType<typeof computeChecklist> & { dismissed: boolean };
+export type ChecklistView = ReturnType<typeof computeChecklist> & { dismissed: boolean; wizardStarted: boolean; wizardComplete: boolean };
 
 /** First-run checklist for My Day / Settings, from real state. Never throws (null = don't show). */
 export async function loadChecklist(user: AppUser): Promise<ChecklistView | null> {
@@ -42,6 +45,27 @@ export async function loadChecklist(user: AppUser): Promise<ChecklistView | null
         : Promise.resolve([]),
       getSlackContext().catch(() => null),
     ]);
+    const onboarding = prefs.onboarding as OnboardingState;
+    const sells = isSellingRole(user.role) && motions.permitted.length > 0;
+    const [hasPlaceholders, quota] = await Promise.all([
+      sells && !onboarding.steps?.book ? unclaimedPlaceholderExists() : Promise.resolve(Boolean(onboarding.steps?.book)),
+      sells
+        ? db
+            .select({ x: sql`1` })
+            .from(s.quotas)
+            .where(and(eq(s.quotas.userId, user.id), eq(s.quotas.period, forecastWindow(new Date(), user.timezone).current)))
+            .limit(1)
+        : Promise.resolve([]),
+    ]);
+    const wizardSteps = applicableSteps({
+      role: user.role,
+      motionCount: motions.permitted.length,
+      hasPlaceholders,
+      canEmail,
+      canCalls,
+      slackConfigured: Boolean(slack),
+    });
+    const wizardStatus = Object.fromEntries(Object.entries(onboarding.steps ?? {}).map(([k, v]) => [k, v.status]));
     const r = computeChecklist({
       canEmail,
       canCalls,
@@ -56,8 +80,11 @@ export async function loadChecklist(user: AppUser): Promise<ChecklistView | null
       usedCopilot: copilotRun.length > 0,
       ownsOpenDeals: owned.length > 0,
       manual: prefs.checklist.done ?? {},
+      wizardSteps,
+      wizardStatus,
+      hasQuota: quota.length > 0,
     });
-    return { ...r, dismissed: Boolean(prefs.checklist.dismissedAt) };
+    return { ...r, dismissed: Boolean(prefs.checklist.dismissedAt), wizardStarted: Boolean(onboarding.startedAt), wizardComplete: Boolean(onboarding.completedAt) };
   } catch (e) {
     console.error("[checklist] failed", (e as Error).message?.slice(0, 160));
     return null;

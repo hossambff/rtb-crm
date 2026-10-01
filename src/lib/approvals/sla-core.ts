@@ -14,6 +14,7 @@ export const DEFAULT_SLA_HOURS: Record<string, number> = {
   stage_gate: 24,
   lead_registration: 72,
   scout_accept: 48,
+  placeholder_claim: 48,
 };
 
 export type SlaSettings = {

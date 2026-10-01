@@ -1,4 +1,6 @@
 import { eq } from "drizzle-orm";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { user as userTable } from "@/db/schema";
 import { unreadCount } from "@/lib/notifications/queries";
@@ -7,9 +9,30 @@ import { visibleNav } from "@/lib/rbac/nav-server";
 import { ROLE_LABELS } from "@/lib/rbac/model";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
+import { getPrefs } from "@/lib/prefs";
+import { shouldRedirectToWelcome, type OnboardingState } from "@/lib/welcome/core";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
+  // First run (team onboarding): people who never started setup go to /welcome. lastActiveAt is read BEFORE the stamp
+  // below: accounts created before the wizard shipped that already used the app count as deferred (rule and exempt
+  // paths: shouldRedirectToWelcome in src/lib/welcome/core.ts). Prefs are cached per request; one small user-row read.
+  const [prefs, [activity], path] = await Promise.all([
+    getPrefs(user.id),
+    db.select({ createdAt: userTable.createdAt, lastActiveAt: userTable.lastActiveAt }).from(userTable).where(eq(userTable.id, user.id)),
+    headers().then((h) => h.get("x-rso-pathname") ?? ""),
+  ]);
+  if (
+    shouldRedirectToWelcome({
+      path,
+      state: prefs.onboarding as OnboardingState,
+      impersonating: Boolean(user.impersonatedBy),
+      createdAt: activity?.createdAt ?? null,
+      lastActiveAt: activity?.lastActiveAt ?? null,
+      role: user.role,
+    })
+  )
+    redirect("/welcome");
   // bell count excludes digest-only rows (V2 alert budget)
   const [nav, n] = await Promise.all([visibleNav(user), unreadCount(user)]);
   // best-effort activity stamp (no await on the render path's critical data)

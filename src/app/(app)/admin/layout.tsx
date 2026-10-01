@@ -6,6 +6,7 @@ import { AdminNav, type AdminNavItem } from "@/components/admin/admin-nav";
 
 const CONFIG_ITEMS: AdminNavItem[] = [
   { href: "/admin/users", label: "Users" },
+  { href: "/admin/team-setup", label: "Team setup" },
   { href: "/admin/roles", label: "Roles & permissions" },
   { href: "/admin/pipelines", label: "Pipelines & stages" },
   { href: "/admin/fields", label: "Fields & picklists" },

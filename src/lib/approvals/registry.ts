@@ -3,12 +3,14 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db, type Tx } from "@/db";
 import * as s from "@/db/schema";
 import { audit } from "@/lib/audit";
-import { canSeeRestricted, dealModule, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
+import { can, canSeeRestricted, dealModule, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { SCOPE_RANK } from "@/lib/rbac/model";
 import { UserError } from "@/lib/actions";
 import { applyRegistrationDecision } from "@/lib/commissions/registration-service";
 import { acceptCandidatesAs } from "@/lib/scout/accept";
 import { mayDecideOwn } from "./sod";
+import { claimPlaceholder as runPlaceholderClaim } from "@/lib/admin/claim";
+import { isPlaceholderEmail, summarize } from "@/lib/admin/claim-plan";
 
 export type ApprovalRow = typeof s.approvals.$inferSelect;
 export type ApprovalDecision = "approved" | "rejected";
@@ -269,5 +271,41 @@ registerApprovalHandler("scout_accept", {
     const outcomes = await acceptCandidatesAs(user, { ids: ids.slice(0, 200), pipelineKey, ownerId: approval.requestedBy, enrich: false });
     if (outcomes.length && outcomes.every((o) => !o.ok)) throw new UserError(`Could not accept: ${outcomes.map((o) => `${o.domain}: ${o.message}`).slice(0, 3).join("; ")}`);
     await audit({ actorId: user.id, action: "scout_candidate.accept_approved", entity: "approval", entityId: approval.id, after: { outcomes } });
+  },
+});
+
+// Placeholder claim (team onboarding, /welcome "Your book"): a rep says an import placeholder ("Chris (placeholder)") is
+// them. payload { placeholderId, placeholderName, requesterName, deals } — counts only, never deal names (MNPI).
+// Decided by admins (admin:configure) or executives, never while impersonating; claiming into an admin-level account
+// needs a Super Admin. Approving runs the admin claim flow (src/lib/admin/claim.ts: one transaction re-pointing every
+// owned record, merging splits, banning the placeholder); decide() then notifies the requester.
+registerApprovalHandler("placeholder_claim", {
+  canDecide: async (user, a) => {
+    if (user.impersonatedBy) return false;
+    if (!(user.role === "executive" || (await can(user, "admin", "configure")))) return false;
+    const [requester] = await db.select({ role: s.user.role }).from(s.user).where(eq(s.user.id, a.requestedBy));
+    if (requester && (requester.role === "admin" || requester.role === "super_admin")) return user.role === "super_admin";
+    return true;
+  },
+  label: async (_user, a) => {
+    const ph = typeof a.payload?.placeholderName === "string" ? a.payload.placeholderName : "a placeholder";
+    const who = typeof a.payload?.requesterName === "string" ? a.payload.requesterName : "a teammate";
+    const n = typeof a.payload?.deals === "number" ? ` · ${a.payload.deals} deal${a.payload.deals === 1 ? "" : "s"}` : "";
+    return `${who} claims ${ph}${n}`;
+  },
+  // The claim runs its own transaction (many tables), so it applies after the status flip; failures mark it "failed".
+  applyAfter: async ({ approval, decision, user }) => {
+    if (decision !== "approved") return;
+    const [ph] = await db.select({ id: s.user.id, email: s.user.email, name: s.user.name }).from(s.user).where(eq(s.user.id, approval.entityId));
+    if (!ph || !isPlaceholderEmail(ph.email)) throw new UserError("That user is not an import placeholder.");
+    const counts = await runPlaceholderClaim(ph.id, approval.requestedBy);
+    await audit({
+      actorId: user.id,
+      action: "admin.user.claim_placeholder",
+      entity: "user",
+      entityId: approval.requestedBy,
+      before: { placeholderId: ph.id, placeholderEmail: ph.email, placeholderName: ph.name },
+      after: { approvalId: approval.id, counts, summary: summarize(counts) },
+    });
   },
 });

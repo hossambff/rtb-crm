@@ -9,6 +9,8 @@ import { confirmGoogleConnected, setInboxSync } from "@/lib/integrations/actions
 import type { ConnectionView } from "@/lib/integrations/queries";
 import { ConnectionStatus } from "./connection-status";
 
+const withParam = (path: string, param: string) => `${path}${path.includes("?") ? "&" : "?"}${param}`;
+
 type GoogleState = {
   configured: boolean;
   linked: boolean;
@@ -20,7 +22,7 @@ type GoogleState = {
 };
 
 /** Handles the `?connected=` return from Google's consent screen. Isolated so the card itself never suspends. */
-function ConnectCallback() {
+function ConnectCallback({ back }: { back: string }) {
   const router = useRouter();
   const params = useSearchParams();
   const confirmed = useRef(false);
@@ -30,21 +32,36 @@ function ConnectCallback() {
     confirmed.current = true;
     if (flag !== "google") {
       toast.error("Google authorization was cancelled or failed.");
-      router.replace("/settings#connections");
+      router.replace(back);
       return;
     }
     void confirmGoogleConnected({}).then((res) => {
       if (res.ok && res.data.connected) toast.success("Inbox connected. The first sync is running in the background.");
       else if (res.ok) toast.error("Google didn't grant Gmail access. Try again and allow all requested permissions.");
-      router.replace("/settings#connections");
+      router.replace(back);
       router.refresh();
     });
-  }, [params, router]);
+  }, [params, router, back]);
   return null;
 }
 
-/** Gmail + Calendar via incremental Google authorization (Better Auth linkSocial with extra scopes). Always rendered. */
-export function GoogleConnection({ state, scopes, required }: { state: GoogleState; scopes: string[]; required: boolean }) {
+/**
+ * Gmail + Calendar via incremental Google authorization (Better Auth linkSocial with extra scopes). Always rendered.
+ * `returnTo` = the page Google sends the person back to (Settings by default; the /welcome wizard passes its tools step).
+ */
+export function GoogleConnection({
+  state,
+  scopes,
+  required,
+  returnTo = "/settings",
+  backTo = "/settings#connections",
+}: {
+  state: GoogleState;
+  scopes: string[];
+  required: boolean;
+  returnTo?: string;
+  backTo?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [pending, start] = useTransition();
   const connected = state.gmailRead && state.calendar;
@@ -52,7 +69,7 @@ export function GoogleConnection({ state, scopes, required }: { state: GoogleSta
 
   async function connect() {
     setBusy(true);
-    const { error } = await authClient.linkSocial({ provider: "google", scopes, callbackURL: "/settings?connected=google", errorCallbackURL: "/settings?connected=error" });
+    const { error } = await authClient.linkSocial({ provider: "google", scopes, callbackURL: withParam(returnTo, "connected=google"), errorCallbackURL: withParam(returnTo, "connected=error") });
     if (error) {
       setBusy(false);
       toast.error(error.message ?? "Couldn't start Google authorization.");
@@ -63,7 +80,7 @@ export function GoogleConnection({ state, scopes, required }: { state: GoogleSta
   return (
     <div className="space-y-4">
       <Suspense fallback={null}>
-        <ConnectCallback />
+        <ConnectCallback back={backTo} />
       </Suspense>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">

@@ -18,6 +18,8 @@ export const DEFAULT_PREFS: Omit<UserPrefs, "userId" | "updatedAt"> = {
   slackUserId: null,
   slackDm: false,
   checklist: {},
+  onboarding: {},
+  profile: {},
 };
 
 /** Prefs for a user, merged over defaults (a missing row = defaults). Cached per request. */

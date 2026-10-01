@@ -183,7 +183,7 @@ export function PreferencesSection(p: PreferencesProps) {
         </Group>
       ) : null}
 
-      <Group title="Sidebar" description="Keep the sidebar short. Items you switch off move under “More” — pages and notification links keep working.">
+      <Group title="Sidebar" description="Switch off anything you don't use. Hidden pages stay one ⌘K away, and links from alerts and notifications keep working.">
         <ul className="grid gap-x-6 sm:grid-cols-2">
           {p.nav.map((n) =>
             PINNED_NAV_HREFS.includes(n.href) ? null : (

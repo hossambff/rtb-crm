@@ -6,6 +6,7 @@ export const APPROVAL_KIND_LABELS: Record<string, string> = {
   scout_budget: "Scout budget",
   stage_gate: "Stage gate",
   scout_accept: "Suggested targets",
+  placeholder_claim: "Placeholder claim",
 };
 
 export function approvalKindLabel(kind: string): string {

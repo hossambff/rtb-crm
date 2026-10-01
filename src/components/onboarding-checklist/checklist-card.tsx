@@ -37,7 +37,22 @@ export function ProgressRing({ done, total, size = 40 }: { done: number; total: 
  * First-run checklist (V2 §B9): role-aware steps whose completion is detected from real state; dismissible.
  * `variant="settings"` renders without the dismiss control (Settings shows it to bring it back).
  */
-export function ChecklistCard({ steps, done, total, variant = "home" }: { steps: ChecklistStep[]; done: number; total: number; variant?: "home" | "settings" }) {
+export function ChecklistCard({
+  steps,
+  done,
+  total,
+  variant = "home",
+  resumeHref = null,
+  wizardStarted = false,
+}: {
+  steps: ChecklistStep[];
+  done: number;
+  total: number;
+  variant?: "home" | "settings";
+  /** First open step's /welcome deep link — "Resume setup" (unified with the team onboarding wizard). */
+  resumeHref?: string | null;
+  wizardStarted?: boolean;
+}) {
   const [hidden, setHidden] = useState(false);
   const [pending, start] = useTransition();
   if (hidden) return null;
@@ -54,6 +69,11 @@ export function ChecklistCard({ steps, done, total, variant = "home" }: { steps:
             {done} of {total} done{next ? ` · next: ${next.title.toLowerCase()}` : " · all set"}
           </p>
         </div>
+        {resumeHref ? (
+          <Button asChild size="sm" variant="primary">
+            <Link href={resumeHref}>{wizardStarted ? "Resume setup" : "Start setup"}</Link>
+          </Button>
+        ) : null}
         {variant === "home" ? (
           <Button
             variant="ghost"
@@ -93,15 +113,20 @@ export function ChecklistCard({ steps, done, total, variant = "home" }: { steps:
                 {s.title}
                 <span className="sr-only">{s.done ? " (done)" : " (to do)"}</span>
               </p>
-              {!s.done ? <p className="text-[11px] text-muted">{s.why}</p> : null}
+              {!s.done ? (
+                <p className="text-[11px] text-muted">
+                  {s.skipped ? <span className="text-secondary">Skipped · </span> : null}
+                  {s.why}
+                </p>
+              ) : null}
             </div>
             {!s.done ? (
               s.id === "copilot" ? (
-                <Button size="sm" variant={s === next ? "primary" : "secondary"} onClick={() => openCopilot("Which of my deals have no next step?")}>
+                <Button size="sm" variant={s === next && !resumeHref ? "primary" : "secondary"} onClick={() => openCopilot("Which of my deals have no next step?")}>
                   {s.cta}
                 </Button>
               ) : (
-                <Button asChild size="sm" variant={s === next ? "primary" : "secondary"}>
+                <Button asChild size="sm" variant={s === next && !resumeHref ? "primary" : "secondary"}>
                   <Link href={s.href}>{s.cta}</Link>
                 </Button>
               )

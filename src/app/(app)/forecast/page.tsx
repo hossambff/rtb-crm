@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CalendarClock } from "lucide-react";
 import { ModKey } from "@/components/ui/mod-key";
+import { QuotaAttainment, type AttainmentRow } from "@/components/quotas/quota-attainment";
+import { revenueQuotas } from "@/lib/quotas/queries";
 
 export const metadata = { title: "Forecast" };
 
@@ -84,6 +86,25 @@ export default async function ForecastPage({ searchParams }: PageProps<"/forecas
       .sort((a, b) => b.rollup.total.weightedUsd - a.rollup.total.weightedUsd);
   };
 
+  // Quota attainment (team onboarding): revenue quotas vs this quarter's commit / best (forecast numbers unchanged).
+  const quotaOwners = view === "mine" ? [user.id] : view === "team" && !ownerParam ? f.owners.map((o) => o.id) : [];
+  const quotas = await revenueQuotas(quotaOwners, current, motion).catch(() => new Map());
+  const attainmentRows: AttainmentRow[] = [];
+  if (view === "mine") {
+    const q = quotas.get(user.id);
+    if (q) attainmentRows.push({ key: user.id, label: "You", quotaUsd: q.usd, proposed: q.proposed, commitUsd: curR.commit.grossUsd, bestUsd: curR.best.grossUsd });
+  } else if (view === "team") {
+    const byOwner = rollUpBy(
+      rows.filter((r) => r.period === current),
+      (r) => r.ownerId ?? "none",
+    );
+    for (const [id, q] of quotas) {
+      const r = byOwner.get(id) ?? emptyRollup();
+      attainmentRows.push({ key: id, label: ownerName.get(id) ?? "Rep", href: qs({ owner: id }), quotaUsd: q.usd, proposed: q.proposed, commitUsd: r.commit.grossUsd, bestUsd: r.best.grossUsd });
+    }
+    attainmentRows.sort((a, b) => b.commitUsd / (b.quotaUsd || 1) - a.commitUsd / (a.quotaUsd || 1));
+  }
+
   const pending = deals.filter((d) => d.needsConfirmation && d.canEdit);
   const listDeals = (list: ForecastDeal[]) => [...list].sort((a, b) => b.weightedUsd - a.weightedUsd).slice(0, LIST_CAP);
   const weekLabel = formatInTz(`${f.weekOf}T12:00:00Z`, "UTC", "short");
@@ -133,6 +154,7 @@ export default async function ForecastPage({ searchParams }: PageProps<"/forecas
         unscheduledHref={`/deals?owner=${view === "mine" ? "me" : view === "team" ? "team" : "all"}&noclose=1${motion ? `&motion=${motion}` : ""}`}
       />
       <BasisNote className="-mt-3" />
+      {view === "mine" ? <QuotaAttainment title="My quota" quarterLabel={quarterLabel(current)} rows={attainmentRows} /> : null}
 
       {view === "mine" ? (
         <>
@@ -162,6 +184,7 @@ export default async function ForecastPage({ searchParams }: PageProps<"/forecas
           ) : (
             <RollupTable title="By rep" firstCol="Rep" rows={byOwnerRows()} emptyText="Your team has no deals closing this quarter or next." />
           )}
+          <QuotaAttainment title="Quota attainment" quarterLabel={quarterLabel(current)} rows={attainmentRows} />
           <RollupTable title="By motion" firstCol="Motion" rows={byMotionRows(rows)} />
           <ChangesList changes={changes} hasLastWeek={f.hasLastWeek} title="What changed since last week" />
         </>

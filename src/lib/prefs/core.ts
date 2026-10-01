@@ -1,64 +1,24 @@
 /** Pure preference logic (docs/V2_SPEC.md §B2, Settings → Preferences). Client-safe, unit tested. */
 import type { NavItem } from "@/lib/nav";
-import type { Role } from "@/lib/rbac/model";
 
-export const SHORT_NAV_HREFS = ["/home", "/pipelines", "/contacts", "/inbox", "/sequences", "/scout", "/copilot"];
-/** Most items any role's default sidebar shows before the rest goes under "More" (QA MAJ-22). */
-export const NAV_DEFAULT_MAX = 12;
-/**
- * Default sidebar per role (V2 §B2, QA MAJ-22): the role's daily surfaces, in NAV order, ≤ NAV_DEFAULT_MAX.
- * Everything else the role may open sits under "More" until the user customizes it in Settings → Preferences.
- * Roles without an entry get the first NAV_DEFAULT_MAX permitted items.
- */
-export const ROLE_DEFAULT_NAV: Partial<Record<Role, string[]>> = {
-  sdr: SHORT_NAV_HREFS,
-  intern: SHORT_NAV_HREFS,
-  commission_rep: SHORT_NAV_HREFS,
-  ae: ["/home", "/pipelines", "/deals", "/accounts", "/contacts", "/tasks", "/inbox", "/sequences", "/calls", "/copilot", "/proposals", "/forecast"],
-  sales_leader: ["/home", "/pipelines", "/deals", "/accounts", "/contacts", "/tasks", "/inbox", "/calls", "/forecast", "/review", "/team", "/analytics"],
-  executive: ["/home", "/pipelines", "/deals", "/accounts", "/tasks", "/inbox", "/proposals", "/revenue", "/forecast", "/review", "/team", "/analytics"],
-  admin: ["/home", "/pipelines", "/deals", "/accounts", "/contacts", "/tasks", "/forecast", "/review", "/team", "/analytics", "/import", "/admin"],
-  super_admin: ["/home", "/pipelines", "/deals", "/accounts", "/contacts", "/tasks", "/forecast", "/review", "/team", "/analytics", "/import", "/admin"],
-  finance: ["/home", "/deals", "/accounts", "/tasks", "/proposals", "/revenue", "/commissions", "/forecast", "/analytics", "/admin/audit"],
-  onboarding: ["/home", "/pipelines", "/deals", "/accounts", "/contacts", "/tasks", "/inbox", "/calls", "/onboarding"],
-};
-/** Items that can never be moved under "More". */
+/** Items that can never be hidden from the sidebar. */
 export const PINNED_NAV_HREFS = ["/home"];
-/**
- * Marker stored in `user_prefs.navHidden` once a user saved their own sidebar: from then on navHidden is the exact
- * list of hrefs under "More" (an empty customized list must not fall back to the role's short default).
- */
+/** Marker stored in `user_prefs.navHidden` once a user saved their own sidebar (kept for compatibility). */
 export const NAV_CUSTOMIZED = "@customized";
 
-/** The hrefs a role sees in the sidebar by default (pure; `permitted` in NAV order). */
-export function defaultPrimaryNav(permitted: readonly string[], role: Role): string[] {
-  const preset = ROLE_DEFAULT_NAV[role];
-  const list = preset ? permitted.filter((h) => preset.includes(h)) : [...permitted];
-  const pinned = list.filter((h) => PINNED_NAV_HREFS.includes(h));
-  const rest = list.filter((h) => !PINNED_NAV_HREFS.includes(h));
-  return [...pinned, ...rest].slice(0, NAV_DEFAULT_MAX);
-}
-
 /**
- * Mark nav items that belong under "More" (`more: true`). Nothing is removed: a hidden item is one click away and its
- * pages, alerts and notification links keep working. A saved list (with the NAV_CUSTOMIZED marker — or a legacy
- * non-empty list) is used as is; otherwise the role default applies.
+ * The user's sidebar: every permitted item except the ones they switched off in Settings → Preferences. There is no
+ * "More" menu and no role preset — permissions already shape the list. Hidden items stay reachable via ⌘K and links.
  */
-export function shapeNav(items: NavItem[], role: Role, navHidden: readonly string[]): NavItem[] {
-  const customized = navHidden.includes(NAV_CUSTOMIZED) || navHidden.length > 0;
-  const hidden = new Set(navHidden);
-  const primary = new Set(defaultPrimaryNav(items.map((i) => i.href), role));
-  return items.map((i) => {
-    if (PINNED_NAV_HREFS.includes(i.href)) return { ...i, more: false };
-    const more = customized ? hidden.has(i.href) : !primary.has(i.href);
-    return { ...i, more };
-  });
+export function shapeNav(items: NavItem[], navHidden: readonly string[]): NavItem[] {
+  const hidden = new Set(navHidden.filter((h) => h !== NAV_CUSTOMIZED && !PINNED_NAV_HREFS.includes(h)));
+  return items.filter((i) => !hidden.has(i.href));
 }
 
-/** navHidden value to store for a set of hrefs the user wants under "More" (only known, non-pinned hrefs). */
-export function toNavHidden(moreList: readonly string[], known: readonly string[]): string[] {
+/** navHidden value to store for the hrefs a user switched off (only known, non-pinned hrefs). */
+export function toNavHidden(hiddenList: readonly string[], known: readonly string[]): string[] {
   const ok = new Set(known);
-  return [NAV_CUSTOMIZED, ...Array.from(new Set(moreList)).filter((h) => ok.has(h) && !PINNED_NAV_HREFS.includes(h)).sort()];
+  return [NAV_CUSTOMIZED, ...Array.from(new Set(hiddenList)).filter((h) => ok.has(h) && !PINNED_NAV_HREFS.includes(h)).sort()];
 }
 
 /**

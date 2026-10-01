@@ -1328,6 +1328,16 @@ export const userPrefs = rso.table(
   slackUserId: text("slack_user_id"),
   slackDm: boolean("slack_dm").notNull().default(false),
   checklist: jsonb("checklist").$type<{ dismissedAt?: string | null; done?: Record<string, string> }>().notNull().default({}),
+  // Team onboarding wizard (/welcome): per-step status, so people can skip and resume.
+  onboarding: jsonb("onboarding")
+    .$type<{ startedAt?: string; completedAt?: string | null; deferredAt?: string | null; steps?: Record<string, { status: "done" | "skipped"; at: string }> }>()
+    .notNull()
+    .default({}),
+  // Rep profile details captured in onboarding (used in signatures, sequences {{booking_link}}, routing).
+  profile: jsonb("profile")
+    .$type<{ phone?: string | null; linkedinUrl?: string | null; bookingUrl?: string | null; regions?: string[]; languages?: string[]; focus?: string | null }>()
+    .notNull()
+    .default({}),
   updatedAt: updatedAt(),
   },
   // one app user per (verified) Slack member
@@ -1666,4 +1676,25 @@ export const proposalTemplates = rso.table(
     createdAt: createdAt(),
   },
   (t) => [index("proposal_templates_kind_idx").on(t.kind, t.active)],
+);
+
+/** Sales targets per person per period (set by leaders; reps can propose during onboarding). */
+export const quotas = rso.table(
+  "quotas",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    period: text("period").notNull(), // e.g. 2026-Q4
+    pipelineKey: text("pipeline_key").notNull().default(""), // "" = all motions
+    metric: text("metric").notNull(), // revenue_usd | muu | activations | meetings | deals_won
+    target: doublePrecision("target").notNull(), // cents for revenue_usd, else a count/audience
+    status: text("status").notNull().default("set"), // proposed (by the rep) | set (by a leader)
+    setBy: text("set_by"),
+    note: text("note"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("quotas_uq").on(t.userId, t.period, t.pipelineKey, t.metric), index("quotas_period_idx").on(t.period)],
 );

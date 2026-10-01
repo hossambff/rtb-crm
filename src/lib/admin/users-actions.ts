@@ -7,11 +7,11 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
-import { banAuthUser, createAuthUser, revokeAuthUserSessions, setAuthUserRole, unbanAuthUser } from "@/lib/auth/admin-ops";
-import { emailDomainAllowed } from "@/lib/env";
+import { banAuthUser, revokeAuthUserSessions, setAuthUserRole, unbanAuthUser } from "@/lib/auth/admin-ops";
 import { ForbiddenError, type AppUser } from "@/lib/rbac/server";
 import { requireAdmin, requireSuperAdmin } from "./guard";
 import { claimPlaceholder as runClaim } from "./claim";
+import { provisionUser } from "./provision";
 import { isPlaceholderEmail, summarize } from "./claim-plan";
 import { countSuperAdmins, ownedRecordCounts } from "./user-queries";
 import {
@@ -62,32 +62,7 @@ function authError(e: unknown): never {
 /** AUTH-3: pre-provision a Workspace user (no password — they sign in with Google; the pre-assigned role applies). */
 export const preProvisionUser = action(preProvisionSchema, async (input, user) => {
   await guardTarget(user, null, input.role);
-  const domains = await db.select({ d: s.allowedDomains.domain }).from(s.allowedDomains);
-  if (!emailDomainAllowed(input.email, domains.map((r) => r.d))) throw new UserError("That email isn't on an allowed sign-in domain (Admin → Settings).");
-  if (isPlaceholderEmail(input.email)) throw new UserError("Use the person's real Workspace email.");
-  await assertTeam(input.teamId);
-  await assertActiveUser(input.managerId, "Manager");
-  let id: string;
-  try {
-    id = (await createAuthUser({ email: input.email, name: input.name })).id;
-  } catch (e) {
-    authError(e);
-  }
-  // The sign-up hook forces new users to "pending"; apply the admin's choices now.
-  const [after] = await db
-    .update(s.user)
-    .set({
-      role: input.role,
-      title: input.title || null,
-      teamId: input.teamId,
-      managerId: input.managerId,
-      employmentType: input.employmentType,
-      accessExpiresAt: input.accessExpiresAt ? new Date(input.accessExpiresAt) : null,
-      emailVerified: true,
-    })
-    .where(eq(s.user.id, id))
-    .returning();
-  await audit({ actorId: user.id, action: "admin.user.provision", entity: "user", entityId: id, before: null, after: publicUser(after) });
+  const { id } = await provisionUser(user.id, input);
   revalidatePath(PATH);
   return { id };
 });

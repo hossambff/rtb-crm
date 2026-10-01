@@ -9,16 +9,12 @@ export async function permittedNav(user: AppUser): Promise<NavItem[]> {
   return filterNav(NAV, await getMatrix(user.role));
 }
 
-/**
- * Permitted nav, role-shaped (V2 §B2, QA MAJ-22): items the user moved out of the sidebar — or, until they customize,
- * everything beyond their role's short default (≤ 12) — come back with `more: true` and render under "More".
- * Nothing is dropped, so the command palette and every alert/notification link keep working.
- */
+/** Permitted nav minus the items the user switched off (Settings → Preferences). ⌘K and links still reach them. */
 export async function visibleNav(user: AppUser): Promise<NavItem[]> {
   const items = await permittedNav(user);
   try {
     const prefs = await getPrefs(user.id);
-    return shapeNav(items, user.role, prefs.navHidden);
+    return shapeNav(items, prefs.navHidden);
   } catch {
     return items;
   }
