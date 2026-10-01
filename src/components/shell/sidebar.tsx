@@ -58,8 +58,18 @@ export function Logo({ size = 22 }: { size?: number }) {
   return <img src="/brand/roundtable-mark-white.png" width={size} height={size} alt="" aria-hidden className="shrink-0" />;
 }
 
-/** Full ROUNDTABLE lockup (emblem + wordmark), white on transparent. */
+/** Full ROUNDTABLE lockup (emblem + wordmark), white on transparent. Intrinsic size 826×851. */
 export function LogoLockup({ height = 96, className }: { height?: number; className?: string }) {
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src="/brand/roundtable-lockup-white.png" alt="Roundtable" height={height} style={{ height, width: "auto" }} className={className} />;
+  const width = Math.round((height * 826) / 851);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/brand/roundtable-lockup-white.png"
+      alt="Roundtable"
+      width={width}
+      height={height}
+      style={{ width, height }}
+      className={`block shrink-0 self-start object-contain ${className ?? ""}`}
+    />
+  );
 }

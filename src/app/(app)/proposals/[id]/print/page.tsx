@@ -99,7 +99,7 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
             {i.scenarioLabel ? <p className="mt-1 text-xs text-white/70">{i.scenarioLabel}</p> : null}
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/roundtable-lockup-white.png" alt="Roundtable" style={{ height: 56, width: "auto" }} />
+          <img src="/brand/roundtable-lockup-white.png" alt="Roundtable" width={54} height={56} style={{ width: 54, height: 56 }} className="shrink-0 self-start object-contain" />
           <div className="text-right text-[10px] uppercase tracking-[0.15em] text-white/60">
             <p>Version {d.proposal.version}</p>
             <p>{fmtDate(new Date())}</p>
