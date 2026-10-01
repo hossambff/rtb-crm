@@ -33,7 +33,7 @@ export default async function ProposalPage({ params }: PageProps<"/proposals/[id
 
   return (
     <div>
-      <Link href="/proposals" className="mb-2 inline-block text-sm text-secondary hover:text-fg">
+      <Link href="/proposals" className="-my-1.5 mb-0.5 inline-block py-1.5 text-sm text-secondary hover:text-fg">
         ← Proposals
       </Link>
       <PageHeader

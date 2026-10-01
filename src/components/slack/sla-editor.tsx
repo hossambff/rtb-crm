@@ -66,7 +66,7 @@ export function SlaEditor({ initial }: { initial: SlaSettings }) {
           <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} className="h-8 w-48" aria-label="SLA time zone" />
         </label>
       </div>
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button
           variant="primary"
           disabled={pending || anyInvalid}

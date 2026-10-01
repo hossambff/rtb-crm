@@ -245,7 +245,7 @@ export function TasksPanel({ dealId, tasks, users, defaultAssignee, canCreate }:
       <TaskGroup title="We owe" tasks={weOwe} />
       <TaskGroup title="They owe" tasks={theyOwe} />
       {done.length ? (
-        <button type="button" className="mt-2 text-xs text-muted hover:text-fg" onClick={() => setShowDone((v) => !v)}>
+        <button type="button" className="mt-2 text-xs text-muted hover:text-fg pointer-coarse:py-2" onClick={() => setShowDone((v) => !v)}>
           {showDone ? "Hide" : "Show"} {done.length} completed
         </button>
       ) : null}
@@ -270,14 +270,14 @@ function TaskGroup({ title, tasks }: { title: string; tasks: TaskRow[] }) {
               aria-label={t.status === "done" ? `Reopen ${t.title}` : `Complete ${t.title}`}
               onClick={() => run(() => setTaskStatus({ taskId: t.id, status: t.status === "done" ? "open" : "done" }))}
               className={cn(
-                "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border",
+                "relative mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border after:absolute after:-inset-2.5 after:content-['']",
                 t.status === "done" ? "border-white bg-white text-black" : "border-border-strong hover:border-white",
               )}
             >
               {t.status === "done" ? <Check className="size-3" /> : null}
             </button>
             <div className="min-w-0 flex-1">
-              <p className={cn("text-[13px]", t.status === "done" ? "text-muted line-through" : "text-body")}>{t.title}</p>
+              <p className={cn("break-words text-[13px]", t.status === "done" ? "text-muted line-through" : "text-body")}>{t.title}</p>
               <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
                 {t.dueAt ? <span className="tabular">{fmtDate(t.dueAt, "d MMM")}</span> : null}
                 {t.overdue ? <StatusBadge status="critical" label="Overdue" /> : null}

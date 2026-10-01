@@ -51,7 +51,7 @@ export function SummaryCard({ dealId, summary, at, restricted, className }: { de
         </p>
       ) : null}
       {summary && "summary" in summary ? (
-        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted transition-colors duration-150 hover:text-fg">
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted pointer-coarse:py-2 transition-colors duration-150 hover:text-fg">
           <ChevronDown className={cn("size-3 transition-transform duration-150", open ? "rotate-180" : "")} aria-hidden />
           {open ? "Less" : "Commitments, risks & sources"}
         </button>

@@ -37,7 +37,7 @@ export function GranolaForm({ conn }: { conn: ConnectionView | null }) {
 
       {active && !editing ? (
         <div className="flex flex-wrap items-center gap-2">
-          <code className="rounded border border-border bg-surface-2 px-2 py-1 font-mono text-xs text-secondary">{conn.masked}</code>
+          <code className="min-w-0 break-all rounded border border-border bg-surface-2 px-2 py-1 font-mono text-xs text-secondary">{conn.masked}</code>
           {result ? <span className="text-xs text-muted">Last run: {result.ingested ?? 0} new, {result.updated ?? 0} updated</span> : null}
           <div className="ml-auto flex gap-2">
             <Button
@@ -102,7 +102,7 @@ export function GranolaForm({ conn }: { conn: ConnectionView | null }) {
             });
           }}
         >
-          <div className="min-w-64 flex-1 space-y-1.5">
+          <div className="w-full space-y-1.5 sm:w-auto sm:min-w-64 sm:flex-1">
             <Label htmlFor="granola-key">API key</Label>
             <Input
               id="granola-key"

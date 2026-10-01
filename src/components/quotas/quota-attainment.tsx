@@ -45,7 +45,7 @@ export function QuotaAttainment({ title, quarterLabel, rows, className }: { titl
                 {r.proposed ? <span className="ml-1.5 text-xs text-muted">(proposed)</span> : null}
               </p>
               <Bar commit={r.commitUsd} best={r.bestUsd} quota={r.quotaUsd} />
-              <p className="whitespace-nowrap text-xs text-muted tabular">
+              <p className="text-xs text-muted tabular sm:whitespace-nowrap">
                 <span className="font-display text-base text-fg">{a == null ? "—" : fmtPct(a)}</span> commit · {ab == null ? "—" : fmtPct(ab)} with best · of{" "}
                 {fmtUsd(r.quotaUsd, { compact: true })}
               </p>

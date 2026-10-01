@@ -89,11 +89,11 @@ export default async function PipelinesPage({ searchParams }: PageProps<"/pipeli
               return (
                 // The card isn't one big link: the jargon labels are <Term> buttons (QA MIN-04), so only the title and
                 // arrow navigate.
-                <div key={p.id} className="group relative flex flex-col rounded-lg border border-border bg-surface-1 p-5 transition-colors duration-150 hover:border-border-strong">
+                <div key={p.id} className="group relative flex flex-col rounded-lg border border-border bg-surface-1 p-4 transition-colors sm:p-5 duration-150 hover:border-border-strong">
                   <div className="flex items-start gap-3">
                     <ColorTick color={p.color} className="mt-1.5 h-5" />
                     <div className="min-w-0 flex-1">
-                      <h2 className="font-display text-xl font-medium leading-7 text-fg">
+                      <h2 className="break-words font-display text-xl font-medium leading-7 text-fg">
                         <Link href={`/pipelines/${p.key}`} className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
                           {p.name}
                         </Link>
@@ -111,7 +111,7 @@ export default async function PipelinesPage({ searchParams }: PageProps<"/pipeli
                         )}
                       </p>
                     </div>
-                    <Link href={`/pipelines/${p.key}`} aria-label={`Open the ${p.name} board`} className="rounded-sm text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
+                    <Link href={`/pipelines/${p.key}`} aria-label={`Open the ${p.name} board`} className="relative rounded-sm text-muted transition-colors after:absolute after:-inset-3 after:content-[''] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
                       <ArrowUpRight className="size-4" aria-hidden />
                     </Link>
                   </div>

@@ -27,9 +27,9 @@ export default async function R100Page({ searchParams }: PageProps<"/r100">) {
       />
 
       <section aria-label="Goal tracker" className="mb-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <div className="rounded-lg border border-border bg-surface-1 px-6 py-5">
+        <div className="@container min-w-0 rounded-lg border border-border bg-surface-1 px-4 py-4 sm:px-6 sm:py-5">
           <p className="text-xs font-medium uppercase tracking-wide text-muted">Live accounts vs goal</p>
-          <p className="mt-2 font-display text-[48px] leading-none text-fg tabular">
+          <p className="mt-2 font-display text-[clamp(2.25rem,16cqi,3rem)] leading-none text-fg tabular">
             {fmtNumber(data.liveCount)}
             <span className="ml-2 align-baseline font-display text-2xl text-muted">/ {fmtNumber(data.goal)}</span>
           </p>
@@ -80,7 +80,7 @@ export default async function R100Page({ searchParams }: PageProps<"/r100">) {
             <FunnelChart data={data.funnel} />
           </CardContent>
         </Card>
-        <div className="grid content-start gap-4">
+        <div className="grid content-start grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-1">
           <Stat label="Interviews published" value={fmtNumber(data.rows.filter((r) => r.interviews.some((i) => i.status === "published")).length)} hint="Companies with at least one published interview" />
           <Stat label="Bonus eligible" value={fmtNumber(data.rows.filter((r) => r.r100.bonusEligible).length)} hint="Feeds the RTB100 activation commission" />
         </div>

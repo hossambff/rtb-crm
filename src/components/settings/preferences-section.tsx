@@ -47,7 +47,7 @@ function Switch({ id, label, hint, checked, onChange }: { id: string; label: Rea
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
+          "relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150 after:absolute after:-inset-2.5 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
           checked ? "border-fg bg-fg" : "border-border-strong bg-surface-3",
         )}
       >
@@ -96,7 +96,7 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
           tabIndex={value === o.value ? 0 : -1}
           onClick={() => onChange(o.value)}
           className={cn(
-            "rounded px-3 py-1.5 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
+            "touch-target rounded px-3 py-1.5 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
             value === o.value ? "bg-fg text-accent-inverse" : "text-secondary hover:text-fg",
           )}
         >
@@ -314,7 +314,7 @@ export function PreferencesSection(p: PreferencesProps) {
         </div>
       </Group>
 
-      <div className="flex items-center gap-3 border-t border-border pt-4">
+      <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
         <Button type="submit" variant="primary" size="sm" disabled={pending}>
           {pending ? "Saving…" : "Save preferences"}
         </Button>

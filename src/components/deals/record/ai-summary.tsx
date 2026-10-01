@@ -32,7 +32,7 @@ export function AiSummaryBox({
   return (
     <section className="relative rounded-lg border border-border bg-surface-2 py-4 pl-5 pr-4" aria-labelledby="ai-summary-h">
       <span aria-hidden className="absolute inset-y-3 left-0 w-px bg-white" />
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h2 id="ai-summary-h" className="font-display text-lg italic text-fg">
           Copilot
         </h2>

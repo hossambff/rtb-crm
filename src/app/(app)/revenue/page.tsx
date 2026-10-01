@@ -29,7 +29,7 @@ export default async function RevenuePage({ searchParams }: PageProps<"/revenue"
         actions={d.perms.canCreate ? <NewInvoiceButton deals={d.invoiceDeals} /> : null}
       />
 
-      <section aria-label="Executive summary" className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Executive summary" className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <Stat label="Active deals closing" value={usd(s.activeClosing.cents)} hint={`${fmtNumber(s.activeClosing.count)} deals · negotiation, verbal or LOI`} />
         <Stat label="Current-client annualized" value={usd(s.currentAnnualized.cents)} hint={`${fmtNumber(s.currentAnnualized.count)} current clients`} />
         <Stat
@@ -99,7 +99,7 @@ export default async function RevenuePage({ searchParams }: PageProps<"/revenue"
               {d.renewals.map((r) => (
                 <li key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-fg">{r.name}</p>
+                    <p className="break-words font-medium text-fg">{r.name}</p>
                     <p className="text-xs text-muted">
                       {r.accountName ?? "—"} · {r.ownerName ?? "Unassigned"}
                     </p>

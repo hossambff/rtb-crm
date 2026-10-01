@@ -14,7 +14,7 @@ export function AutoMarker({ dealId, field, entry, canEdit }: { dealId: string; 
   return (
     <Popover>
       <PopoverTrigger
-        className="inline-flex h-4 items-center gap-0.5 rounded border border-border px-1 text-[10px] font-medium uppercase tracking-wide text-muted transition-colors duration-150 hover:border-border-strong hover:text-fg"
+        className="relative inline-flex h-4 items-center gap-0.5 rounded border border-border px-1 text-[10px] after:absolute after:-inset-3 after:content-[''] font-medium uppercase tracking-wide text-muted transition-colors duration-150 hover:border-border-strong hover:text-fg"
         aria-label={`Auto-filled: ${entry.reason}`}
       >
         <Sparkles className="size-2.5" aria-hidden /> auto

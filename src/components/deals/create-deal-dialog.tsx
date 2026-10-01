@@ -429,18 +429,18 @@ function AccountPicker({
         <ul className="mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-surface-1" role="listbox" aria-label="Matching accounts">
           {hits.map((h) => (
             <li key={h.id}>
-              <button type="button" role="option" aria-selected={false} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2" onClick={() => onPick(h)}>
-                <Building2 className="size-4 text-muted" aria-hidden />
-                <span className="text-fg">{h.name}</span>
-                <span className="text-xs text-muted">{h.domain}</span>
-                {h.muu ? <span className="ml-auto text-xs text-muted tabular">{fmtNumber(h.muu, { compact: true })} MUU</span> : null}
+              <button type="button" role="option" aria-selected={false} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2 pointer-coarse:py-2.5" onClick={() => onPick(h)}>
+                <Building2 className="size-4 shrink-0 text-muted" aria-hidden />
+                <span className="min-w-0 truncate text-fg">{h.name}</span>
+                <span className="min-w-0 truncate text-xs text-muted">{h.domain}</span>
+                {h.muu ? <span className="ml-auto shrink-0 text-xs text-muted tabular">{fmtNumber(h.muu, { compact: true })} MUU</span> : null}
               </button>
             </li>
           ))}
           <li>
             <button
               type="button"
-              className={cn("flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-secondary hover:bg-surface-2", hits.length ? "border-t border-border" : "")}
+              className={cn("flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-secondary hover:bg-surface-2 pointer-coarse:py-2.5", hits.length ? "border-t border-border" : "")}
               onClick={() => {
                 const looksDomain = /\.[a-z]{2,}$/i.test(term);
                 onNew({ name: looksDomain ? "" : term, domain: looksDomain ? term : "" });

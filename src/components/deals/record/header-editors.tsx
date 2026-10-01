@@ -63,7 +63,7 @@ export function NextStepEditor({
       <div className="flex min-w-0 items-start gap-2">
         <div className="min-w-0 flex-1">
           {nextStep ? (
-            <p className="text-[15px] leading-6 text-fg">{nextStep}</p>
+            <p className="break-words text-[15px] leading-6 text-fg">{nextStep}</p>
           ) : waitingReason ? (
             <p className="text-sm text-secondary">Waiting — {waitingReason}</p>
           ) : isOpen ? (
@@ -71,7 +71,7 @@ export function NextStepEditor({
           ) : (
             <p className="text-sm text-muted">No next step (deal closed)</p>
           )}
-          <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
             {dueAt ? <span className="tabular">Due {fmtDate(dueAt, "EEE d MMM")}</span> : null}
             {overdueDays > 0 ? <StatusBadge status="critical" label={`Overdue ${overdueDays}d`} /> : null}
           </div>
@@ -149,7 +149,7 @@ export function CloseDateInput({ dealId, value, canEdit }: { dealId: string; val
       aria-label="Expected close date"
       disabled={pending}
       defaultValue={value?.slice(0, 10) ?? ""}
-      className="h-8 rounded-md border border-border bg-surface-3/40 px-2 text-[13px] text-body tabular [color-scheme:dark]"
+      className="h-8 rounded-md border border-border bg-surface-3/40 px-2 text-[13px] text-body tabular [color-scheme:dark] pointer-coarse:h-10"
       onChange={(e) => run(() => updateDealQuick({ dealId, patch: { expectedCloseDate: e.target.value || null } }), { success: "Close date updated" })}
     />
   );
@@ -261,13 +261,13 @@ function SplitsDialog({
             </NativeSelect>
           </div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>Credit splits</Label>
               <span className={total === 100 ? "text-xs text-muted tabular" : "text-xs text-critical tabular"}>Total {Math.round(total * 100) / 100}%</span>
             </div>
             {rows.map((r, i) => (
-              <div key={i} className="grid grid-cols-[minmax(0,1fr)_132px_72px_32px] items-center gap-2">
-                <NativeSelect aria-label="Split user" value={r.userId} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, userId: e.target.value } : x)))}>
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)_72px_auto] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_132px_72px_32px]">
+                <NativeSelect aria-label="Split user" className="max-sm:col-span-3" value={r.userId} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, userId: e.target.value } : x)))}>
                   {!pickable.some((u) => u.id === r.userId) ? <option value={r.userId}>{nameOf(r.userId)}</option> : null}
                   {pickable.map((u) => (
                     <option key={u.id} value={u.id}>

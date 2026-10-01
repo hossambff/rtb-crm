@@ -284,7 +284,7 @@ export function TodayQueue({
                     <StatusBadge status={item.severity} label={item.severity[0]!.toUpperCase() + item.severity.slice(1)} />
                   ) : null}
                   {due ? due.overdue ? <StatusBadge status="critical" label={due.text} /> : <span className="tabular">{due.text}</span> : null}
-                  {item.context ? <span className="max-w-[16rem] truncate">{item.context}</span> : null}
+                  {item.context ? <span className="min-w-0 max-w-[16rem] truncate">{item.context}</span> : null}
                   {item.detail ? <span className="line-clamp-1 min-w-0 max-w-full text-muted">{item.detail}</span> : null}
                 </div>
               </div>

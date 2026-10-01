@@ -39,7 +39,7 @@ export default async function RunPage(props: PageProps<"/scout/runs/[id]">) {
           </Button>
         }
       />
-      <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
         <Card>
           <CardHeader>
             <CardTitle>Progress</CardTitle>
@@ -52,7 +52,7 @@ export default async function RunPage(props: PageProps<"/scout/runs/[id]">) {
             />
           </CardContent>
         </Card>
-        <div>
+        <div className="min-w-0">
           {run.kind === "enrich" ? (
             <>
               <h2 className="mb-3 font-display text-lg text-fg">Staged contacts</h2>

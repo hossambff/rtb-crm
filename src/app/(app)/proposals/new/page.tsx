@@ -37,7 +37,7 @@ export default async function NewProposalPage({ searchParams }: PageProps<"/prop
         ) : (
           <form action="/proposals/new" className="flex max-w-xl flex-wrap items-end gap-2">
             {includeAll ? <input type="hidden" name="all" value="1" /> : null}
-            <label className="flex-1 text-xs text-secondary">
+            <label className="min-w-0 flex-1 text-xs text-secondary">
               <span className="mb-1 block">Deal</span>
               <NativeSelect name="dealId" required defaultValue="">
                 <option value="" disabled>

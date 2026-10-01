@@ -17,7 +17,7 @@ export default async function OnboardingPage({ searchParams }: PageProps<"/onboa
   return (
     <div>
       <PageHeader title="Onboarding" description="Post-sale migrations: Discovery → Scoping → Clone built → Content migrated → QA → Launched → Hypercare." />
-      <section aria-label="Migration summary" className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Migration summary" className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <Stat label="Active migrations" value={fmtNumber(d.stats.active)} />
         <Stat label="Stalled" value={fmtNumber(d.stats.stalled)} hint={`No stage change in more than ${STALL_DAYS} days`} />
         <Stat label="Go-live slipped" value={fmtNumber(d.stats.slipped)} hint="Target date passed, not launched" />

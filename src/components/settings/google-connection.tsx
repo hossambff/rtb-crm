@@ -94,7 +94,7 @@ export function GoogleConnection({
             stored. Sending uses your own Gmail.{required ? " Required for your role." : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {connected ? (
             <>
               <Button size="sm" variant="secondary" disabled={pending} onClick={() => start(async () => {

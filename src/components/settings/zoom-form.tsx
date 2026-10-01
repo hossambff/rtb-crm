@@ -37,7 +37,7 @@ export function ZoomForm({ state }: { state: ZoomState }) {
       </div>
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2 text-xs">
         <span className="text-muted">Event notification endpoint URL</span>
-        <code className="truncate font-mono text-secondary">{state.webhookUrl}</code>
+        <code className="min-w-0 max-w-full truncate font-mono text-secondary">{state.webhookUrl}</code>
         <Button
           type="button"
           size="icon-sm"

@@ -34,7 +34,7 @@ export default async function TermSheetPage({ params }: PageProps<"/proposals/te
 
   return (
     <div>
-      <Link href={`/deals/${d.deal.id}`} className="mb-2 inline-block text-sm text-secondary hover:text-fg">
+      <Link href={`/deals/${d.deal.id}`} className="-my-1.5 mb-0.5 inline-block py-1.5 text-sm text-secondary hover:text-fg">
         ← {d.deal.name}
       </Link>
       <PageHeader

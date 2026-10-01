@@ -102,15 +102,15 @@ function CommentItem({ dealId, c, people, onReply, compact }: { dealId: string; 
           <p className="whitespace-pre-wrap break-words text-[13px] leading-5 text-body">{highlight(c.body, people)}</p>
         )}
         {!c.deleted && !editing && !pendingRow ? (
-          <div className="mt-1 flex items-center gap-1 text-[11px]">
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
             {onReply ? (
-              <button type="button" onClick={onReply} className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-muted hover:text-fg">
+              <button type="button" onClick={onReply} className="inline-flex items-center gap-1 rounded px-1 py-0.5 pointer-coarse:px-2 pointer-coarse:py-2 text-muted hover:text-fg">
                 <MessageSquareReply className="size-3" aria-hidden /> Reply
               </button>
             ) : null}
             {c.mine ? (
               <>
-                <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-muted hover:text-fg">
+                <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 rounded px-1 py-0.5 pointer-coarse:px-2 pointer-coarse:py-2 text-muted hover:text-fg">
                   <Pencil className="size-3" aria-hidden /> Edit
                 </button>
                 {/* POL-11: inline two-step confirm instead of window.confirm. */}
@@ -121,16 +121,16 @@ function CommentItem({ dealId, c, people, onReply, compact }: { dealId: string; 
                       disabled={pending}
                       autoFocus
                       onClick={() => run(() => deleteDealCommentAction({ commentId: c.id }), { success: "Comment deleted", onOk: () => setConfirming(false) })}
-                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-fg hover:underline"
+                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 pointer-coarse:px-2 pointer-coarse:py-2 text-fg hover:underline"
                     >
                       <Trash2 className="size-3" aria-hidden /> Delete comment
                     </button>
-                    <button type="button" onClick={() => setConfirming(false)} className="rounded px-1 py-0.5 text-muted hover:text-fg">
+                    <button type="button" onClick={() => setConfirming(false)} className="rounded px-1 py-0.5 pointer-coarse:px-2 pointer-coarse:py-2 text-muted hover:text-fg">
                       Keep
                     </button>
                   </>
                 ) : (
-                  <button type="button" disabled={pending} onClick={() => setConfirming(true)} className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-muted hover:text-fg">
+                  <button type="button" disabled={pending} onClick={() => setConfirming(true)} className="inline-flex items-center gap-1 rounded px-1 py-0.5 pointer-coarse:px-2 pointer-coarse:py-2 text-muted hover:text-fg">
                     <Trash2 className="size-3" aria-hidden /> Delete
                   </button>
                 )}
@@ -271,12 +271,12 @@ function Composer({
         aria-activedescendant={query != null && matches.length ? `${listId}-${active}` : undefined}
       />
       {query != null && matches.length ? (
-        <ul id={listId} role="listbox" className="absolute left-0 top-full z-20 mt-1 w-64 rounded-md border border-border-strong bg-surface-2 p-1">
+        <ul id={listId} role="listbox" className="absolute left-0 top-full z-20 mt-1 w-64 max-w-full rounded-md border border-border-strong bg-surface-2 p-1">
           {matches.map((u, i) => (
             <li key={u.id} id={`${listId}-${i}`} role="option" aria-selected={i === active}>
               <button
                 type="button"
-                className={cn("flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm", i === active ? "bg-surface-3 text-fg" : "text-body")}
+                className={cn("flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm pointer-coarse:py-2.5", i === active ? "bg-surface-3 text-fg" : "text-body")}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   pick(u);

@@ -94,7 +94,7 @@ export function ProfileForm({
           {detected && detected !== timezone ? (
             <>
               {" "}
-              <button type="button" className="text-fg underline underline-offset-2" onClick={() => setTimezone(detected)}>
+              <button type="button" className="-my-2 py-2 text-fg underline underline-offset-2" onClick={() => setTimezone(detected)}>
                 Use this device&apos;s zone ({zoneLabel(detected)})
               </button>
             </>

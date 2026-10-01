@@ -65,8 +65,8 @@ export function AddMetricForm({ accountId }: { accountId: string }) {
           ))}
         </NativeSelect>
       </Field>
-      <div className="flex items-end sm:col-span-6">
-        <p className="mr-auto text-xs text-muted">Monthly visits are stored separately from MUU; a derived MUU (visits ÷ org factor) is kept as an estimate.</p>
+      <div className="flex flex-wrap items-end gap-2 sm:col-span-6">
+        <p className="mr-auto min-w-0 flex-1 basis-60 text-xs text-muted">Monthly visits are stored separately from MUU; a derived MUU (visits ÷ org factor) is kept as an estimate.</p>
         <Button type="submit" variant="secondary" size="sm" disabled={busy}>
           {busy ? "Saving…" : "Add metric"}
         </Button>

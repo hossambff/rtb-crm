@@ -59,9 +59,9 @@ export function ChecklistCard({
   const next = steps.find((s) => !s.done);
   return (
     <section aria-labelledby="checklist-title" className="rounded-lg border border-border bg-surface-1">
-      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
         <ProgressRing done={done} total={total} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[9rem] flex-1">
           <h2 id="checklist-title" className="font-display text-lg leading-6 text-fg">
             Get set up
           </h2>

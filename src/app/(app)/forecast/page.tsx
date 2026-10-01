@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/misc";
 import { ForecastList } from "@/components/forecast/forecast-list";
 import { BasisNote, CategoryTiles, ChangesList, ReconPanel, RollupTable, type ChangeRow, type RollupTableRow } from "@/components/forecast/rollup";
 import { cn } from "@/lib/utils";
+import { ScrollStrip } from "@/components/ui/scroll-strip";
 import { Button } from "@/components/ui/button";
 import { CalendarClock } from "lucide-react";
 import { ModKey } from "@/components/ui/mod-key";
@@ -115,27 +116,29 @@ export default async function ForecastPage({ searchParams }: PageProps<"/forecas
         title="Forecast"
         description={`Week of ${weekLabel} · ${quarterLabel(current)} and ${quarterLabel(next)} · suggestions from stage, health, activity, signals and close-date slips — your call is what counts.`}
       />
-      <nav aria-label="Forecast views" className="-mt-2 flex flex-wrap items-center gap-1 border-b border-border">
+      <div className="-mt-2 flex flex-wrap items-center gap-x-1 border-b border-border">
+        <ScrollStrip as="nav" aria-label="Forecast views" className="-mb-px flex min-w-0 items-center gap-1">
         {scopes.map((s) => (
           <Link
             key={s}
             href={`/forecast?view=${s}`}
             aria-current={s === view ? "page" : undefined}
-            className={cn("-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150", s === view ? "border-white text-fg" : "border-transparent text-muted hover:text-fg")}
+            className={cn("shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150", s === view ? "border-white text-fg" : "border-transparent text-muted hover:text-fg")}
           >
             {VIEW_LABELS[s]}
             {s === "mine" && view === "mine" && pending.length ? <span className="ml-1.5 rounded-full bg-white px-1.5 text-[10px] font-semibold text-black tabular">{pending.length}</span> : null}
           </Link>
         ))}
+        </ScrollStrip>
         {motion || ownerParam ? (
-          <span className="ml-auto flex items-center gap-2 py-2 text-xs text-muted">
+          <span className="ml-auto flex min-w-0 flex-wrap items-center gap-2 py-2 text-xs text-muted">
             Filtered: {[motion ? (motionMeta.get(motion)?.name ?? motion) : null, ownerParam ? (ownerName.get(ownerParam) ?? "owner") : null].filter(Boolean).join(" · ")}
             <Link href={`/forecast?view=${view}`} className="text-fg underline-offset-4 hover:underline">
               Clear
             </Link>
           </span>
         ) : null}
-      </nav>
+      </div>
 
       {f.recon.noCloseDate.deals + f.recon.closePassed.deals > 0 ? (
         <HygieneCallout

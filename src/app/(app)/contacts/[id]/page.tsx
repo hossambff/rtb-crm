@@ -39,17 +39,17 @@ export default async function ContactPage(props: PageProps<"/contacts/[id]">) {
   return (
     <div>
       <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-1 text-xs text-muted">
-        <Link href="/contacts" className="hover:text-fg">
+        <Link href="/contacts" className="-my-2 shrink-0 py-2 hover:text-fg">
           Contacts
         </Link>
         <ChevronRight className="size-3" aria-hidden />
-        <span className="text-secondary">{c.fullName}</span>
+        <span className="min-w-0 truncate text-secondary">{c.fullName}</span>
       </nav>
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar name={c.fullName} size={44} />
           <div className="min-w-0">
-            <h1 className="truncate font-display text-[28px] font-medium leading-9 text-fg">{c.fullName}</h1>
+            <h1 className="break-words font-display text-2xl font-medium leading-8 text-fg sm:text-[28px] sm:leading-9">{c.fullName}</h1>
             <p className="mt-0.5 text-sm text-secondary">
               {c.title ?? "No title"}
               {data.account ? (

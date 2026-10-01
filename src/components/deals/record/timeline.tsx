@@ -60,14 +60,14 @@ export function Timeline({ dealId, items, canLog, canPin }: { dealId: string; it
         <h2 id="timeline-h" className="font-display text-lg text-fg">
           Timeline
         </h2>
-        <div className="ml-auto flex gap-1" role="tablist" aria-label="Filter timeline">
+        <div className="ml-auto flex flex-wrap gap-1" role="tablist" aria-label="Filter timeline">
           {FILTERS.map((f) => (
             <button
               key={f.key}
               role="tab"
               aria-selected={filter === f.key}
               onClick={() => setFilter(f.key)}
-              className={cn("rounded px-2 py-1 text-xs font-medium", filter === f.key ? "bg-surface-3 text-fg" : "text-muted hover:text-fg")}
+              className={cn("touch-target rounded px-2 py-1 text-xs font-medium", filter === f.key ? "bg-surface-3 text-fg" : "text-muted hover:text-fg")}
             >
               {f.label}
             </button>
@@ -119,7 +119,7 @@ export function Timeline({ dealId, items, canLog, canPin }: { dealId: string; it
                   {a.private ? (
                     <p className="mt-1 text-xs italic text-muted">Private mailbox content hidden.</p>
                   ) : a.body ? (
-                    <p className="mt-1 line-clamp-6 whitespace-pre-wrap text-[13px] leading-5 text-body">{a.body}</p>
+                    <p className="mt-1 line-clamp-6 whitespace-pre-wrap break-words text-[13px] leading-5 text-body">{a.body}</p>
                   ) : null}
                   {a.actorName ? (
                     <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted">
