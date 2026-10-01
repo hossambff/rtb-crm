@@ -19,6 +19,7 @@ import { getEnrollOptions } from "@/lib/sequences/actions";
 import { fmtDate, fmtUsd } from "@/lib/format";
 import { healthStatus } from "@/lib/palette";
 import { cn } from "@/lib/utils";
+import { FilterSheet } from "@/components/ui/filter-sheet";
 import { CommandPreviewDialog } from "./command-preview";
 
 type StageGroup = { pipelineKey: string; pipelineName: string; stages: string[] };
@@ -159,16 +160,20 @@ export function DealsList({
   const sortBy = (key: DealSort) => go({ sort: key, dir: sort === key && dir === "desc" ? "asc" : "desc" });
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
   const ownerValue = sp.get("owner") ?? ownerDefault;
+  // Phones: search + Overdue stay visible; everything else lives in the Filters sheet.
+  const SECONDARY = ["motion", "stage", "owner", "idle", "status", "nonext", "noclose"] as const;
+  const secondaryCount = SECONDARY.filter((k) => sp.get(k)).length;
 
   return (
     <div className="space-y-3">
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2" aria-busy={navPending}>
-        <div className="relative w-full sm:w-64">
+        <div className="relative min-w-0 flex-1 basis-40 sm:w-64 sm:flex-none sm:basis-auto">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted" aria-hidden />
           <Input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search deals or accounts" aria-label="Search deals" className="pl-8 pr-8" />
           <kbd className="pointer-events-none absolute right-2 top-2 hidden rounded border border-border-strong px-1 text-[10px] text-muted sm:block">/</kbd>
         </div>
+        <FilterSheet count={secondaryCount} onClear={() => go(Object.fromEntries(SECONDARY.map((k) => [k, null])))}>
         <NativeSelect aria-label="Motion" className="w-auto" value={filter.pipelineKeys?.join(",") ?? ""} onChange={(e) => go({ motion: e.target.value || null, stage: null })}>
           <option value="">All motions</option>
           {pipelines.map((p) => (
@@ -214,9 +219,15 @@ export function DealsList({
           <option value="lost">Lost</option>
           <option value="any">Any status</option>
         </NativeSelect>
-        <Toggle label="Overdue" on={Boolean(filter.overdue)} onClick={() => go({ overdue: filter.overdue ? null : "1" })} />
+        <div className="hidden md:contents">
+          <Toggle label="Overdue" on={Boolean(filter.overdue)} onClick={() => go({ overdue: filter.overdue ? null : "1" })} />
+        </div>
         <Toggle label="No next step" on={Boolean(filter.noNextStep)} onClick={() => go({ nonext: filter.noNextStep ? null : "1" })} />
         <Toggle label="No close date" on={Boolean(filter.noCloseDate)} onClick={() => go({ noclose: filter.noCloseDate ? null : "1" })} />
+        </FilterSheet>
+        <div className="md:hidden">
+          <Toggle label="Overdue" on={Boolean(filter.overdue)} onClick={() => go({ overdue: filter.overdue ? null : "1" })} />
+        </div>
         {navPending ? <Loader2 className="size-4 animate-spin text-muted" aria-label="Loading" /> : null}
         <div className="ml-auto">
           <React.Suspense fallback={null}>
@@ -281,7 +292,7 @@ export function DealsList({
         <EmptyState title="No deals match" description="Clear a filter, switch the owner to Everyone, or create a deal." />
       ) : (
         <>
-          <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
+          <div className="hidden overflow-x-auto overscroll-x-contain rounded-lg border border-border md:block">
             <table className="w-full min-w-[900px] border-collapse text-[13px]">
               <thead className="bg-surface-1 text-[11px] uppercase tracking-wider text-muted">
                 <tr>
@@ -447,7 +458,7 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
       type="button"
       aria-pressed={on}
       onClick={onClick}
-      className={cn("h-9 rounded-md border px-3 text-xs transition-colors duration-150", on ? "border-white/70 bg-surface-2 text-fg" : "border-border text-secondary hover:text-fg")}
+      className={cn("touch-target h-9 rounded-md border px-3 text-xs transition-colors duration-150", on ? "border-white/70 bg-surface-2 text-fg" : "border-border text-secondary hover:text-fg")}
     >
       {label}
     </button>

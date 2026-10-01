@@ -81,7 +81,7 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
           .no-print { display: none !important; }
         }
       `}</style>
-      <div className="no-print mb-3 flex items-center justify-between">
+      <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <Link href={`/proposals/${id}`} className="text-sm text-secondary hover:text-fg">
           ← Back to v{d.proposal.version}
         </Link>
@@ -89,7 +89,7 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
       </div>
       <MaskControls active={mask} />
 
-      <article className="onepager mx-auto max-w-[8.5in] rounded-lg border border-border bg-black px-10 py-9 text-white">
+      <article className="onepager mx-auto max-w-[8.5in] rounded-lg border border-border bg-black px-5 py-9 text-white sm:px-10">
         <header className="flex items-start justify-between border-b border-white/30 pb-4">
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-white/60">Partnership pro forma · illustrative</p>
@@ -112,14 +112,14 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
           {o.ebitdaMultiple ? `EBITDA ${o.ebitdaMultiple.toFixed(2)}x, before any growth.` : "Before any growth."}
         </p>
 
-        <section className="mt-5 grid grid-cols-4 gap-3">
+        <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <HeroCard label="Cost Roundtable takes on" value={m(o.rtbFundedTotal)} />
           <HeroCard label="EBITDA before revenue share" value={o.ebitdaMultiple ? `${o.ebitdaMultiple.toFixed(2)}x` : m(o.clientEbitdaAfter)} />
           <HeroCard label={i.guaranteeType === "profit_floor" ? "Profit floor" : "Guarantee"} value={guaranteeText} />
           <HeroCard label="Managed migration" value="~30 days" />
         </section>
 
-        <section className="mt-5 grid grid-cols-2 gap-4 text-[11px] leading-4">
+        <section className="mt-5 grid grid-cols-1 gap-4 text-[11px] leading-4 sm:grid-cols-2">
           <div className="rounded border border-white/25 p-3">
             <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.15em] text-white/70">What Roundtable takes off your P&amp;L</p>
             <ul className="space-y-1">
@@ -142,52 +142,54 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
           </div>
         </section>
 
-        <table className="mt-5 w-full text-[11px] leading-4 tabular">
-          <thead>
-            <tr className="border-b border-white/40 text-left text-[10px] uppercase tracking-[0.12em] text-white/60">
-              <th className="py-1.5 font-medium">$000s</th>
-              <th className="py-1.5 text-right font-medium">Today</th>
-              <th className="py-1.5 text-right font-medium">With Roundtable</th>
-              <th className="py-1.5 pl-4 font-medium">Treatment</th>
-            </tr>
-          </thead>
-          <tbody>
-            {revenueRows.map((l) => (
-              <PnlRow key={l} label={REVENUE_LINE_LABELS[l].replace(/ \(out of scope.*\)$/, "")} a={k(i.revenue[l])} b={k(i.revenue[l])} t={i.revShareLines.includes(l) ? "In scope" : "Out of scope, unchanged"} />
-            ))}
-            <PnlRow strong label="Total revenue" a={k(o.revenueTotal)} b={k(o.revenueTotal)} t="Held flat" />
-            {i.costs
-              .filter((c) => c.amount > 0)
-              .map((c, idx) => (
-                <PnlRow key={`${c.label}-${idx}`} label={c.label} a={k(c.amount)} b={k(c.amount * (1 - c.rtbFundedPct))} t={treatment(c.rtbFundedPct)} />
+        <div className="mt-5 overflow-x-auto print:overflow-visible">
+          <table className="w-full min-w-[480px] text-[11px] leading-4 tabular print:min-w-0">
+            <thead>
+              <tr className="border-b border-white/40 text-left text-[10px] uppercase tracking-[0.12em] text-white/60">
+                <th className="py-1.5 font-medium">$000s</th>
+                <th className="py-1.5 text-right font-medium">Today</th>
+                <th className="py-1.5 text-right font-medium">With Roundtable</th>
+                <th className="py-1.5 pl-4 font-medium">Treatment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {revenueRows.map((l) => (
+                <PnlRow key={l} label={REVENUE_LINE_LABELS[l].replace(/ \(out of scope.*\)$/, "")} a={k(i.revenue[l])} b={k(i.revenue[l])} t={i.revShareLines.includes(l) ? "In scope" : "Out of scope, unchanged"} />
               ))}
-            {i.smCost > 0 ? <PnlRow label="Ad sales, marketing and commerce ops" a={k(i.smCost)} b={k(i.smCost * (1 - i.smAbsorbPct))} t={treatment(i.smAbsorbPct)} /> : null}
-            {i.gaCost > 0 ? <PnlRow label="Corporate allocation, G&A" a={k(i.gaCost)} b={k(i.gaCost * (1 - i.gaAbsorbPct))} t={treatment(i.gaAbsorbPct)} /> : null}
-            <PnlRow strong label="Total operating cost" a={k(o.costsBefore)} b={k(o.costsAfter)} t={`${k(-o.rtbFundedTotal)} (${Math.round((o.rtbFundedTotal / Math.max(1, o.costsBefore)) * 100)}%)`} />
-            <PnlRow
-              strong
-              label="EBITDA before revenue share"
-              a={`${k(o.clientEbitdaBefore)} (${(o.marginBefore * 100).toFixed(1)}%)`}
-              b={`${k(o.clientEbitdaAfter)} (${(o.marginAfter * 100).toFixed(1)}%)`}
-              t=""
-            />
-            <PnlRow
-              label={hide("revShare") ? "Roundtable revenue share (TBD)" : `Roundtable revenue share (${Math.round(i.revSharePct * 100)}%)`}
-              a=""
-              b={hide("revShare") ? "TBD" : k(-o.rtbShare)}
-              t="A subset of the new profit created, never of today's profit"
-            />
-            <PnlRow
-              strong
-              label="EBITDA after revenue share"
-              a={k(o.clientEbitdaBefore)}
-              b={hide("revShare") ? (i.guaranteeType === "profit_floor" && !hide("guarantee") ? `≥ ${k(floor)}` : "TBD") : k(o.clientNetAfterShare)}
-              t={i.guaranteeType === "profit_floor" ? PROFIT_FLOOR_CLAIM : ""}
-            />
-          </tbody>
-        </table>
+              <PnlRow strong label="Total revenue" a={k(o.revenueTotal)} b={k(o.revenueTotal)} t="Held flat" />
+              {i.costs
+                .filter((c) => c.amount > 0)
+                .map((c, idx) => (
+                  <PnlRow key={`${c.label}-${idx}`} label={c.label} a={k(c.amount)} b={k(c.amount * (1 - c.rtbFundedPct))} t={treatment(c.rtbFundedPct)} />
+                ))}
+              {i.smCost > 0 ? <PnlRow label="Ad sales, marketing and commerce ops" a={k(i.smCost)} b={k(i.smCost * (1 - i.smAbsorbPct))} t={treatment(i.smAbsorbPct)} /> : null}
+              {i.gaCost > 0 ? <PnlRow label="Corporate allocation, G&A" a={k(i.gaCost)} b={k(i.gaCost * (1 - i.gaAbsorbPct))} t={treatment(i.gaAbsorbPct)} /> : null}
+              <PnlRow strong label="Total operating cost" a={k(o.costsBefore)} b={k(o.costsAfter)} t={`${k(-o.rtbFundedTotal)} (${Math.round((o.rtbFundedTotal / Math.max(1, o.costsBefore)) * 100)}%)`} />
+              <PnlRow
+                strong
+                label="EBITDA before revenue share"
+                a={`${k(o.clientEbitdaBefore)} (${(o.marginBefore * 100).toFixed(1)}%)`}
+                b={`${k(o.clientEbitdaAfter)} (${(o.marginAfter * 100).toFixed(1)}%)`}
+                t=""
+              />
+              <PnlRow
+                label={hide("revShare") ? "Roundtable revenue share (TBD)" : `Roundtable revenue share (${Math.round(i.revSharePct * 100)}%)`}
+                a=""
+                b={hide("revShare") ? "TBD" : k(-o.rtbShare)}
+                t="A subset of the new profit created, never of today's profit"
+              />
+              <PnlRow
+                strong
+                label="EBITDA after revenue share"
+                a={k(o.clientEbitdaBefore)}
+                b={hide("revShare") ? (i.guaranteeType === "profit_floor" && !hide("guarantee") ? `≥ ${k(floor)}` : "TBD") : k(o.clientNetAfterShare)}
+                t={i.guaranteeType === "profit_floor" ? PROFIT_FLOOR_CLAIM : ""}
+              />
+            </tbody>
+          </table>
+        </div>
 
-        <div className="mt-4 flex items-center justify-between bg-white px-4 py-2.5 text-black">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 bg-white px-4 py-2.5 text-black">
           <span className="text-[10px] font-semibold uppercase tracking-[0.18em]">Today&apos;s profit vs new profit created</span>
           <span className="font-display text-lg tabular">
             {k(o.clientEbitdaBefore)} / +{k(o.uplift)}
@@ -200,7 +202,7 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
           </p>
         ) : null}
 
-        <section className="mt-4 grid grid-cols-4 gap-3 border-t border-white/30 pt-3 text-[11px]">
+        <section className="mt-4 grid grid-cols-2 gap-3 border-t border-white/30 pt-3 text-[11px] sm:grid-cols-4">
           <Term label="Revenue share" value={hide("revShare") ? "TBD" : `${Math.round(i.revSharePct * 100)}% of in-scope revenue`} />
           <Term label="Guarantee" value={guaranteeText} />
           <Term label="Ramp" value={hide("terms") ? "TBD" : i.rampMonths ? `${i.rampMonths} months at 100% to you` : "None"} />
@@ -208,36 +210,38 @@ export default async function ProposalPrintPage({ params, searchParams }: PagePr
         </section>
 
         {!hide("multiYear") && o.years.length > 1 ? (
-          <table className="mt-4 w-full text-[10px] leading-4 tabular">
-            <thead>
-              <tr className="border-b border-white/40 text-left uppercase tracking-[0.12em] text-white/60">
-                <th className="py-1 font-medium">Year</th>
-                {o.years.map((y) => (
-                  <th key={y.year} className="py-1 text-right font-medium">
-                    Y{y.year}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-white/15">
-                <td className="py-1 text-white/85">EBITDA before revenue share</td>
-                {o.years.map((y) => (
-                  <td key={y.year} className="py-1 text-right">
-                    {k(y.ebitdaAfter)}
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-b border-white/15">
-                <td className="py-1 text-white/85">Your EBITDA after revenue share</td>
-                {o.years.map((y) => (
-                  <td key={y.year} className="py-1 text-right">
-                    {hide("revShare") ? "TBD" : k(y.clientNetWithGuarantee)}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+          <div className="mt-4 overflow-x-auto print:overflow-visible">
+            <table className="w-full min-w-[420px] text-[10px] leading-4 tabular print:min-w-0">
+              <thead>
+                <tr className="border-b border-white/40 text-left uppercase tracking-[0.12em] text-white/60">
+                  <th className="py-1 font-medium">Year</th>
+                  {o.years.map((y) => (
+                    <th key={y.year} className="py-1 text-right font-medium">
+                      Y{y.year}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-white/15">
+                  <td className="py-1 text-white/85">EBITDA before revenue share</td>
+                  {o.years.map((y) => (
+                    <td key={y.year} className="py-1 text-right">
+                      {k(y.ebitdaAfter)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="border-b border-white/15">
+                  <td className="py-1 text-white/85">Your EBITDA after revenue share</td>
+                  {o.years.map((y) => (
+                    <td key={y.year} className="py-1 text-right">
+                      {hide("revShare") ? "TBD" : k(y.clientNetWithGuarantee)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
         ) : null}
 
         <footer className="mt-6 border-t border-white/30 pt-3 text-[9px] leading-3 text-white/60">

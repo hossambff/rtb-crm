@@ -129,7 +129,7 @@ export function ShareDialog({
                   </p>
                   <p className="mt-1 text-xs text-muted">Copy it now — for security it is shown only once. Valid until {fmt(created.expiresAt)}.</p>
                   <div className="mt-3 flex gap-2">
-                    <Input readOnly value={created.url} aria-label="Partner link" onFocus={(e) => e.currentTarget.select()} className="font-mono text-xs" />
+                    <Input readOnly value={created.url} aria-label="Partner link" onFocus={(e) => e.currentTarget.select()} className="min-w-0 font-mono text-xs" />
                     <Button variant="primary" onClick={copy} aria-label="Copy link">
                       {copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy"}
                     </Button>
@@ -187,7 +187,7 @@ export function ShareDialog({
                         aria-checked={days === d}
                         onClick={() => setDays(d)}
                         className={cn(
-                          "h-8 rounded px-3 text-sm tabular-nums transition-colors duration-150",
+                          "touch-target h-8 rounded px-3 text-sm tabular-nums transition-colors duration-150",
                           days === d ? "bg-white text-black" : "text-secondary hover:text-fg",
                         )}
                       >

@@ -70,7 +70,7 @@ function FieldsEditor({ title, fields, canEdit, onSave, footer }: { title: strin
         >
           <div className="grid grid-cols-2 gap-2">
             {fields.map((f) => (
-              <div key={f.key} className="space-y-1">
+              <div key={f.key} className="min-w-0 space-y-1">
                 <Label htmlFor={`fe-${f.key}`}>
                   {f.label}
                   {f.kind === "usd" ? " ($)" : f.kind === "percent" ? " (%)" : ""}
@@ -172,7 +172,7 @@ export function MuuPanel({
         ) : (
           <>
             {points.length > 1 ? <Sparkline points={points} /> : null}
-            <table className="mt-2 w-full text-[12px] tabular">
+            <table className="table-cards mt-2 w-full text-[12px] tabular">
               <thead>
                 <tr className="text-left text-[11px] text-muted">
                   <th className="py-1 font-medium">Period</th>
@@ -187,11 +187,11 @@ export function MuuPanel({
                   .slice(0, 8)
                   .map((h) => (
                     <tr key={h.id} className="border-t border-border">
-                      <td className="py-1 text-secondary">{h.period ?? "—"}</td>
-                      <td className="py-1 text-body" title={h.rawValue ? `Raw: ${h.rawValue}` : undefined}>
+                      <td data-primary className="py-1 text-secondary">{h.period ?? "—"}</td>
+                      <td data-label="Value" className="py-1 text-body" title={h.rawValue ? `Raw: ${h.rawValue}` : undefined}>
                         {fmtNumber(h.derivedMuu ?? h.value, { compact: true })} {h.metric === "muu" ? "MUU" : h.metric}
                       </td>
-                      <td className="py-1 text-muted">
+                      <td data-label="Source" className="py-1 text-muted">
                         {h.source} · {h.confidence}
                       </td>
                     </tr>

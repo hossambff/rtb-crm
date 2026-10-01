@@ -65,7 +65,7 @@ export function R100Table({ rows, stages, initialQuery = "", initialStage = "all
         />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[1180px] text-sm">
+          <table className="table-cards w-full min-w-[1180px] text-sm">
             <thead className="bg-surface-1 text-left text-xs text-muted">
               <tr>
                 <th className="w-8 px-2 py-2" />
@@ -145,14 +145,14 @@ function Row({ row, stages, open, onToggle }: { row: R100Row; stages: Stage[]; o
 
   return (
     <>
-      <tr className={cn("border-t border-border align-middle transition-colors hover:bg-surface-1", pending && "opacity-70")}>
-        <td className="px-2 py-2">
+      <tr className={cn("border-t border-border align-middle transition-colors hover:bg-surface-1 max-md:flex! max-md:flex-col", pending && "opacity-70")}>
+        <td data-label="Interviews" className="px-2 py-2 max-md:order-last">
           <button type="button" onClick={onToggle} aria-label={open ? "Hide interviews" : "Show interviews"} aria-expanded={open} className="rounded p-1 text-muted hover:text-fg">
             {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
           </button>
         </td>
-        <td className="px-2 py-2">
-          <div className="flex items-center gap-2">
+        <td data-primary className="px-2 py-2">
+          <div className="flex min-w-0 items-center gap-2">
             <ColorTick color={PIPELINE_COLORS.R100!} />
             <div className="min-w-0">
               <p className="truncate font-medium text-fg">{row.company}</p>
@@ -162,13 +162,13 @@ function Row({ row, stages, open, onToggle }: { row: R100Row; stages: Stage[]; o
             </div>
           </div>
         </td>
-        <td className="max-w-40 truncate px-2 py-2 text-secondary">{row.category ?? "—"}</td>
-        <td className="px-2 py-2 text-secondary">{row.ownerName ?? "Unassigned"}</td>
-        <td className="px-2 py-2">
+        <td data-label="Category" className="max-w-40 truncate px-2 py-2 text-secondary">{row.category ?? "—"}</td>
+        <td data-label="Owner" className="px-2 py-2 text-secondary">{row.ownerName ?? "Unassigned"}</td>
+        <td data-label="Stage" className="px-2 py-2">
           {ro ? (
             <span className="text-body">{row.stageName}</span>
           ) : (
-            <NativeSelect aria-label={`Stage for ${row.company}`} value={stageId} onChange={(e) => changeStage(e.target.value)} className="h-8 w-44 text-xs">
+            <NativeSelect aria-label={`Stage for ${row.company}`} value={stageId} onChange={(e) => changeStage(e.target.value)} className="h-8 w-44 min-w-0 max-w-full text-xs">
               {stages.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -177,7 +177,7 @@ function Row({ row, stages, open, onToggle }: { row: R100Row; stages: Stage[]; o
             </NativeSelect>
           )}
         </td>
-        <td className="px-2 py-2">
+        <td data-label="First post" className="px-2 py-2">
           {ro ? (
             <span className="tabular">{fmtDate(r100.firstPostDate)}</span>
           ) : (
@@ -187,11 +187,11 @@ function Row({ row, stages, open, onToggle }: { row: R100Row; stages: Stage[]; o
               defaultValue={r100.firstPostDate ?? ""}
               key={r100.firstPostDate ?? "none"}
               onBlur={(e) => e.target.value !== (r100.firstPostDate ?? "") && save({ firstPostDate: e.target.value || null })}
-              className="h-8 w-36 text-xs"
+              className="h-8 w-36 min-w-0 max-w-full text-xs"
             />
           )}
         </td>
-        <td className="px-2 py-2">
+        <td data-label="Month 1 · 2 · 3" className="px-2 py-2">
           <div className="flex gap-1">
             {participation.map((on, i) => (
               <button
@@ -212,10 +212,10 @@ function Row({ row, stages, open, onToggle }: { row: R100Row; stages: Stage[]; o
             ))}
           </div>
         </td>
-        <td className="px-2 py-2">
+        <td data-label="This month" className="px-2 py-2">
           <ParticipationBadge state={row.participationNow} />
         </td>
-        <td className="px-2 py-2">
+        <td data-label="Posts" className="px-2 py-2">
           {ro ? (
             <span className="tabular">{r100.postCount ?? 0}</span>
           ) : (
@@ -230,13 +230,13 @@ function Row({ row, stages, open, onToggle }: { row: R100Row; stages: Stage[]; o
             />
           )}
         </td>
-        <td className="px-2 py-2">
+        <td data-label="Profile" className="px-2 py-2">
           <ProfileCell url={r100.profileUrl ?? null} readOnly={ro} company={row.company} onSave={(v) => save({ profileUrl: v })} />
         </td>
-        <td className="px-2 py-2">
+        <td data-label="Interview" className="px-2 py-2">
           <InterviewBadge status={row.interviewStatus as InterviewStatus | null} count={row.interviews.length} />
         </td>
-        <td className="px-2 py-2">
+        <td data-label="Bonus" className="px-2 py-2">
           <BonusCell r100={r100} readOnly={ro} company={row.company} onSave={save} />
         </td>
       </tr>
@@ -283,9 +283,9 @@ function ProfileCell({ url, readOnly, company, onSave }: { url: string | null; r
           onSave(v || null);
           setEditing(false);
         }}
-        className="flex items-center gap-1"
+        className="flex min-w-0 items-center gap-1"
       >
-        <Input name="url" type="url" defaultValue={url ?? ""} autoFocus aria-label={`Profile link for ${company}`} placeholder="https://" className="h-8 w-44 text-xs" />
+        <Input name="url" type="url" defaultValue={url ?? ""} autoFocus aria-label={`Profile link for ${company}`} placeholder="https://" className="h-8 w-44 min-w-0 max-w-full text-xs" />
         <Button size="sm" type="submit">
           Save
         </Button>
@@ -367,8 +367,8 @@ function Interviews({ dealId, company, interviews, readOnly }: { dealId: string;
     });
 
   return (
-    <div className="max-w-4xl">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="w-full max-w-4xl text-left">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="font-display text-base text-fg">Interviews · {company}</p>
         {!readOnly && !editing ? (
           <Button size="sm" onClick={() => setEditing({ ...EMPTY_IV })}>
@@ -378,7 +378,7 @@ function Interviews({ dealId, company, interviews, readOnly }: { dealId: string;
       </div>
       {interviews.length === 0 && !editing ? <p className="text-xs text-muted">No interviews recorded.</p> : null}
       {interviews.length ? (
-        <table className="w-full text-xs">
+        <table className="table-cards w-full text-xs">
           <thead className="text-left text-muted">
             <tr>
               <th className="py-1 pr-2 font-medium">Guest</th>
@@ -393,15 +393,15 @@ function Interviews({ dealId, company, interviews, readOnly }: { dealId: string;
           <tbody>
             {interviews.map((iv) => (
               <tr key={iv.id} className="border-t border-border">
-                <td className="py-1.5 pr-2 text-body">{iv.guest}</td>
-                <td className="py-1.5 pr-2 text-secondary">{iv.host || "—"}</td>
-                <td className="py-1.5 pr-2">
+                <td data-primary className="py-1.5 pr-2 text-body">{iv.guest}</td>
+                <td data-label="Host" className="py-1.5 pr-2 text-secondary">{iv.host || "—"}</td>
+                <td data-label="Status" className="py-1.5 pr-2">
                   <InterviewBadge status={iv.status} count={1} />
                   {interviewOverdue(iv, now) ? <StatusBadge status="serious" label="Publish date overdue" className="ml-1" /> : null}
                 </td>
-                <td className="py-1.5 pr-2 tabular">{fmtDate(iv.filmedAt)}</td>
-                <td className="py-1.5 pr-2 tabular">{iv.publishAt ? fmtDate(iv.publishAt) : "TBD"}</td>
-                <td className="py-1.5 pr-2">
+                <td data-label="Filmed" className="py-1.5 pr-2 tabular">{fmtDate(iv.filmedAt)}</td>
+                <td data-label="Publish" className="py-1.5 pr-2 tabular">{iv.publishAt ? fmtDate(iv.publishAt) : "TBD"}</td>
+                <td data-label="Link" className="py-1.5 pr-2">
                   {iv.link ? (
                     <a href={iv.link} target="_blank" rel="noreferrer" className="text-fg underline-offset-2 hover:underline">
                       Open
@@ -410,7 +410,7 @@ function Interviews({ dealId, company, interviews, readOnly }: { dealId: string;
                     "—"
                   )}
                 </td>
-                <td className="py-1.5 text-right">
+                <td data-actions className="py-1.5 text-right">
                   {!readOnly ? (
                     <span className="inline-flex gap-1">
                       <Button size="sm" variant="ghost" onClick={() => setEditing({ ...iv, filmedAt: iv.filmedAt ?? "", publishAt: iv.publishAt ?? "", link: iv.link ?? "" })}>

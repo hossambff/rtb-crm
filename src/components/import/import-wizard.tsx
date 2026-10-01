@@ -274,8 +274,8 @@ export function ImportWizard({ pipelines, canSaveTemplates }: { pipelines: { key
                   </NativeSelect>
                 </div>
               ) : null}
-              <div className="overflow-x-auto rounded-md border border-border">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto overscroll-x-contain rounded-md border border-border">
+                <table className="table-sticky-first w-full text-xs">
                   <thead>
                     <tr className="border-b border-border text-left text-muted">
                       {sheet.headers.map((h) => (
@@ -347,7 +347,7 @@ export function ImportWizard({ pipelines, canSaveTemplates }: { pipelines: { key
               ) : null}
             </div>
             <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="table-cards w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
                     <th className="h-9 px-3 font-medium">Column</th>
@@ -358,14 +358,14 @@ export function ImportWizard({ pipelines, canSaveTemplates }: { pipelines: { key
                 <tbody>
                   {sheet.headers.map((h, i) => (
                     <tr key={h} className="border-b border-border last:border-0">
-                      <td className="h-10 whitespace-nowrap px-3 text-fg">{h}</td>
-                      <td className="max-w-[320px] truncate px-3 text-xs text-muted">{sheet.sample.map((r) => r[i]).filter(Boolean).slice(0, 3).join(" · ") || "—"}</td>
-                      <td className="px-3 py-1">
+                      <td data-label="Column" data-primary className="h-10 whitespace-nowrap px-3 text-fg">{h}</td>
+                      <td data-label="Sample" className="truncate px-3 text-xs text-muted md:max-w-[320px]">{sheet.sample.map((r) => r[i]).filter(Boolean).slice(0, 3).join(" · ") || "—"}</td>
+                      <td data-label="Maps to" className="px-3 py-1">
                         <NativeSelect
                           aria-label={`Field for ${h}`}
                           value={mapping[h] ?? ""}
                           onChange={(e) => setMapping((m) => ({ ...m, [h]: e.target.value }))}
-                          className={cn("h-8 text-xs", mapping[h] ? "text-fg" : "text-muted")}
+                          className={cn("h-8 min-w-0 text-xs", mapping[h] ? "text-fg" : "text-muted")}
                         >
                           <option value="">— Ignore —</option>
                           {(["Account", "Audience", "Deal", "Contact", "R100", "ADS"] as const).map((g) => {
@@ -446,7 +446,7 @@ export function ImportWizard({ pipelines, canSaveTemplates }: { pipelines: { key
           </div>
           <Card>
             <CardContent className="overflow-x-auto p-0">
-              <table className="w-full min-w-[900px] text-sm">
+              <table className="table-cards w-full min-w-[900px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
                     <th className="h-9 px-3 font-medium">Row</th>
@@ -462,12 +462,14 @@ export function ImportWizard({ pipelines, canSaveTemplates }: { pipelines: { key
                 <tbody>
                   {preview.rows.map((r) => (
                     <tr key={r.rowNumber} className="border-b border-border align-top last:border-0">
-                      <td className="px-3 py-2 tabular text-muted">{r.rowNumber}</td>
-                      <td className="px-3 py-2">
-                        <span className="text-fg">{r.account?.name ?? "—"}</span>
-                        {r.account?.domain ? <span className="block text-xs text-muted">{r.account.domain}</span> : null}
+                      <td data-label="Row" className="px-3 py-2 tabular text-muted">{r.rowNumber}</td>
+                      <td data-label="Account" data-primary className="px-3 py-2">
+                        <div className="min-w-0">
+                          <span className="text-fg">{r.account?.name ?? "—"}</span>
+                          {r.account?.domain ? <span className="block text-xs text-muted">{r.account.domain}</span> : null}
+                        </div>
                       </td>
-                      <td className="px-3 py-2">
+                      <td data-label="Result" className="px-3 py-2">
                         {r.outcome ? (
                           <span className="flex flex-wrap gap-1">
                             <Badge>account {r.outcome.account}</Badge>
@@ -477,35 +479,43 @@ export function ImportWizard({ pipelines, canSaveTemplates }: { pipelines: { key
                           <StatusBadge status="critical" label="skipped" />
                         )}
                       </td>
-                      <td className="px-3 py-2 text-secondary">
-                        {r.deal ? preview.stages.find((s) => s.key === r.deal!.stageKey)?.name ?? r.deal.stageKey ?? "—" : "—"}
-                        {r.deal?.statusRaw ? <span className="block text-[11px] text-muted">“{r.deal.statusRaw}”</span> : null}
+                      <td data-label="Stage" className="px-3 py-2 text-secondary">
+                        <div className="min-w-0">
+                          {r.deal ? preview.stages.find((s) => s.key === r.deal!.stageKey)?.name ?? r.deal.stageKey ?? "—" : "—"}
+                          {r.deal?.statusRaw ? <span className="block text-[11px] text-muted">“{r.deal.statusRaw}”</span> : null}
+                        </div>
                       </td>
-                      <td className="px-3 py-2 text-secondary">{r.deal?.owners.length ? r.deal.owners.join(" / ") : "—"}</td>
-                      <td className="px-3 py-2 text-xs text-secondary">
-                        {r.audience.length
-                          ? r.audience.map((a) => (
-                              <span key={a.metric} className="block">
-                                {a.metric === "muu" ? "MUU" : "Visits"} {fmtNumber(a.value, { compact: true })} <span className="text-muted">(“{a.rawValue}”)</span>
-                                {a.derivedMuu ? <span className="block italic text-muted">≈ {fmtNumber(a.derivedMuu, { compact: true })} MUU est.</span> : null}
+                      <td data-label="Owners" className="px-3 py-2 text-secondary">{r.deal?.owners.length ? r.deal.owners.join(" / ") : "—"}</td>
+                      <td data-label="Audience" className="px-3 py-2 text-xs text-secondary">
+                        <div className="min-w-0">
+                          {r.audience.length
+                            ? r.audience.map((a) => (
+                                <span key={a.metric} className="block">
+                                  {a.metric === "muu" ? "MUU" : "Visits"} {fmtNumber(a.value, { compact: true })} <span className="text-muted">(“{a.rawValue}”)</span>
+                                  {a.derivedMuu ? <span className="block italic text-muted">≈ {fmtNumber(a.derivedMuu, { compact: true })} MUU est.</span> : null}
+                                </span>
+                              ))
+                            : "—"}
+                        </div>
+                      </td>
+                      <td data-label="Contacts" className="px-3 py-2 text-xs text-secondary">
+                        <div className="min-w-0">
+                          {r.contacts.length ? r.contacts.map((c) => <span key={`${c.fullName}${c.email}`} className="block truncate">{c.fullName}{c.email ? ` <${c.email}>` : ""}</span>) : "—"}
+                        </div>
+                      </td>
+                      <td data-label="Issues" className="px-3 py-2 text-xs">
+                        <div className="min-w-0">
+                          {r.issues.length ? (
+                            r.issues.map((i, k) => (
+                              <span key={k} className="flex items-start gap-1 text-secondary">
+                                {i.level === "error" ? <XCircle className="mt-0.5 size-3 shrink-0" style={{ color: STATUS_COLORS.critical }} aria-label="Error" /> : <AlertTriangle className="mt-0.5 size-3 shrink-0" style={{ color: STATUS_COLORS.warning }} aria-label="Warning" />}
+                                {i.message}
                               </span>
                             ))
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-secondary">
-                        {r.contacts.length ? r.contacts.map((c) => <span key={`${c.fullName}${c.email}`} className="block truncate">{c.fullName}{c.email ? ` <${c.email}>` : ""}</span>) : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-xs">
-                        {r.issues.length ? (
-                          r.issues.map((i, k) => (
-                            <span key={k} className="flex items-start gap-1 text-secondary">
-                              {i.level === "error" ? <XCircle className="mt-0.5 size-3 shrink-0" style={{ color: STATUS_COLORS.critical }} aria-label="Error" /> : <AlertTriangle className="mt-0.5 size-3 shrink-0" style={{ color: STATUS_COLORS.warning }} aria-label="Warning" />}
-                              {i.message}
-                            </span>
-                          ))
-                        ) : (
-                          <CheckCircle2 className="size-3.5" style={{ color: STATUS_COLORS.good }} aria-label="OK" />
-                        )}
+                          ) : (
+                            <CheckCircle2 className="size-3.5" style={{ color: STATUS_COLORS.good }} aria-label="OK" />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

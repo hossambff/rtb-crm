@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Playfair_Display, Work_Sans } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -12,6 +12,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+// Phones: real device width, content under the notch/home indicator handled via safe-area insets, dark browser chrome.
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#070707", colorScheme: "dark" };
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${workSans.variable} ${playfair.variable} h-full`}>
@@ -20,6 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Toaster
           theme="dark"
           position="bottom-right"
+          mobileOffset={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
           toastOptions={{ style: { background: "#1a1a1a", border: "1px solid #3c3c3c", color: "#f4f4f4" } }}
         />
       </body>

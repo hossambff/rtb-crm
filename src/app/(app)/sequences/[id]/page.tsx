@@ -39,17 +39,17 @@ export default async function SequencePage(props: PageProps<"/sequences/[id]">) 
   return (
     <div>
       <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-1 text-xs text-muted">
-        <Link href="/sequences" className="hover:text-fg">
+        <Link href="/sequences" className="-my-2 shrink-0 py-2 hover:text-fg">
           Sequences
         </Link>
         <ChevronRight className="size-3" aria-hidden />
-        <span className="truncate text-secondary">{q.name}</span>
+        <span className="min-w-0 truncate text-secondary">{q.name}</span>
       </nav>
 
       <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-[28px] font-medium leading-9 text-fg">{q.name}</h1>
+            <h1 className="min-w-0 break-words font-display text-2xl font-medium leading-8 text-fg sm:text-[28px] sm:leading-9">{q.name}</h1>
             {problems.length ? <StatusBadge status="warning" label="Needs edits" /> : q.active ? <StatusBadge status="good" label="Live" /> : <StatusBadge status="info" label="Paused" />}
           </div>
           <p className="mt-1 text-sm text-muted">
@@ -74,7 +74,7 @@ export default async function SequencePage(props: PageProps<"/sequences/[id]">) 
         </div>
       </header>
 
-      <div className="mb-6 rounded-lg border border-border bg-surface-1 px-5 py-4">
+      <div className="mb-6 rounded-lg border border-border bg-surface-1 px-4 py-4 sm:px-5">
         <MetricsRow m={metrics} />
       </div>
 

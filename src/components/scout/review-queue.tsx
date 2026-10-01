@@ -127,7 +127,7 @@ export function ReviewQueue(props: Props) {
       <QueueFilters searches={props.searches} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         {bulk}
-        <div className="flex items-center gap-1" role="group" aria-label="View">
+        <div className="hidden items-center gap-1 md:flex" role="group" aria-label="View">
           <Button size="icon-sm" variant={view === "table" ? "secondary" : "ghost"} aria-label="Table view" aria-pressed={view === "table"} onClick={() => viewStore.set("table")}>
             <Rows3 />
           </Button>

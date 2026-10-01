@@ -93,7 +93,7 @@ function Board({ projects, canEdit, onMove, onOpen }: { projects: ProjectRow[]; 
   };
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <div className="flex gap-3 overflow-x-auto pb-3">
+      <div className="flex gap-3 overflow-x-auto overscroll-x-contain pb-3">
         {MIGRATION_STAGES.map((stage) => (
           <Column key={stage} stage={stage} items={projects.filter((p) => p.stage === stage)} canEdit={canEdit} onOpen={onOpen} />
         ))}
@@ -168,7 +168,7 @@ function Card({ project: p, onOpen }: { project: ProjectRow; onOpen: (id: string
 function ProjectTable({ projects, onOpen }: { projects: ProjectRow[]; onOpen: (id: string) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[960px] text-sm">
+      <table className="table-cards w-full min-w-[960px] text-sm">
         <thead className="bg-surface-1 text-left text-xs text-muted">
           <tr>
             <th className="px-3 py-2 font-medium">Project</th>
@@ -184,22 +184,24 @@ function ProjectTable({ projects, onOpen }: { projects: ProjectRow[]; onOpen: (i
         <tbody>
           {projects.map((p) => (
             <tr key={p.id} className="cursor-pointer border-t border-border hover:bg-surface-1" onClick={() => onOpen(p.id)}>
-              <td className="px-3 py-2">
-                <button type="button" className="text-left font-medium text-fg hover:underline" onClick={() => onOpen(p.id)}>
-                  {p.name}
-                </button>
-                <p className="text-[11px] text-muted">{p.dealName ?? p.accountName ?? "—"}</p>
+              <td data-label="Project" data-primary className="px-3 py-2">
+                <div className="min-w-0">
+                  <button type="button" className="text-left font-medium text-fg hover:underline" onClick={() => onOpen(p.id)}>
+                    {p.name}
+                  </button>
+                  <p className="text-[11px] text-muted">{p.dealName ?? p.accountName ?? "—"}</p>
+                </div>
               </td>
-              <td className="px-3 py-2 text-secondary">{MIGRATION_STAGE_LABELS[p.stage]}</td>
-              <td className="px-3 py-2 text-secondary">{p.ownerName ?? "—"}</td>
-              <td className="px-3 py-2 tabular">
+              <td data-label="Stage" className="px-3 py-2 text-secondary">{MIGRATION_STAGE_LABELS[p.stage]}</td>
+              <td data-label="Owner" className="px-3 py-2 text-secondary">{p.ownerName ?? "—"}</td>
+              <td data-label="Checklist" className="px-3 py-2 tabular">
                 {p.progress.done}/{p.progress.total}
               </td>
-              <td className="px-3 py-2 tabular">{fmtDate(p.targetGoLive)}</td>
-              <td className="px-3 py-2 tabular">{fmtDate(p.actualGoLive)}</td>
-              <td className="px-3 py-2">{p.launched ? <StatusBadge status="good" label="Launched" /> : <span className="text-xs text-muted">No</span>}</td>
-              <td className="px-3 py-2">
-                <div className="flex flex-wrap gap-1">
+              <td data-label="Target go-live" className="px-3 py-2 tabular">{fmtDate(p.targetGoLive)}</td>
+              <td data-label="Actual go-live" className="px-3 py-2 tabular">{fmtDate(p.actualGoLive)}</td>
+              <td data-label="Launched" className="px-3 py-2">{p.launched ? <StatusBadge status="good" label="Launched" /> : <span className="text-xs text-muted">No</span>}</td>
+              <td data-label="Flags" className="px-3 py-2">
+                <div className="flex flex-wrap justify-end gap-1 md:justify-start">
                   {p.stalled ? <StatusBadge status="warning" label={`Stalled ${p.daysInStage}d`} /> : null}
                   {p.slipped ? <StatusBadge status="serious" label="Slipped" /> : null}
                   {p.blockers ? <Badge>Blocked</Badge> : null}
@@ -286,7 +288,7 @@ function ProjectSheet({ project: p, owners, onClose, onMove }: { project: Projec
 
           <form onSubmit={submit} className="space-y-4" key={`${p.id}-${p.launched}-${p.actualGoLive}`}>
             <fieldset disabled={ro} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Owner" error={errors.ownerId?.[0]}>
                   <NativeSelect name="ownerId" defaultValue={p.ownerId ?? ""}>
                     <option value="">Unassigned</option>
@@ -436,7 +438,7 @@ function CreateDialog({ wonDeals, owners, onClose }: { wonDeals: Props["wonDeals
                     ))}
                   </NativeSelect>
                 </Field>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Owner" error={errors.ownerId?.[0]}>
                     <NativeSelect name="ownerId" defaultValue="">
                       <option value="">Unassigned</option>

@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { user as userTable } from "@/db/schema";
@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/rbac/server";
 import { visibleNav } from "@/lib/rbac/nav-server";
 import { ROLE_LABELS } from "@/lib/rbac/model";
 import { Sidebar } from "@/components/shell/sidebar";
+import { parseSidebarMode, SIDEBAR_COOKIE } from "@/lib/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { getPrefs } from "@/lib/prefs";
 import { shouldRedirectToWelcome, type OnboardingState } from "@/lib/welcome/core";
@@ -34,12 +35,13 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   )
     redirect("/welcome");
   // bell count excludes digest-only rows (V2 alert budget)
-  const [nav, n] = await Promise.all([visibleNav(user), unreadCount(user)]);
+  const [nav, n, jar] = await Promise.all([visibleNav(user), unreadCount(user), cookies()]);
+  const sidebarMode = parseSidebarMode(jar.get(SIDEBAR_COOKIE)?.value);
   // best-effort activity stamp (no await on the render path's critical data)
   void db.update(userTable).set({ lastActiveAt: new Date() }).where(eq(userTable.id, user.id)).catch(() => {});
   return (
     <div className="flex min-h-screen overflow-x-clip bg-bg">
-      <Sidebar items={nav} />
+      <Sidebar items={nav} mode={sidebarMode} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
           user={{ name: user.name, email: user.email, image: user.image }}
@@ -48,7 +50,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           nav={nav}
           impersonating={Boolean(user.impersonatedBy)}
         />
-        <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 px-4 py-6 md:px-8">{children}</main>
+        {/* bottom padding on phones clears the tab bar (+ the home-indicator safe area) */}
+        <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 md:px-8 md:pb-8 md:pt-6">{children}</main>
       </div>
     </div>
   );

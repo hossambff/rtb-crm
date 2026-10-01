@@ -318,7 +318,7 @@ export function Walkthrough({ session, deals, decisions: initialDecisions, missi
       </article>
 
       {/* decision bar */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-bg/95 backdrop-blur-[2px]">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-[2px]">
         <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-3 md:flex-row md:items-center md:px-8">
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:flex md:flex-1">
             {OUTCOMES.map((o) => {
@@ -405,7 +405,7 @@ function Shell({ title, children, onFinish, finishing, decided, total }: { title
     <div className="fixed inset-0 z-40 overflow-y-auto bg-bg" role="region" aria-label="Pipeline review walk-through">
       <header className="sticky top-0 z-10 border-b border-border bg-bg/95 backdrop-blur-[2px]">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 md:px-8">
-          <Link href="/review" aria-label="Exit review (progress is saved)" className="rounded p-1 text-muted hover:text-fg">
+          <Link href="/review" aria-label="Exit review (progress is saved)" className="touch-target inline-flex items-center justify-center rounded p-1 text-muted hover:text-fg">
             <X className="size-5" />
           </Link>
           <p className="min-w-0 flex-1 truncate font-display text-base text-fg">{title}</p>
@@ -502,7 +502,7 @@ function OutcomePanel({
                   <Input id="rv-close" type="date" value={close} min={addDays(todayKey, 1)} onChange={(e) => setClose(e.target.value)} required autoFocus />
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {quick.map((q) => (
-                      <button key={q.label} type="button" onClick={() => setClose(q.v)} className={cn("h-7 rounded-full border px-2.5 text-xs transition-colors duration-150", close === q.v ? "border-white bg-white text-black" : "border-border text-secondary hover:text-fg")}>
+                      <button key={q.label} type="button" onClick={() => setClose(q.v)} className={cn("touch-target h-7 rounded-full border px-2.5 text-xs transition-colors duration-150", close === q.v ? "border-white bg-white text-black" : "border-border text-secondary hover:text-fg")}>
                         {q.label}
                       </button>
                     ))}

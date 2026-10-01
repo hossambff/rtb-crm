@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { ScrollStrip } from "@/components/ui/scroll-strip";
 
 export type FilterChip = { key: string; label: string; href: string; count?: number };
 
 /** URL-driven filter chips (kind / tag). */
 export function FilterChips({ chips, active, label }: { chips: FilterChip[]; active: string; label: string }) {
   return (
-    <nav aria-label={label} className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+    <ScrollStrip as="nav" aria-label={label} activeKey={active} className="-mx-4 px-4 md:mx-0 md:px-0">
       <ul className="flex min-w-max gap-1.5">
         {chips.map((c) => {
           const on = c.key === active;
@@ -28,6 +29,6 @@ export function FilterChips({ chips, active, label }: { chips: FilterChip[]; act
           );
         })}
       </ul>
-    </nav>
+    </ScrollStrip>
   );
 }

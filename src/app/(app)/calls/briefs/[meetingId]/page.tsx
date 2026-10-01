@@ -37,13 +37,13 @@ export default async function MeetingBriefPage({ params }: PageProps<"/calls/bri
 
   return (
     <div className="mx-auto max-w-5xl">
-      <Link href="/calls" className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
+      <Link href="/calls" className="-my-2 mb-1 inline-flex items-center gap-1 py-2 text-xs text-muted hover:text-fg">
         <ChevronLeft className="size-3.5" /> Calls
       </Link>
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Meeting brief</p>
-          <h1 className="font-display text-[28px] font-medium leading-9 text-fg">{m.title ?? "Untitled meeting"}</h1>
+          <h1 className="break-words font-display text-2xl font-medium leading-8 text-fg sm:text-[28px] sm:leading-9">{m.title ?? "Untitled meeting"}</h1>
           <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-sm text-secondary">
             <span className="tabular">{m.startsAt ? formatInTz(m.startsAt, tz, "datetime") : "No time"}</span>
             {upcoming && m.startsAt ? (
@@ -81,7 +81,7 @@ export default async function MeetingBriefPage({ params }: PageProps<"/calls/bri
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="min-w-0 space-y-6">
-            <Card className="px-5 py-5">
+            <Card className="px-4 py-5 sm:px-5">
               <Section title="Talking points">
                 <ol className="space-y-3">
                   {brief.talkingPoints.map((p, i) => (
@@ -95,7 +95,7 @@ export default async function MeetingBriefPage({ params }: PageProps<"/calls/bri
             </Card>
 
             {brief.risks.length ? (
-              <Card className="px-5 py-4">
+              <Card className="px-4 py-4 sm:px-5">
                 <Section title="Risks">
                   {/* POL-06: the section header already says "Risks" — no per-item badge */}
                   <ul className="list-disc space-y-1.5 pl-4 text-sm text-body marker:text-warning">
@@ -107,7 +107,7 @@ export default async function MeetingBriefPage({ params }: PageProps<"/calls/bri
               </Card>
             ) : null}
 
-            <Card className="grid gap-5 px-5 py-4 sm:grid-cols-2">
+            <Card className="grid gap-5 px-4 py-4 sm:grid-cols-2 sm:px-5">
               <Section title="We owe">
                 {brief.commitments.ours.length ? (
                   <ul className="space-y-1.5 text-sm">
@@ -139,7 +139,7 @@ export default async function MeetingBriefPage({ params }: PageProps<"/calls/bri
             </Card>
 
             {brief.lastCall ? (
-              <Card className="px-5 py-4">
+              <Card className="px-4 py-4 sm:px-5">
                 <Section title={`Last call${brief.lastCall.at ? ` · ${date(brief.lastCall.at)}` : ""}`}>
                   {brief.lastCall.highlights.length ? (
                     <ul className="list-disc space-y-1 pl-4 text-sm text-body">
@@ -158,9 +158,9 @@ export default async function MeetingBriefPage({ params }: PageProps<"/calls/bri
             ) : null}
           </div>
 
-          <aside className="space-y-6">
+          <aside className="min-w-0 space-y-6">
             {deal ? (
-              <Card className="px-5 py-4">
+              <Card className="px-4 py-4 sm:px-5">
                 <Section title="Deal">
                   <Link href={`/deals/${deal.id}`} className="font-display text-lg leading-6 text-fg hover:underline">
                     {deal.name}
@@ -189,7 +189,7 @@ export default async function MeetingBriefPage({ params }: PageProps<"/calls/bri
                 </Section>
               </Card>
             ) : null}
-            <Card className="px-5 py-4">
+            <Card className="px-4 py-4 sm:px-5">
               <Section title={`Attendees (${brief.attendees.length})`}>
                 <ul className="space-y-2.5">
                   {brief.attendees.map((a) => (

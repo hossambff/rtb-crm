@@ -8,10 +8,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: "bg-accent text-accent-inverse hover:bg-[#e6e6e6]",
-        secondary: "border border-border-strong bg-transparent text-fg hover:bg-surface-2",
-        ghost: "bg-transparent text-secondary hover:bg-surface-2 hover:text-fg",
-        destructive: "border border-border-strong bg-transparent text-fg hover:bg-surface-2 [&_svg]:text-critical",
+        primary: "touch-target bg-accent text-accent-inverse hover:bg-[#e6e6e6]",
+        secondary: "touch-target border border-border-strong bg-transparent text-fg hover:bg-surface-2",
+        ghost: "touch-target bg-transparent text-secondary hover:bg-surface-2 hover:text-fg",
+        destructive: "touch-target border border-border-strong bg-transparent text-fg hover:bg-surface-2 [&_svg]:text-critical",
         link: "h-auto px-0 text-fg underline-offset-4 hover:underline",
       },
       size: {

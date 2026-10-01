@@ -190,17 +190,51 @@ export function AdminSection({
   );
 }
 
-/** Dense table shell for admin lists. */
-export function AdminTable({ children, className }: { children: React.ReactNode; className?: string }) {
+/**
+ * Dense table shell for admin lists. `cards` reflows rows into stacked cards below md (label each <Td> with `label`;
+ * see `.table-cards` in globals.css). `stickyFirst` keeps a horizontal scroller with the first column pinned — for
+ * genuinely wide grids only.
+ */
+export function AdminTable({
+  children,
+  className,
+  cards,
+  stickyFirst,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  cards?: boolean;
+  stickyFirst?: boolean;
+}) {
   return (
-    <div className={cn("relative overflow-x-auto", className)}>
-      <table className="w-full min-w-[640px] text-left text-sm">{children}</table>
+    <div className={cn("relative overflow-x-auto", stickyFirst && "overscroll-x-contain", className)}>
+      <table className={cn("w-full min-w-[640px] text-left text-sm", cards && "table-cards", stickyFirst && "table-sticky-first")}>{children}</table>
     </div>
   );
 }
 export function Th({ children, className }: { children?: React.ReactNode; className?: string }) {
   return <th className={cn("whitespace-nowrap border-b border-border px-2 py-2 text-xs font-medium text-muted", className)}>{children}</th>;
 }
-export function Td({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return <td className={cn("border-b border-border/60 px-2 py-2 align-middle text-body", className)}>{children}</td>;
+/** `label` → card-mode label (match the column header); `primary` → card title; `actions` → full-width action row; `select` → checkbox floated top-right. */
+export function Td({
+  children,
+  className,
+  label,
+  primary,
+  actions,
+  select,
+  ...rest
+}: React.TdHTMLAttributes<HTMLTableCellElement> & { label?: string; primary?: boolean; actions?: boolean; select?: boolean }) {
+  return (
+    <td
+      data-label={label}
+      data-primary={primary || undefined}
+      data-actions={actions || undefined}
+      data-select={select || undefined}
+      className={cn("border-b border-border/60 px-2 py-2 align-middle text-body", className)}
+      {...rest}
+    >
+      {children}
+    </td>
+  );
 }

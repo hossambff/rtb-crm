@@ -7,6 +7,7 @@ import { Badge, ColorTick } from "@/components/ui/badge";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/misc";
+import { FilterSheet } from "@/components/ui/filter-sheet";
 import { ACCOUNT_TYPES, LIFECYCLES, MUU_RANGES, PRIORITIES, labelOf } from "@/lib/accounts/constants";
 import { PIPELINE_COLORS } from "@/lib/palette";
 import { RelativeTime } from "@/components/ui/relative-time";
@@ -135,10 +136,11 @@ export function AccountsList({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-72">
+        <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden />
           <Input value={q} onChange={(e) => onSearch(e.target.value)} placeholder="Search name or domain…" aria-label="Search accounts" className="h-8 pl-8 text-sm" />
         </div>
+        <FilterSheet count={activeFilters.length} onClear={() => set(Object.fromEntries(activeFilters.map((f) => [f, null])))}>
         {select("type", "Type", ACCOUNT_TYPES.map((t) => ({ value: t.key, label: t.label })))}
         {select("category", "Category", categories.map((c) => ({ value: c, label: c })))}
         {select("lifecycle", "Lifecycle", LIFECYCLES.map((t) => ({ value: t.key, label: t.label })))}
@@ -149,8 +151,9 @@ export function AccountsList({
           { value: "no", label: "No open deal" },
         ])}
         {select("muu", "MUU", MUU_RANGES.map((r) => ({ value: r.key, label: r.label })))}
+        </FilterSheet>
         {activeFilters.length ? (
-          <Button size="sm" variant="ghost" onClick={() => set(Object.fromEntries(activeFilters.map((f) => [f, null])))}>
+          <Button size="sm" variant="ghost" className="hidden md:inline-flex" onClick={() => set(Object.fromEntries(activeFilters.map((f) => [f, null])))}>
             <X /> Clear
           </Button>
         ) : null}

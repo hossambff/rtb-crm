@@ -38,7 +38,7 @@ export function CopilotPageClient({
 
   return (
     <div className="flex flex-col gap-4 lg:h-[calc(100dvh-3.5rem-3rem)] lg:min-h-[520px] lg:flex-row">
-      <div className="flex h-[75dvh] min-h-[440px] min-w-0 flex-col lg:h-auto lg:min-h-0 lg:flex-1">
+      <div className="flex h-[calc(100dvh-10rem-env(safe-area-inset-bottom))] min-h-[440px] min-w-0 flex-col md:h-[75dvh] lg:h-auto lg:min-h-0 lg:flex-1">
         <CopilotChat
           variant="page"
           userId={userId}

@@ -24,7 +24,7 @@ export function Chip({
       aria-pressed={pressed}
       onClick={onToggle}
       className={cn(
-        "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
+        "touch-target inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
         pressed ? "border-fg bg-fg text-accent-inverse" : "border-border-strong text-body hover:bg-surface-2",
         className,
       )}
@@ -45,7 +45,7 @@ export function Switch({ id, checked, onChange, label }: { id: string; checked: 
       aria-label={label}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
+        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border after:absolute after:-inset-2.5 after:content-[''] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
         checked ? "border-fg bg-fg" : "border-border-strong bg-surface-3",
       )}
     >
@@ -145,7 +145,8 @@ export function StepFooter({
   required?: boolean;
 }) {
   return (
-    <div className="mt-8 flex flex-wrap items-center gap-2 border-t border-border pt-5">
+    // Phones: the action bar sticks to the bottom so Continue is always reachable on long steps.
+    <div className="mt-8 flex flex-wrap items-center gap-2 border-t border-border pt-5 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-4 max-md:bg-bg/95 max-md:px-4 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-md:pt-3 max-md:backdrop-blur-[2px]">
       {onBack ? (
         <Button type="button" variant="ghost" size="md" onClick={onBack} disabled={pending} aria-keyshortcuts="Alt+ArrowLeft">
           <ArrowLeft /> Back

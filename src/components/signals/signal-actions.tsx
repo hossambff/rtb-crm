@@ -29,8 +29,8 @@ export function SignalActions({ id, dealId, label, confirm }: { id: string; deal
     });
   }
   return (
-    <div className="flex shrink-0 items-center gap-1.5">
-      <Button size="sm" variant="primary" disabled={pending} onClick={() => run("apply")} className="max-w-[16rem]" title={label}>
+    <div className="flex min-w-0 max-w-full shrink-0 items-center gap-1.5">
+      <Button size="sm" variant="primary" disabled={pending} onClick={() => run("apply")} className="min-w-0 max-w-[16rem]" title={label}>
         <Check /> <span className="truncate">{label}</span>
       </Button>
       <Button size="icon-sm" variant="ghost" disabled={pending} onClick={() => run("dismiss")} aria-label="Dismiss signal" title="Dismiss">

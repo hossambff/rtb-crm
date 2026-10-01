@@ -25,7 +25,7 @@ function Diff({ row }: { row: AuditRow }) {
   if (!entries.length)
     return <p className="text-xs text-muted">{row.before == null && row.after == null ? "No payload recorded." : "No field changes (bookkeeping only)."}</p>;
   return (
-    <table className="w-full text-left text-xs">
+    <table className="table-cards w-full text-left text-xs">
       <thead>
         <tr className="text-muted">
           <th scope="col" className="w-6 py-1 font-medium">
@@ -39,12 +39,12 @@ function Diff({ row }: { row: AuditRow }) {
       <tbody>
         {entries.slice(0, 80).map((e) => (
           <tr key={e.path} className="border-t border-border/60 align-top">
-            <td className="py-1 font-mono text-muted" aria-label={e.kind}>
+            <td data-select className="py-1 font-mono text-muted" aria-label={e.kind}>
               {KIND_MARK[e.kind]}
             </td>
-            <td className="py-1 pr-3 font-mono text-secondary">{e.path}</td>
-            <td className="break-all py-1 pr-3 font-mono text-muted line-through decoration-border-strong">{e.kind === "added" ? "" : short(e.before)}</td>
-            <td className="break-all py-1 font-mono text-body">{e.kind === "removed" ? "" : short(e.after)}</td>
+            <td data-label="Field" data-primary className="break-all py-1 pr-3 font-mono text-secondary md:break-normal">{e.path}</td>
+            <td data-label="Before" className="break-all py-1 pr-3 font-mono text-muted line-through decoration-border-strong">{e.kind === "added" ? "" : short(e.before)}</td>
+            <td data-label="After" className="break-all py-1 font-mono text-body">{e.kind === "removed" ? "" : short(e.after)}</td>
           </tr>
         ))}
       </tbody>
@@ -150,8 +150,8 @@ export function AuditTable({ rows, total, f, pageSize }: { rows: AuditRow[]; tot
                     {r.redacted ? <Badge>restricted</Badge> : null}
                   </span>
                 </summary>
-                <div className="space-y-2 bg-surface-2/30 px-4 py-3 pl-11">
-                  <p className="text-[11px] text-muted">
+                <div className="space-y-2 bg-surface-2/30 px-4 py-3 sm:pl-11">
+                  <p className="text-[11px] text-muted [overflow-wrap:anywhere]">
                     #{r.id} · entity {r.entity ?? "—"} {r.entityId ? <span className="font-mono">{r.entityId}</span> : null} · IP {r.ip ?? "—"}
                   </p>
                   <Diff row={r} />

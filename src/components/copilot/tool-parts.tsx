@@ -496,8 +496,8 @@ export function ReportCard({ report }: { report: PipelineReport }) {
       {report.rows.length === 0 ? (
         <p className="text-muted">No deals you can see match this report.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-[12px] tabular">
+        <div className="overflow-x-auto overscroll-x-contain">
+          <table className="table-sticky-first w-full text-left text-[12px] tabular">
             <thead>
               <tr className="border-b border-border-strong text-muted">
                 <th className="py-1 pr-3 font-medium">{report.groupBy === "owner" ? "Owner" : report.groupBy === "category" ? "Category" : "Stage"}</th>
@@ -511,7 +511,7 @@ export function ReportCard({ report }: { report: PipelineReport }) {
             <tbody>
               {[...report.rows, report.totals].map((r, i) => (
                 <tr key={`${r.group}-${i}`} className={cn("border-b border-border", i === report.rows.length && "font-medium text-fg")}>
-                  <td className="py-1 pr-3">{r.group}</td>
+                  <td className="whitespace-nowrap py-1 pr-3">{r.group}</td>
                   <td className="py-1 pr-3 text-right">{fmtNumber(r.deals)}</td>
                   {showMuu ? <td className="py-1 pr-3 text-right">{fmtNumber(r.muu, { compact: true })}</td> : null}
                   <td className="py-1 pr-3 text-right">{fmtUsd(r.valueUsd, { compact: true })}</td>

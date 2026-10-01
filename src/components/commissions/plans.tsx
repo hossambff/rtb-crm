@@ -283,7 +283,7 @@ export function AssignmentsPanel({ assignments, plans, users, canConfigure }: { 
         <EmptyState title="No assignments" description="Assign plans to users or roles' members to start accruing." />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-sm">
+          <table className="table-cards w-full text-sm">
             <thead className="bg-surface-1 text-left text-xs text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">User</th>
@@ -296,11 +296,11 @@ export function AssignmentsPanel({ assignments, plans, users, canConfigure }: { 
             <tbody>
               {assignments.map((a) => (
                 <tr key={`${a.userId}-${a.planId}`} className="border-t border-border">
-                  <td className="px-3 py-2 text-fg">{a.userName}</td>
-                  <td className="px-3 py-2 text-secondary">{ROLE_LABELS[a.userRole as Role] ?? a.userRole}</td>
-                  <td className="px-3 py-2 text-body">{a.planName}</td>
-                  <td className="px-3 py-2 tabular">{fmtDate(a.effectiveFrom)}</td>
-                  <td className="px-3 py-2 text-right">
+                  <td data-primary className="px-3 py-2 text-fg">{a.userName}</td>
+                  <td data-label="Role" className="px-3 py-2 text-secondary">{ROLE_LABELS[a.userRole as Role] ?? a.userRole}</td>
+                  <td data-label="Plan" className="px-3 py-2 text-body">{a.planName}</td>
+                  <td data-label="Effective from" className="px-3 py-2 tabular">{fmtDate(a.effectiveFrom)}</td>
+                  <td data-actions className="px-3 py-2 text-right">
                     {canConfigure ? (
                       <Button size="icon-sm" variant="ghost" aria-label={`Remove ${a.planName} from ${a.userName}`} disabled={pending} onClick={() => remove(a)}>
                         <Trash2 />

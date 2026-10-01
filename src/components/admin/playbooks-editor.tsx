@@ -11,6 +11,7 @@ import { savePlaybook, setPlaybookActive } from "@/lib/playbooks/actions";
 import { ASSIGN_TO, playbookInputSchema, type PlaybookEmail, type PlaybookTask } from "@/lib/playbooks/core";
 import type { StagePlaybook } from "@/lib/playbooks/service";
 import { cn } from "@/lib/utils";
+import { ScrollStrip } from "@/components/ui/scroll-strip";
 
 type StageLite = { id: string; name: string; category: string; slaDays: number | null; probability: number };
 
@@ -34,7 +35,7 @@ export function PlaybooksEditor({
   const covered = stages.filter((st) => byStage.get(st.id)?.active).length;
   return (
     <>
-      <nav aria-label="Pipelines" className="-mx-1 flex gap-1 overflow-x-auto pb-1">
+      <ScrollStrip as="nav" aria-label="Pipelines" activeKey={pipelineKey} className="-mx-1 flex gap-1 pb-1">
         {pipelines.map((p) => (
           <Link
             key={p.key}
@@ -48,7 +49,7 @@ export function PlaybooksEditor({
             <ColorTick color={p.color} /> {p.name}
           </Link>
         ))}
-      </nav>
+      </ScrollStrip>
       <AdminSection
         title="Stage playbooks"
         description={`${covered} of ${stages.length} stages have an active playbook. Entering a stage creates its tasks once per deal (re-entering never duplicates them); the guidance shows on the deal page.`}

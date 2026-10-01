@@ -102,7 +102,7 @@ export function ApprovalsList({ pending, mine, tz }: { pending: ApprovalView[]; 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge>{approvalKindLabel(a.kind)}</Badge>
-                      <span className="text-sm font-medium text-fg">{a.label}</span>
+                      <span className="min-w-0 break-words text-sm font-medium text-fg">{a.label}</span>
                     </div>
                     {detail ? <p className="mt-0.5 text-xs text-secondary">{detail}</p> : null}
                     {a.note ? <p className="mt-0.5 line-clamp-3 text-xs italic text-secondary">“{a.note}”</p> : null}
@@ -169,7 +169,7 @@ export function ApprovalsList({ pending, mine, tz }: { pending: ApprovalView[]; 
 
       {/* Mobile sticky decision bar (375 px): big targets for the selected request. */}
       {bar && selected ? (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border-strong bg-surface-2/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:hidden" role="region" aria-label="Decide selected request">
+        <div className="fixed inset-x-0 bottom-[calc(3.25rem+env(safe-area-inset-bottom))] z-40 border-t border-border-strong bg-surface-2/95 px-4 pb-3 pt-3 backdrop-blur sm:hidden" role="region" aria-label="Decide selected request">
           <p className="mb-2 truncate text-xs text-secondary">
             <span className="text-muted">{approvalKindLabel(selected.kind)} · </span>
             {selected.label}

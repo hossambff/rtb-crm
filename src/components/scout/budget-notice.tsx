@@ -50,35 +50,37 @@ export function CostEstimate({
   const total = lines.reduce((a, l) => a + l.cents, 0);
   return (
     <div className="rounded-md border border-border bg-surface-1">
-      <table className="w-full text-xs">
-        <caption className="sr-only">Apify cost estimate</caption>
-        <tbody>
-          {lines.length === 0 ? (
-            <tr>
-              <td className="px-3 py-2 text-muted">No Apify calls — this run is free.</td>
-            </tr>
-          ) : (
-            lines.map((l) => (
-              <tr key={l.purpose} className="border-b border-border last:border-0">
-                <td className="px-3 py-1.5 text-secondary">{PURPOSE_LABEL[l.purpose] ?? l.purpose}</td>
-                <td className="px-3 py-1.5 font-mono text-[11px] text-muted">{l.actorId ?? "no actor"}</td>
-                <td className="px-3 py-1.5 text-right tabular text-muted">
-                  {l.results} × ${l.costPerResultUsd.toFixed(4)}
-                </td>
-                <td className="px-3 py-1.5 text-right tabular text-body">{usd(l.cents)}</td>
+      <div className="overflow-x-auto overscroll-x-contain">
+        <table className="w-full text-xs">
+          <caption className="sr-only">Apify cost estimate</caption>
+          <tbody>
+            {lines.length === 0 ? (
+              <tr>
+                <td className="px-3 py-2 text-muted">No Apify calls — this run is free.</td>
               </tr>
-            ))
-          )}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-border">
-            <td className="px-3 py-2 font-medium text-fg" colSpan={3}>
-              Estimated cost
-            </td>
-            <td className="px-3 py-2 text-right font-semibold tabular text-fg">{usd(total)}</td>
-          </tr>
-        </tfoot>
-      </table>
+            ) : (
+              lines.map((l) => (
+                <tr key={l.purpose} className="border-b border-border last:border-0">
+                  <td className="px-3 py-1.5 text-secondary">{PURPOSE_LABEL[l.purpose] ?? l.purpose}</td>
+                  <td className="break-all px-3 py-1.5 font-mono text-[11px] text-muted">{l.actorId ?? "no actor"}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular text-muted">
+                    {l.results} × ${l.costPerResultUsd.toFixed(4)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular text-body">{usd(l.cents)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-border">
+              <td className="px-3 py-2 font-medium text-fg" colSpan={3}>
+                Estimated cost
+              </td>
+              <td className="px-3 py-2 text-right font-semibold tabular text-fg">{usd(total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
       <div className="flex flex-wrap items-center gap-3 border-t border-border px-3 py-2 text-xs">
         {budget.allowed ? (
           <CheckCircle2 className="size-3.5" style={{ color: STATUS_COLORS.good }} aria-hidden />

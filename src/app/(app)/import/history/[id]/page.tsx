@@ -92,7 +92,7 @@ export default async function ImportBatchPage(props: PageProps<"/import/history/
           <CardContent className="p-0">
             {rows.length ? (
               <div className="max-h-[560px] overflow-y-auto">
-                <table className="w-full text-sm">
+                <table className="table-cards w-full text-sm">
                   <thead className="sticky top-0 bg-surface-1">
                     <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
                       <th className="h-9 px-4 font-medium">Record</th>
@@ -104,20 +104,20 @@ export default async function ImportBatchPage(props: PageProps<"/import/history/
                   <tbody>
                     {rows.map((r) => (
                       <tr key={`${r.entity}-${r.entityId}-${r.action}`} className="border-b border-border last:border-0">
-                        <td className="max-w-[260px] px-4 py-2">
+                        <td data-label="Record" data-primary className="md:max-w-[260px] px-4 py-2">
                           {r.deleted ? (
-                            <span className="truncate text-muted line-through">{r.name ?? r.entityId}</span>
+                            <span className="min-w-0 truncate text-muted line-through">{r.name ?? r.entityId}</span>
                           ) : (
-                            <Link href={`${HREF[r.entity]}${r.entityId}`} className="block truncate text-fg hover:underline">
+                            <Link href={`${HREF[r.entity]}${r.entityId}`} className="block min-w-0 truncate text-fg hover:underline">
                               {r.name ?? r.entityId}
                             </Link>
                           )}
                         </td>
-                        <td className="px-4 text-secondary">{r.entity}</td>
-                        <td className="px-4">
+                        <td data-label="Type" className="px-4 text-secondary">{r.entity}</td>
+                        <td data-label="Action" className="px-4">
                           <Badge>{r.action}</Badge>
                         </td>
-                        <td className="max-w-[260px] truncate px-4 text-xs text-muted">{r.before && typeof r.before === "object" ? Object.keys(r.before as object).join(", ") : "—"}</td>
+                        <td data-label="Fields changed" className="truncate md:max-w-[260px] px-4 text-xs text-muted">{r.before && typeof r.before === "object" ? Object.keys(r.before as object).join(", ") : "—"}</td>
                       </tr>
                     ))}
                   </tbody>

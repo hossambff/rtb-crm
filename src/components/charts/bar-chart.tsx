@@ -156,6 +156,7 @@ export function BarChart({
     axisLine: false,
     tickFormatter: (v: number) => formatTick(v, format),
     allowDecimals: false,
+    minTickGap: 8,
   };
 
   return (

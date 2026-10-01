@@ -104,7 +104,8 @@ export function QuotaGrid({ data }: { data: { current: string; next: string; row
           </Button>
         ) : null}
       </div>
-      <AdminTable>
+      {/* Wide quarter × motion grid: deliberate horizontal scroller with the person column pinned. */}
+      <AdminTable stickyFirst>
         <thead>
           <tr>
             <Th>Person</Th>

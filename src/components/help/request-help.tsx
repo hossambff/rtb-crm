@@ -191,10 +191,10 @@ function HelpRow({ r, currentUserId, focus }: { r: HelpView; currentUserId: stri
           )}
         </span>
       </div>
-      <p className="mt-1.5 whitespace-pre-wrap text-[13px] text-body">{r.ask}</p>
+      <p className="mt-1.5 whitespace-pre-wrap break-words text-[13px] text-body">{r.ask}</p>
       {r.context ? (
         <div className="mt-1.5">
-          <button type="button" className="text-[11px] text-muted underline-offset-2 hover:text-secondary hover:underline" aria-expanded={showContext} onClick={() => setShowContext((v) => !v)}>
+          <button type="button" className="-my-2 py-2 text-[11px] text-muted underline-offset-2 hover:text-secondary hover:underline" aria-expanded={showContext} onClick={() => setShowContext((v) => !v)}>
             {showContext ? "Hide context" : "Show context"}
           </button>
           {showContext ? <p className="mt-1 whitespace-pre-wrap rounded-md border border-border bg-surface-2 px-3 py-2 text-[12px] text-secondary">{r.context}</p> : null}

@@ -70,7 +70,7 @@ export default async function ProposalsPage() {
           })}
         </ul>
         <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
-          <table className="w-full min-w-[860px] text-sm">
+          <table className="table-cards w-full min-w-[860px] text-sm">
             <thead className="bg-surface-1 text-left text-xs text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Deal</th>
@@ -88,31 +88,33 @@ export default async function ProposalsPage() {
                 const ts = r.kind === "coalition_term_sheet";
                 return (
                 <tr key={r.id} className="border-t border-border hover:bg-surface-1">
-                  <td className="px-3 py-2">
-                    <Link href={ts ? `/proposals/term-sheets/${r.id}` : `/proposals/${r.id}`} className="flex items-center gap-2 font-medium text-fg hover:underline">
-                      <ColorTick color={PIPELINE_COLORS[r.pipelineKey] ?? "#828282"} />
-                      {r.dealName}
-                    </Link>
-                    {r.accountName ? <p className="pl-3 text-[11px] text-muted">{r.accountName}</p> : null}
+                  <td data-label="Deal" data-primary className="px-3 py-2">
+                    <div className="min-w-0">
+                      <Link href={ts ? `/proposals/term-sheets/${r.id}` : `/proposals/${r.id}`} className="flex items-center gap-2 font-medium text-fg hover:underline">
+                        <ColorTick color={PIPELINE_COLORS[r.pipelineKey] ?? "#828282"} />
+                        {r.dealName}
+                      </Link>
+                      {r.accountName ? <p className="pl-3 text-[11px] text-muted">{r.accountName}</p> : null}
+                    </div>
                   </td>
-                  <td className="px-3 py-2 text-secondary">{ts ? "Term sheet" : "Pro forma"}</td>
-                  <td className="px-3 py-2 tabular text-secondary">
+                  <td data-label="Type" className="px-3 py-2 text-secondary">{ts ? "Term sheet" : "Pro forma"}</td>
+                  <td data-label="Latest" className="px-3 py-2 tabular text-secondary">
                     v{r.version}
                     {r.versions > 1 ? <span className="text-muted"> of {r.versions}</span> : null}
                   </td>
-                  <td className="px-3 py-2">{ts ? <TermSheetStatusBadge status={r.status} /> : <ProposalStatusBadge status={r.status} />}</td>
+                  <td data-label="Status" className="px-3 py-2">{ts ? <TermSheetStatusBadge status={r.status} /> : <ProposalStatusBadge status={r.status} />}</td>
                   {ts ? (
-                    <td colSpan={3} className="px-3 py-2 text-right text-secondary tabular">
+                    <td data-label="Terms" colSpan={3} className="px-3 py-2 text-right text-secondary tabular">
                       {r.tierLabel ? `Tier ${r.tierLabel}${r.partnerPct !== null ? ` · partner ${r.partnerPct}%` : ""}` : "No tier"}
                     </td>
                   ) : (
                     <>
-                      <td className="px-3 py-2 text-right tabular">+{usdK(r.uplift)}</td>
-                      <td className="px-3 py-2 text-right tabular">{usdK(r.rtbShare)}</td>
-                      <td className="px-3 py-2 text-right tabular text-fg">{usdK(r.clientNetAfterShare)}</td>
+                      <td data-label="EBITDA uplift" className="px-3 py-2 text-right tabular">+{usdK(r.uplift)}</td>
+                      <td data-label="RTB share / yr" className="px-3 py-2 text-right tabular">{usdK(r.rtbShare)}</td>
+                      <td data-label="Client net" className="px-3 py-2 text-right tabular text-fg">{usdK(r.clientNetAfterShare)}</td>
                     </>
                   )}
-                  <td className="px-3 py-2 tabular text-secondary">
+                  <td data-label="Updated" className="px-3 py-2 tabular text-secondary">
                     {fmtDate(r.createdAt)} · {r.createdByName ?? "—"}
                   </td>
                 </tr>

@@ -183,7 +183,7 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList className="overflow-x-auto">
+        <TabsList>
           <TabsTrigger className="whitespace-nowrap" value="overview">Overview</TabsTrigger>
           <TabsTrigger className="whitespace-nowrap" value="audience">Audience</TabsTrigger>
           <TabsTrigger className="whitespace-nowrap" value="contacts">Contacts ({data.contacts.length})</TabsTrigger>
@@ -296,7 +296,7 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
           {data.metrics.length ? (
             <Card>
               <CardContent className="overflow-x-auto p-0">
-                <table className="w-full min-w-[640px] text-sm">
+                <table className="table-cards w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
                       <th className="h-9 px-4 font-medium">Period</th>
@@ -310,15 +310,15 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
                   <tbody>
                     {[...data.metrics].reverse().map((m) => (
                       <tr key={m.id} className="border-b border-border last:border-0">
-                        <td className="h-9 px-4 text-secondary tabular">{m.period ?? "—"}</td>
-                        <td className="px-4 text-body">{m.metric === "muu" ? "MUU" : m.metric === "visits" ? "Visits" : "Pageviews"}</td>
-                        <td className="px-4 text-right tabular text-fg">
+                        <td data-label="Period" data-primary className="h-9 px-4 text-secondary tabular">{m.period ?? "—"}</td>
+                        <td data-label="Metric" className="px-4 text-body">{m.metric === "muu" ? "MUU" : m.metric === "visits" ? "Visits" : "Pageviews"}</td>
+                        <td data-label="Value" className="px-4 text-right tabular text-fg">
                           {fmtNumber(m.value)}
                           {m.derivedMuu ? <span className="block text-[11px] italic text-muted">≈ {fmtNumber(m.derivedMuu, { compact: true })} MUU (÷{m.factorUsed})</span> : null}
                         </td>
-                        <td className="px-4 text-muted">{m.rawValue ?? "—"}</td>
-                        <td className="px-4 text-secondary">{m.source}</td>
-                        <td className="px-4">
+                        <td data-label="Raw" className="px-4 text-muted">{m.rawValue ?? "—"}</td>
+                        <td data-label="Source" className="px-4 text-secondary">{m.source}</td>
+                        <td data-label="Confidence" className="px-4">
                           <ConfidenceBadge confidence={m.confidence} />
                         </td>
                       </tr>
@@ -346,7 +346,7 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
           </div>
           {data.contacts.length ? (
             <div className="overflow-x-auto rounded-lg border border-border bg-surface-1">
-              <table className="w-full min-w-[720px] text-sm">
+              <table className="table-cards w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
                     <th className="h-9 px-3 font-medium">Name</th>
@@ -360,18 +360,18 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
                 <tbody>
                   {data.contacts.map((c) => (
                     <tr key={c.id} className="border-b border-border last:border-0 hover:bg-surface-2">
-                      <td className="h-10 px-3">
+                      <td data-label="Name" data-primary className="h-10 px-3">
                         <Link href={`/contacts/${c.id}`} className="font-medium text-fg hover:underline">
                           {c.fullName}
                         </Link>
                       </td>
-                      <td className="px-3 text-secondary">
+                      <td data-label="Title" className="px-3 text-secondary">
                         {c.title ?? "—"}
                         {c.seniority ? <span className="block text-[11px] text-muted">{seniorityLabel(c.seniority)}</span> : null}
                       </td>
-                      <td className="px-3">
+                      <td data-label="Email" className="px-3">
                         {c.email ? (
-                          <a href={`mailto:${c.email}`} className="inline-flex items-center gap-1 text-secondary hover:text-fg">
+                          <a href={`mailto:${c.email}`} className="inline-flex min-w-0 items-center gap-1 break-all text-secondary hover:text-fg md:break-normal">
                             <Mail className="size-3" aria-hidden /> {c.email}
                           </a>
                         ) : c.phone ? (
@@ -382,14 +382,14 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
                           <span className="text-muted">—</span>
                         )}
                       </td>
-                      <td className="px-3 text-secondary">{c.relationshipOwner ?? "—"}</td>
-                      <td className="px-3">
+                      <td data-label="Relationship owner" className="px-3 text-secondary">{c.relationshipOwner ?? "—"}</td>
+                      <td data-label="Status" className="px-3">
                         <span className="inline-flex gap-1">
                           <Badge>{c.status === "left_company" ? "Left company" : "Active"}</Badge>
                           {c.doNotContact ? <Badge>DNC</Badge> : null}
                         </span>
                       </td>
-                      <td className="px-3 text-xs text-muted">{fmtRelative(c.lastContactedAt)}</td>
+                      <td data-label="Last contacted" className="px-3 text-xs text-muted">{fmtRelative(c.lastContactedAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -411,7 +411,7 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
         <TabsContent value="documents">
           {data.documents.length ? (
             <div className="overflow-x-auto rounded-lg border border-border bg-surface-1">
-              <table className="w-full min-w-[600px] text-sm">
+              <table className="table-cards w-full min-w-[600px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
                     <th className="h-9 px-3 font-medium">Document</th>
@@ -425,7 +425,7 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
                 <tbody>
                   {data.documents.map((d) => (
                     <tr key={d.id} className="border-b border-border last:border-0">
-                      <td className="h-10 px-3">
+                      <td data-label="Document" data-primary className="h-10 px-3">
                         {d.url ? (
                           <a href={d.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-fg hover:underline">
                             {d.name} <ExternalLink className="size-3" aria-hidden />
@@ -434,13 +434,13 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
                           <span className="text-fg">{d.name}</span>
                         )}
                       </td>
-                      <td className="px-3 uppercase text-secondary">{d.type.replace(/_/g, " ")}</td>
-                      <td className="px-3">
+                      <td data-label="Type" className="px-3 uppercase text-secondary">{d.type.replace(/_/g, " ")}</td>
+                      <td data-label="Status" className="px-3">
                         <Badge>{d.status}</Badge>
                       </td>
-                      <td className="px-3 tabular text-secondary">v{d.version}</td>
-                      <td className="px-3 text-secondary">{fmtDate(d.signedAt)}</td>
-                      <td className="px-3 text-secondary">{fmtDate(d.expiresAt)}</td>
+                      <td data-label="Version" className="px-3 tabular text-secondary">v{d.version}</td>
+                      <td data-label="Signed" className="px-3 text-secondary">{fmtDate(d.signedAt)}</td>
+                      <td data-label="Expires" className="px-3 text-secondary">{fmtDate(d.expiresAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -471,7 +471,7 @@ type DealRow = Account360["deals"][number] & { value: ReturnType<typeof dealValu
 function DealsTable({ deals, nowMs }: { deals: DealRow[]; nowMs: number }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm">
+      <table className="table-cards w-full min-w-[640px] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
             <th className="h-9 px-4 font-medium">Pipeline</th>
@@ -487,23 +487,23 @@ function DealsTable({ deals, nowMs }: { deals: DealRow[]; nowMs: number }) {
             const overdue = d.status === "open" && d.nextStepDueAt && d.nextStepDueAt.getTime() < nowMs;
             return (
               <tr key={d.id} className="border-b border-border last:border-0 hover:bg-surface-2">
-                <td className="h-11 px-4">
+                <td data-label="Pipeline" className="h-11 px-4">
                   <span className="inline-flex items-center gap-1.5 text-xs text-secondary" title={d.pipelineName}>
                     <ColorTick color={d.pipelineColor || PIPELINE_COLORS[d.pipelineKey] || "#828282"} />
                     {d.pipelineKey}
                   </span>
                 </td>
-                <td className="max-w-[220px] px-4">
-                  <Link href={`/deals/${d.id}`} className="block truncate text-fg hover:underline">
+                <td data-label="Deal" data-primary className="md:max-w-[220px] px-4">
+                  <Link href={`/deals/${d.id}`} className="block min-w-0 truncate text-fg hover:underline">
                     {d.name}
                   </Link>
                   <span className="text-[11px] text-muted">{d.ownerName ?? "Unassigned"}</span>
                 </td>
-                <td className="px-4">
+                <td data-label="Stage" className="px-4">
                   <Badge>{d.stageName}</Badge>
                   {d.restricted ? <Lock className="ml-1 inline size-3 text-muted" aria-label="Restricted" /> : null}
                 </td>
-                <td className="px-4 text-right tabular">
+                <td data-label="Value" className="px-4 text-right tabular">
                   {d.unit === "muu" ? (
                     <>
                       <span className="text-fg">{fmtNumber(d.value.muu, { compact: true })} MUU</span>
@@ -515,12 +515,12 @@ function DealsTable({ deals, nowMs }: { deals: DealRow[]; nowMs: number }) {
                     <span className="text-secondary">{d.r100?.postCount ? `${d.r100.postCount} posts` : "activation"}</span>
                   )}
                 </td>
-                <td className="px-4 text-right tabular text-secondary">
+                <td data-label="Prob." className="px-4 text-right tabular text-secondary">
                   {fmtPct(d.value.probability)}
                   {d.probabilityOverride != null ? <span className="block text-[10px] text-muted">{d.overrideStatus === "pending" ? "override pending" : "override"}</span> : null}
                 </td>
-                <td className="max-w-[260px] px-4">
-                  <span className="block truncate text-secondary" title={d.nextStep ?? undefined}>
+                <td data-label="Next step" className="md:max-w-[260px] px-4">
+                  <span className="block min-w-0 truncate text-secondary" title={d.nextStep ?? undefined}>
                     {d.nextStep ?? "—"}
                   </span>
                   {d.nextStepDueAt ? <span className={`text-[11px] ${overdue ? "text-critical" : "text-muted"}`}>{overdue ? "Overdue · " : "Due "}{fmtDate(d.nextStepDueAt, "d MMM")}</span> : null}

@@ -27,7 +27,7 @@ export function NotificationList({ items }: { items: NotificationView[] }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-secondary">
           <span className="tabular">{unread}</span> unread
         </p>
@@ -53,10 +53,10 @@ export function NotificationList({ items }: { items: NotificationView[] }) {
           {items.map((n) => {
             const Icon = ICONS[n.kind] ?? Bell;
             return (
-              <li key={n.id} className={cn("flex items-start gap-3 px-4 py-3", !n.read && "bg-surface-2/40")}>
+              <li key={n.id} className={cn("flex items-start gap-3 px-3 py-3 sm:px-4", !n.read && "bg-surface-2/40")}>
                 <Icon className={cn("mt-0.5 size-4 shrink-0", n.read ? "text-muted" : "text-fg")} strokeWidth={1.5} aria-hidden />
                 <div className="min-w-0 flex-1">
-                  <p className={cn("text-sm", n.read ? "text-secondary" : "font-medium text-fg")}>
+                  <p className={cn("break-words text-sm", n.read ? "text-secondary" : "font-medium text-fg")}>
                     {!n.read ? <span className="sr-only">Unread: </span> : null}
                     {n.href ? (
                       <Link href={n.href} className="hover:underline" onClick={() => !n.read && mark(n, true)}>
@@ -78,7 +78,7 @@ export function NotificationList({ items }: { items: NotificationView[] }) {
                     ) : null}
                   </p>
                 </div>
-                <Button size="sm" variant="ghost" disabled={pending} onClick={() => mark(n, !n.read)} aria-label={n.read ? `Mark unread: ${n.title}` : `Mark read: ${n.title}`}>
+                <Button size="sm" variant="ghost" className="shrink-0 max-sm:px-2" disabled={pending} onClick={() => mark(n, !n.read)} aria-label={n.read ? `Mark unread: ${n.title}` : `Mark read: ${n.title}`}>
                   {n.read ? "Mark unread" : "Mark read"}
                 </Button>
               </li>

@@ -95,7 +95,7 @@ function StagesTable({ pipeline, onEdit }: { pipeline: AdminPipeline; onEdit: (s
   if (!pipeline.stages.length) return <EmptyState title="No stages yet" description="Add the first stage to this pipeline." />;
   const last = pipeline.stages.length - 1;
   return (
-    <AdminTable>
+    <AdminTable cards>
       <thead>
         <tr>
           <Th className="w-16">Order</Th>
@@ -113,7 +113,7 @@ function StagesTable({ pipeline, onEdit }: { pipeline: AdminPipeline; onEdit: (s
       <tbody>
         {pipeline.stages.map((st, i) => (
           <tr key={st.id}>
-            <Td>
+            <Td label="Order">
               <div className="flex gap-0.5">
                 <Button size="icon-sm" variant="ghost" aria-label={`Move ${st.name} up`} disabled={i === 0 || move.pending} onClick={() => void move.run({ id: st.id, direction: "up" })}>
                   <ArrowUp aria-hidden />
@@ -123,15 +123,17 @@ function StagesTable({ pipeline, onEdit }: { pipeline: AdminPipeline; onEdit: (s
                 </Button>
               </div>
             </Td>
-            <Td>
-              <div className="font-medium text-fg">{st.name}</div>
-              <div className="text-xs text-muted">{st.key}</div>
+            <Td label="Stage" primary>
+              <div className="min-w-0">
+                <div className="font-medium text-fg">{st.name}</div>
+                <div className="text-xs text-muted">{st.key}</div>
+              </div>
             </Td>
-            <Td>{CATEGORY_LABELS[st.category]}</Td>
-            <Td className="text-right tabular">{fmtPct(st.probability)}</Td>
-            <Td className="text-right tabular">{st.slaDays != null ? `${st.slaDays}d` : "—"}</Td>
-            <Td>
-              <div className="flex flex-wrap gap-1">
+            <Td label="Category">{CATEGORY_LABELS[st.category]}</Td>
+            <Td label="Probability" className="text-right tabular">{fmtPct(st.probability)}</Td>
+            <Td label="SLA" className="text-right tabular">{st.slaDays != null ? `${st.slaDays}d` : "—"}</Td>
+            <Td label="Gates">
+              <div className="flex flex-wrap justify-end gap-1 md:justify-start">
                 {st.requiredFields.map((f) => (
                   <Badge key={f}>{f}</Badge>
                 ))}
@@ -139,8 +141,8 @@ function StagesTable({ pipeline, onEdit }: { pipeline: AdminPipeline; onEdit: (s
                 {!st.requiredFields.length && !st.requiresApproval ? <span className="text-muted">—</span> : null}
               </div>
             </Td>
-            <Td className="text-right tabular">{fmtNumber(st.dealCount)}</Td>
-            <Td>
+            <Td label="Deals" className="text-right tabular">{fmtNumber(st.dealCount)}</Td>
+            <Td actions>
               <div className="flex justify-end gap-0.5">
                 <Button size="icon-sm" variant="ghost" aria-label={`Edit ${st.name}`} onClick={() => onEdit(st)}>
                   <Pencil aria-hidden />

@@ -329,8 +329,9 @@ export function DealsTable({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[960px] border-collapse text-[13px]">
+      {/* Phones: each deal is a stacked card (.table-cards); md+: the spreadsheet grid scrolls horizontally. */}
+      <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-border">
+        <table className="table-cards w-full min-w-[960px] border-collapse text-[13px]">
           <thead className="bg-surface-1">
             {table.getHeaderGroups().map((g) => (
               <tr key={g.id}>
@@ -362,7 +363,19 @@ export function DealsTable({
             {table.getRowModel().rows.map((row) => (
               <tr key={row.id} className={cn("border-b border-border last:border-0 hover:bg-surface-1", row.getIsSelected() ? "bg-surface-2/60" : "")}>
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className={cn("h-10 max-w-64 px-3 align-middle text-body", cell.column.id === "nextStep" ? "min-w-56" : "")}>
+                  <td
+                    key={cell.id}
+                    data-select={cell.column.id === "select" ? "" : undefined}
+                    data-primary={cell.column.id === "name" ? "" : undefined}
+                    data-label={
+                      cell.column.id === "select" || cell.column.id === "name"
+                        ? undefined
+                        : typeof cell.column.columnDef.header === "string"
+                          ? cell.column.columnDef.header
+                          : (COLUMN_LABELS[cell.column.id] ?? "")
+                    }
+                    className={cn("h-10 max-w-64 px-3 align-middle text-body", cell.column.id === "nextStep" ? "min-w-56" : "")}
+                  >
                     <table.FlexRender cell={cell} />
                   </td>
                 ))}

@@ -227,7 +227,7 @@ function RelatedPicker({ related, onChange }: { related: Related[]; onChange: (r
                 <Icon className="size-3 text-muted" aria-hidden />
                 <span className="sr-only">{r.type}:</span>
                 {r.title}
-                <button type="button" aria-label={`Remove ${r.type} ${r.title}`} className="text-muted hover:text-fg" onClick={() => onChange(related.filter((x) => x.type !== r.type))}>
+                <button type="button" aria-label={`Remove ${r.type} ${r.title}`} className="relative after:absolute after:-inset-2 after:content-[''] text-muted hover:text-fg" onClick={() => onChange(related.filter((x) => x.type !== r.type))}>
                   <X className="size-3" />
                 </button>
               </span>

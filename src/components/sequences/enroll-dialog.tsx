@@ -241,7 +241,7 @@ function ChoiceList({ choices, chosen, setChosen }: { choices: { id: string; nam
       {choices.map((c) => {
         const disabled = Boolean(c.disabledReason);
         return (
-          <label key={c.id} className={cn("flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-surface-3/50", disabled && "opacity-50")}>
+          <label key={c.id} className={cn("flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-surface-3/50 pointer-coarse:py-2.5", disabled && "opacity-50")}>
             <input
               type="checkbox"
               className="size-4 accent-white"
@@ -287,7 +287,7 @@ function ContactPicker({ picked, setPicked }: { picked: PickedContact[]; setPick
           {picked.map((p) => (
             <span key={p.id} className="inline-flex items-center gap-1 rounded border border-border-strong px-1.5 py-0.5 text-xs text-body">
               {p.fullName}
-              <button type="button" aria-label={`Remove ${p.fullName}`} className="text-muted hover:text-fg" onClick={() => setPicked(picked.filter((x) => x.id !== p.id))}>
+              <button type="button" aria-label={`Remove ${p.fullName}`} className="relative after:absolute after:-inset-2 after:content-[''] text-muted hover:text-fg" onClick={() => setPicked(picked.filter((x) => x.id !== p.id))}>
                 <X className="size-3" />
               </button>
             </span>

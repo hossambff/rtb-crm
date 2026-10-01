@@ -67,10 +67,10 @@ export function MatrixEditor({ role, grid, editable, overrideCount }: { role: Ro
           <span aria-hidden className="size-1.5 rounded-full bg-white" /> overridden cell
         </span>
       </p>
-      <AdminTable className="-mx-4">
+      <AdminTable stickyFirst className="-mx-4">
         <thead>
           <tr>
-            <Th className="sticky left-0 z-10 bg-surface-1 pl-4">Module</Th>
+            <Th className="pl-4">Module</Th>
             {ACTIONS.map((a) => (
               <Th key={a} className="text-center">
                 {ACTION_LABELS[a]}
@@ -81,7 +81,7 @@ export function MatrixEditor({ role, grid, editable, overrideCount }: { role: Ro
         <tbody>
           {grid.map((row) => (
             <tr key={row[0]!.module}>
-              <Td className="sticky left-0 z-10 whitespace-nowrap bg-surface-1 pl-4 text-xs font-medium text-secondary">{MODULE_LABELS[row[0]!.module]}</Td>
+              <Td className="whitespace-nowrap pl-4 text-xs font-medium text-secondary">{MODULE_LABELS[row[0]!.module]}</Td>
               {row.map((c) => (
                 <Td key={c.action} className="px-1 text-center">
                   {editable ? (
@@ -144,7 +144,7 @@ export function FieldSecurity({
       description="Defaults hide deal terms from interns, commission reps, editorial and viewers (PRD §7.1). Overrides below are stored per role and are enforced server-side wherever field security is read."
     >
       <h3 className="mb-2 text-xs font-medium text-secondary">Defaults (built in)</h3>
-      <AdminTable className="-mx-4 mb-5">
+      <AdminTable cards className="-mx-4 mb-5">
         <thead>
           <tr>
             <Th className="pl-4">Field</Th>
@@ -154,11 +154,11 @@ export function FieldSecurity({
         <tbody>
           {defaults.map((d) => (
             <tr key={`${d.entity}.${d.field}`}>
-              <Td className="pl-4 font-mono text-xs">
+              <Td label="Field" primary className="pl-4 font-mono text-xs">
                 {d.entity}.{d.field}
               </Td>
-              <Td>
-                <div className="flex flex-wrap gap-1">
+              <Td label="Hidden from">
+                <div className="flex flex-wrap justify-end gap-1 md:justify-start">
                   {d.roles.map((r) => (
                     <Badge key={r}>{ROLE_LABELS[r]}</Badge>
                   ))}
@@ -170,7 +170,7 @@ export function FieldSecurity({
       </AdminTable>
       <h3 className="mb-2 text-xs font-medium text-secondary">Overrides</h3>
       {overrides.length ? (
-        <AdminTable className="-mx-4 mb-4">
+        <AdminTable cards className="-mx-4 mb-4">
           <thead>
             <tr>
               <Th className="pl-4">Role</Th>
@@ -184,14 +184,14 @@ export function FieldSecurity({
           <tbody>
             {overrides.map((o) => (
               <tr key={`${o.role}:${o.entity}.${o.field}`}>
-                <Td className="pl-4">{ROLE_LABELS[o.role as Role] ?? o.role}</Td>
-                <Td className="font-mono text-xs">
+                <Td label="Role" primary className="pl-4">{ROLE_LABELS[o.role as Role] ?? o.role}</Td>
+                <Td label="Field" className="font-mono text-xs">
                   {o.entity}.{o.field}
                 </Td>
-                <Td>
+                <Td label="Access">
                   <Badge>{o.access.replace("_", " ")}</Badge>
                 </Td>
-                <Td className="pr-4 text-right">
+                <Td actions className="pr-4 text-right">
                   {editable ? (
                     <Button
                       variant="ghost"

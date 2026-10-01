@@ -28,7 +28,7 @@ const STATUS: Record<ShareCard["status"], { status: "good" | "critical" | "warni
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 py-8 sm:px-6 sm:py-12">
+    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-8 sm:px-6 sm:pb-12 sm:pt-12">
       <header className="mb-10 flex items-center justify-between gap-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/roundtable-lockup-white.png" alt="Roundtable" width={47} height={48} style={{ width: 47, height: 48 }} className="object-contain" />
@@ -63,7 +63,7 @@ function Card({ c }: { c: ShareCard }) {
   if (c.muu) rows.push({ k: "Audience", v: c.muu });
   if (c.owner) rows.push({ k: "Roundtable contact", v: c.owner });
   return (
-    <li className="rounded-lg border border-border bg-surface-1 p-5 transition-colors duration-200 hover:border-border-strong">
+    <li className="min-w-0 rounded-lg border border-border bg-surface-1 p-4 transition-colors sm:p-5 duration-200 hover:border-border-strong">
       <div className="flex items-start justify-between gap-3">
         <h2 className="min-w-0 break-words font-display text-lg leading-6 text-fg">{c.title}</h2>
         <StatusBadge status={st.status} label={st.label} className="shrink-0" />
@@ -73,7 +73,7 @@ function Card({ c }: { c: ShareCard }) {
           {rows.map((r) => (
             <div key={r.k} className="min-w-0">
               <dt className="text-[11px] uppercase tracking-wide text-muted">{r.k}</dt>
-              <dd className="mt-0.5 truncate text-sm text-body">{r.v}</dd>
+              <dd className="mt-0.5 break-words text-sm text-body">{r.v}</dd>
             </div>
           ))}
         </dl>
@@ -83,7 +83,7 @@ function Card({ c }: { c: ShareCard }) {
           <p className="text-[11px] uppercase tracking-wide text-muted">
             Next step{c.nextStepDue ? <span className="normal-case tracking-normal"> · {c.nextStepDue}</span> : null}
           </p>
-          <p className="mt-1 text-sm leading-6 text-body">{c.nextStep}</p>
+          <p className="mt-1 break-words text-sm leading-6 text-body">{c.nextStep}</p>
         </div>
       ) : null}
     </li>
@@ -117,7 +117,7 @@ export default async function SharePage({ params }: PageProps<"/share/[token]">)
     <Shell>
       <section aria-labelledby="share-title">
         {share.partnerName ? <p className="text-xs uppercase tracking-[0.14em] text-muted">Prepared for {share.partnerName}</p> : null}
-        <h1 id="share-title" className="mt-1 font-display text-3xl leading-tight text-fg sm:text-4xl">
+        <h1 id="share-title" className="mt-1 break-words font-display text-3xl leading-tight text-fg sm:text-4xl">
           {share.label}
         </h1>
         <p className="mt-2 text-sm text-secondary">

@@ -56,18 +56,18 @@ export function Recap({
 
   return (
     <div className="mx-auto max-w-3xl">
-      <Link href="/review" className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
+      <Link href="/review" className="-my-2 mb-1 inline-flex items-center gap-1 py-2 text-xs text-muted hover:text-fg">
         ← Pipeline review
       </Link>
       <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Recap</p>
-      <h1 className="mt-1 font-display text-[28px] font-medium leading-9 text-fg">{title}</h1>
+      <h1 className="mt-1 break-words font-display text-2xl font-medium leading-8 text-fg sm:text-[28px] sm:leading-9">{title}</h1>
       <p className="mt-1 text-sm text-muted">
         {items.length} of {dealCount} deals decided · {tasksCreated} task{tasksCreated === 1 ? "" : "s"} created
       </p>
 
       <dl className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-5">
         {OUTCOMES.map((o) => (
-          <div key={o} className="bg-surface-1 px-4 py-3">
+          <div key={o} className="bg-surface-1 px-4 py-3 max-sm:last:odd:col-span-2">
             <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">{OUTCOME_PAST[o]}</dt>
             <dd className="mt-1 font-display text-[28px] leading-9 text-fg tabular">{counts[o]}</dd>
           </div>
@@ -77,7 +77,7 @@ export function Recap({
       {items.length ? (
         <ul className="mt-6 divide-y divide-border rounded-lg border border-border bg-surface-1">
           {items.map((i) => (
-            <li key={i.dealId} className="flex items-start gap-3 px-4 py-3 text-sm">
+            <li key={i.dealId} className="flex flex-wrap items-start gap-x-3 gap-y-1 px-4 py-3 text-sm">
               <ColorTick color={i.pipelineColor} className="mt-1" />
               <div className="min-w-0 flex-1">
                 <Link href={`/deals/${i.dealId}`} className="text-fg hover:underline">

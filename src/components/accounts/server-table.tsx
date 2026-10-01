@@ -12,7 +12,14 @@ export type ListFeatures = typeof listFeatures;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ListColumn<T extends RowData> = ColumnDef<ListFeatures, T, any>;
 
-export type ColumnUi = { sortKey?: string; align?: "right"; className?: string; hideOnMobile?: boolean };
+export type ColumnUi = {
+  sortKey?: string;
+  align?: "right";
+  className?: string;
+  hideOnMobile?: boolean;
+  /** Label for the phone card layout (defaults to the column's string header). */
+  label?: string;
+};
 
 /** Optional row selection (checkbox column). The parent owns the set; ids are row ids on the current page. */
 export type TableSelection = { selected: ReadonlySet<string>; onChange: (next: Set<string>) => void; label: (id: string) => string };
@@ -55,7 +62,8 @@ export function ServerTable<T extends RowData & { id: string }>({
   };
   return (
     <div className={cn("overflow-x-auto rounded-lg border border-border bg-surface-1 transition-opacity duration-150", pending && "opacity-60")}>
-      <table className="w-full border-collapse text-sm md:min-w-[720px]">
+      {/* Phones: rows reflow into stacked cards (.table-cards); md+: the dense table. */}
+      <table className="table-cards w-full border-collapse text-sm md:min-w-[720px]">
         <thead>
           {table.getHeaderGroups().map((group) => (
             <tr key={group.id} className="border-b border-border">
@@ -121,7 +129,7 @@ export function ServerTable<T extends RowData & { id: string }>({
               )}
             >
               {selection ? (
-                <td className="w-9 px-3 align-middle">
+                <td className="w-9 px-3 align-middle" data-select>
                   <input
                     type="checkbox"
                     aria-label={selection.label(row.id)}
@@ -131,10 +139,16 @@ export function ServerTable<T extends RowData & { id: string }>({
                   />
                 </td>
               ) : null}
-              {row.getAllCells().map((cell) => {
+              {row.getAllCells().map((cell, i) => {
                 const u = ui[cell.column.id] ?? {};
+                const header = cell.column.columnDef.header;
+                const label = u.label ?? (typeof header === "string" ? header : "");
                 return (
-                  <td key={cell.id} className={cn("h-10 whitespace-nowrap px-3 align-middle text-body", u.align === "right" && "text-right tabular", u.hideOnMobile && "hidden md:table-cell", u.className)}>
+                  <td
+                    key={cell.id}
+                    data-label={i === 0 ? undefined : label}
+                    data-primary={i === 0 ? "" : undefined}
+                    className={cn("h-10 whitespace-nowrap px-3 align-middle text-body", u.align === "right" && "text-right tabular", u.hideOnMobile && "hidden md:table-cell", u.className)}>
                     <table.FlexRender cell={cell} />
                   </td>
                 );

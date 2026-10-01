@@ -158,8 +158,8 @@ export function ScoutSettingsForm({ initial }: { initial: Settings }) {
             <p className="text-xs font-medium text-secondary">Per-vertical overrides</p>
             {cats.map(([k, v], i) => (
               <div key={i} className="flex items-center gap-2">
-                <Input aria-label="Vertical" className="w-48" value={k} onChange={(e) => setCats(cats.map((c, j) => (j === i ? [e.target.value, c[1]] : c)))} />
-                <Input aria-label={`Factor for ${k || "vertical"}`} className="w-24" inputMode="decimal" value={v} onChange={(e) => setCats(cats.map((c, j) => (j === i ? [c[0], e.target.value] : c)))} />
+                <Input aria-label="Vertical" className="min-w-0 flex-1 sm:w-48 sm:flex-none" value={k} onChange={(e) => setCats(cats.map((c, j) => (j === i ? [e.target.value, c[1]] : c)))} />
+                <Input aria-label={`Factor for ${k || "vertical"}`} className="w-20 shrink-0 sm:w-24" inputMode="decimal" value={v} onChange={(e) => setCats(cats.map((c, j) => (j === i ? [c[0], e.target.value] : c)))} />
                 <Button type="button" size="icon-sm" variant="ghost" aria-label={`Remove ${k}`} onClick={() => setCats(cats.filter((_, j) => j !== i))}>
                   <Trash2 />
                 </Button>
@@ -259,7 +259,7 @@ export function ActorRegistryTable({ actors }: { actors: Actor[] }) {
         </div>
       </CardHeader>
       <CardContent className="overflow-x-auto p-0">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="table-cards w-full min-w-[760px] text-sm">
           <thead className="text-left text-xs text-muted">
             <tr className="border-b border-border">
               <th className="px-5 py-2">Purpose</th>
@@ -274,17 +274,17 @@ export function ActorRegistryTable({ actors }: { actors: Actor[] }) {
           <tbody>
             {actors.map((a) => (
               <tr key={a.id} className="border-b border-border last:border-0">
-                <td className="px-5 py-2 text-secondary">{a.purpose}</td>
-                <td className="px-3 py-2 font-mono text-xs text-body">{a.actorId}</td>
-                <td className="px-3 py-2 text-right tabular">{a.fallbackOrder}</td>
-                <td className="px-3 py-2 text-right tabular">{a.costPerResultUsd.toFixed(4)}</td>
-                <td className="px-3 py-2 text-right tabular text-muted">
+                <td data-label="Purpose" className="px-5 py-2 text-secondary">{a.purpose}</td>
+                <td data-primary className="break-all px-3 py-2 font-mono text-xs text-body">{a.actorId}</td>
+                <td data-label="Order" className="px-3 py-2 text-right tabular">{a.fallbackOrder}</td>
+                <td data-label="$/result" className="px-3 py-2 text-right tabular">{a.costPerResultUsd.toFixed(4)}</td>
+                <td data-label="Max items · timeout" className="px-3 py-2 text-right tabular text-muted">
                   {a.maxItems} · {a.timeoutSecs}s
                 </td>
-                <td className="px-3 py-2">
+                <td data-label="Compliant" className="px-3 py-2">
                   <input type="checkbox" className="accent-white" aria-label={`${a.actorId} compliant`} checked={a.compliant} onChange={(e) => toggle(a.id, { compliant: e.target.checked })} />
                 </td>
-                <td className="px-3 py-2">
+                <td data-label="Enabled" className="px-3 py-2">
                   <input type="checkbox" className="accent-white" aria-label={`${a.actorId} enabled`} checked={a.enabled} onChange={(e) => toggle(a.id, { enabled: e.target.checked })} />
                 </td>
               </tr>

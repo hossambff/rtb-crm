@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Lock, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EMAIL_INTENTS } from "@/lib/gmail/analysis-core";
+import { ScrollStrip } from "@/components/ui/scroll-strip";
 
 export type InboxParams = Partial<Record<"awaiting" | "intent" | "linked" | "mailbox" | "view" | "q" | "thread", string>>;
 
@@ -31,7 +32,7 @@ function Chip({ href, active, children }: { href: string; active: boolean; child
       href={href}
       aria-current={active ? "true" : undefined}
       className={cn(
-        "inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs transition-colors",
+        "inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs transition-colors pointer-coarse:h-10",
         active ? "border-fg bg-fg text-accent-inverse" : "border-border-strong text-secondary hover:bg-surface-2 hover:text-fg",
       )}
     >
@@ -45,7 +46,7 @@ export function InboxFilters({ params, counts, canSeeTeam }: { params: InboxPara
   const isAll = !params.awaiting && !params.linked && params.view !== "private";
   return (
     <div className="mb-4 space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <ScrollStrip aria-label="Inbox views" activeKey={`${params.awaiting}|${params.linked}|${params.view}`} className="-mx-4 flex items-center gap-2 px-4 sm:mx-0 sm:px-0 md:flex-wrap">
         <Chip href={inboxHref(params, { ...clear, awaiting: undefined, linked: undefined, view: undefined })} active={isAll}>
           All
         </Chip>
@@ -64,25 +65,25 @@ export function InboxFilters({ params, counts, canSeeTeam }: { params: InboxPara
         <Chip href={inboxHref({}, { view: params.view === "private" ? undefined : "private" })} active={params.view === "private"}>
           <Lock className="size-3" aria-hidden /> Private
         </Chip>
-      </div>
+      </ScrollStrip>
       <form action="/inbox" className="flex flex-wrap items-center gap-2" role="search">
         {params.awaiting ? <input type="hidden" name="awaiting" value={params.awaiting} /> : null}
         {params.linked ? <input type="hidden" name="linked" value={params.linked} /> : null}
-        <div className="relative min-w-52 flex-1 sm:max-w-sm">
+        <div className="relative w-full min-w-0 sm:w-auto sm:min-w-52 sm:flex-1 sm:max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted" aria-hidden />
           <input
             name="q"
             defaultValue={params.q ?? ""}
             placeholder="Search subject or people"
             aria-label="Search threads"
-            className="h-8 w-full rounded-md border border-border bg-surface-3/40 pl-8 pr-3 text-sm text-body placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            className="h-8 w-full rounded-md border border-border bg-surface-3/40 pl-8 pr-3 text-sm pointer-coarse:h-10 text-body placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
           />
         </div>
         <select
           name="intent"
           defaultValue={params.intent ?? ""}
           aria-label="Filter by intent"
-          className="h-8 rounded-md border border-border bg-surface-2 px-2 text-xs text-body"
+          className="h-8 min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-2 text-xs text-body pointer-coarse:h-10 sm:flex-none"
         >
           <option value="">Any intent</option>
           {EMAIL_INTENTS.map((i) => (
@@ -92,13 +93,13 @@ export function InboxFilters({ params, counts, canSeeTeam }: { params: InboxPara
           ))}
         </select>
         {canSeeTeam ? (
-          <select name="mailbox" defaultValue={params.mailbox ?? ""} aria-label="Mailbox" className="h-8 rounded-md border border-border bg-surface-2 px-2 text-xs text-body">
+          <select name="mailbox" defaultValue={params.mailbox ?? ""} aria-label="Mailbox" className="h-8 min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-2 text-xs text-body pointer-coarse:h-10 sm:flex-none">
             <option value="">My + team (linked)</option>
             <option value="mine">My mailbox</option>
             <option value="team">Team (linked deals)</option>
           </select>
         ) : null}
-        <button type="submit" className="h-8 rounded-md border border-border-strong px-3 text-xs text-fg hover:bg-surface-2">
+        <button type="submit" className="touch-target h-8 rounded-md border border-border-strong px-3 text-xs text-fg hover:bg-surface-2">
           Apply
         </button>
       </form>

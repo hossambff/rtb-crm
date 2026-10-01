@@ -31,8 +31,8 @@ export default async function SequencesPage(props: PageProps<"/sequences">) {
 
       {!ready.gmailReady ? (
         <div className="mb-5 flex flex-wrap items-center gap-3 rounded-lg border border-border-strong bg-surface-1 px-4 py-3 text-sm">
-          <MailWarning className="size-4 text-warning" aria-hidden />
-          <span className="flex-1 text-body">Connect your Gmail (read + send) to enroll people — sequences never send from a shared address.</span>
+          <MailWarning className="size-4 shrink-0 text-warning" aria-hidden />
+          <span className="min-w-0 flex-1 text-body">Connect your Gmail (read + send) to enroll people — sequences never send from a shared address.</span>
           <Button asChild size="sm">
             <Link href={GMAIL_CONNECT_HREF}>Connect Gmail</Link>
           </Button>
@@ -73,7 +73,7 @@ export default async function SequencesPage(props: PageProps<"/sequences">) {
                 key={f}
                 href={f === "all" ? "/sequences" : "/sequences?f=mine"}
                 aria-current={filter === f ? "page" : undefined}
-                className={cn("rounded-md px-2.5 py-1 text-muted transition-colors duration-150 hover:text-fg", filter === f && "bg-surface-2 text-fg")}
+                className={cn("touch-target inline-flex items-center rounded-md px-2.5 py-1 text-muted transition-colors duration-150 hover:text-fg", filter === f && "bg-surface-2 text-fg")}
               >
                 {f === "all" ? `All (${rows.length})` : `Mine (${rows.filter((r) => r.mine).length})`}
               </Link>

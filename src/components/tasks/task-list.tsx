@@ -124,7 +124,7 @@ export function TaskList({
                       aria-label={done ? `Reopen ${t.title}` : `Complete ${t.title}`}
                       disabled={!t.canEdit}
                       onClick={() => setStatus(t, done ? "open" : "done")}
-                      className="mt-0.5 shrink-0 text-muted transition-colors duration-150 hover:text-fg disabled:opacity-40"
+                      className="relative mt-0.5 shrink-0 text-muted transition-colors duration-150 after:absolute after:-inset-2.5 after:content-[''] hover:text-fg disabled:opacity-40"
                     >
                       {t.status === "done" ? <Check className="size-4 text-good" /> : t.status === "cancelled" ? <XCircle className="size-4" /> : <Circle className="size-4" />}
                     </button>
@@ -133,7 +133,7 @@ export function TaskList({
                         <button
                           type="button"
                           tabIndex={-1}
-                          className={cn("text-left text-sm font-medium text-fg hover:underline", done && "text-muted line-through")}
+                          className={cn("min-w-0 break-words text-left text-sm font-medium text-fg hover:underline", done && "text-muted line-through")}
                           onClick={() => t.canEdit && !done && setEditing(t)}
                         >
                           {t.title}

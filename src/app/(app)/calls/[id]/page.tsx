@@ -68,12 +68,12 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
   return (
     <div>
       <AutoRefresh active={busy} />
-      <Link href="/calls" className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
+      <Link href="/calls" className="-my-2 mb-1 inline-flex items-center gap-1 py-2 text-xs text-muted hover:text-fg">
         <ChevronLeft className="size-3.5" /> Calls
       </Link>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="font-display text-[28px] font-medium leading-9 text-fg">{t.title ?? "Untitled call"}</h1>
+          <h1 className="break-words font-display text-2xl font-medium leading-8 text-fg sm:text-[28px] sm:leading-9">{t.title ?? "Untitled call"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
             <span className="tabular">{fmtDate(t.occurredAt ?? t.createdAt, "EEE d MMM yyyy, HH:mm")}</span>
             {t.durationMin ? <span>· {t.durationMin} min</span> : null}
@@ -165,8 +165,8 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
             </>
           )}
         </div>
-        <Card className="h-fit overflow-hidden xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)]">
-          <div className="flex h-full max-h-[70vh] flex-col xl:max-h-[calc(100vh-6rem)]">
+        <Card className="h-fit overflow-hidden xl:sticky xl:top-20 xl:max-h-[calc(100dvh-6rem)]">
+          <div className="flex h-full max-h-[70dvh] flex-col xl:max-h-[calc(100dvh-6rem)]">
             <div className="border-b border-border px-4 py-3">
               <p className="font-display text-base text-fg">Transcript</p>
             </div>

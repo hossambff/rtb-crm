@@ -8,6 +8,7 @@ import { activeFilterCount, withParam } from "@/lib/deals/filters";
 import { listHref } from "@/lib/views/core";
 import { PRIORITY_LABELS, type BoardFilters, type BoardView, type Lane, type UserLite } from "@/lib/deals/types";
 import { cn } from "@/lib/utils";
+import { FilterSheet } from "@/components/ui/filter-sheet";
 
 /** Filters + swimlanes + view toggle, persisted in the URL (KAN-3/4). */
 export function BoardToolbar({
@@ -53,16 +54,25 @@ export function BoardToolbar({
   }, [q, filters.q, go]);
 
   const n = activeFilterCount(filters);
+  // Phones: owner/priority/category/status (+ swimlanes) collapse into a bottom sheet; search, Overdue and the view toggle stay.
+  const SECONDARY = ["owner", "priority", "category", "status"] as const;
+  const secondaryCount = SECONDARY.filter((k) => filters[k]).length;
+  const clearSecondary = () => {
+    const next = new URLSearchParams(sp.toString());
+    SECONDARY.forEach((k) => next.delete(k));
+    startTransition(() => router.replace(listHref(pathname, next.toString()), { scroll: false }));
+  };
 
   // QA-15: owners/categories can repeat (split owners, case variants) → duplicate React keys. Dedupe once.
   const uniqueUsers = [...new Map(users.map((u) => [u.id, u])).values()];
   const uniqueCategories = [...new Set(categories)];
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="relative w-full sm:w-56">
+      <div className="relative min-w-0 flex-1 basis-40 sm:w-56 sm:flex-none sm:basis-auto">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden />
         <Input className="h-8 pl-8 text-[13px]" placeholder="Search deals, accounts…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search deals" />
       </div>
+      <FilterSheet count={secondaryCount} onClear={clearSecondary}>
       <FilterSelect label="Owner" value={filters.owner ?? ""} onChange={(v) => go("owner", v)}>
         <option value="">All owners</option>
         <option value="me">Me</option>
@@ -100,6 +110,16 @@ export function BoardToolbar({
         <option value="hold">On hold</option>
         <option value="lost">Lost</option>
       </FilterSelect>
+      {view === "board" ? (
+        <div className="md:hidden">
+          <FilterSelect label="Swimlanes" value={lane === "none" ? "" : lane} onChange={(v) => go("lane", v)}>
+            <option value="">No swimlanes</option>
+            <option value="owner">Lanes: owner</option>
+            <option value="priority">Lanes: priority</option>
+          </FilterSelect>
+        </div>
+      ) : null}
+      </FilterSheet>
       <Button
         variant={filters.overdue ? "primary" : "secondary"}
         size="sm"
@@ -112,6 +132,7 @@ export function BoardToolbar({
         <Button
           variant="ghost"
           size="sm"
+          className="hidden md:inline-flex"
           onClick={() => {
             setQ("");
             const keep = new URLSearchParams();
@@ -130,11 +151,13 @@ export function BoardToolbar({
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {view === "board" ? (
+          <div className="hidden md:block">
           <FilterSelect label="Swimlanes" value={lane === "none" ? "" : lane} onChange={(v) => go("lane", v)}>
             <option value="">No swimlanes</option>
             <option value="owner">Lanes: owner</option>
             <option value="priority">Lanes: priority</option>
           </FilterSelect>
+          </div>
         ) : null}
         <div className="flex rounded-md border border-border-strong p-0.5" role="group" aria-label="View">
           <ViewButton active={view === "board"} onClick={() => go("view", null)} label="Board">
@@ -175,7 +198,7 @@ function ViewButton({ active, onClick, label, children }: { active: boolean; onC
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors [&_svg]:size-3.5",
+        "flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors duration-150 pointer-coarse:h-9 [&_svg]:size-3.5",
         active ? "bg-white text-black" : "text-secondary hover:text-fg",
       )}
     >

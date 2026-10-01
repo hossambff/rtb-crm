@@ -111,6 +111,168 @@ h3,
   scrollbar-color: var(--border-strong) transparent;
 }
 
+/* ---------------------------------------------------------------------------------------------------------
+ * Mobile / touch ergonomics (responsive pass). See docs/ENGINEERING.md §UI rules.
+ * ------------------------------------------------------------------------------------------------------- */
+
+/* Hide scrollbars on horizontally scrolling chip/tab strips (still scrollable by touch, wheel and keyboard). */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Edge fade hinting at more content. <ScrollStrip> sets data-fade to start|end|both as the user scrolls. */
+.scroll-fade-x[data-fade="end"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.scroll-fade-x[data-fade="start"] {
+  mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+}
+.scroll-fade-x[data-fade="both"] {
+  mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
+
+/* Prevent iOS focus-zoom: form controls render at >= 16px on touch devices (beats text-xs/text-sm utilities). */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Touch targets: >= 40px hit area on touch devices without changing the dense desktop layout. */
+@media (pointer: coarse) {
+  .touch-target {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
+
+/*
+ * .table-cards — below md, a <table> reflows into stacked cards: one card per row, each cell a
+ * "label · value" line (label from the cell's data-label). Mark the primary cell with data-primary (full-width
+ * title) and an actions cell with data-actions (full-width, left aligned). Cells without data-label show no label.
+ */
+@media (max-width: 767.98px) {
+  table.table-cards,
+  table.table-cards > tbody,
+  table.table-cards > tbody > tr,
+  table.table-cards > tbody > tr > td {
+    display: block;
+    width: 100%;
+  }
+  table.table-cards {
+    min-width: 0 !important;
+  }
+  table.table-cards > thead,
+  table.table-cards > tfoot {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  /* One hairline between cards, whatever border-t/border-b utilities the desktop rows carry. */
+  table.table-cards > tbody > tr {
+    border-style: solid !important;
+    border-color: var(--border) !important;
+    border-width: 0 0 1px 0 !important;
+    padding: 10px 14px;
+  }
+  table.table-cards > tbody > tr:last-child {
+    border-bottom-width: 0 !important;
+  }
+  table.table-cards > tbody > tr > td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 0;
+    height: auto !important;
+    padding: 3px 0 !important;
+    border: 0 !important;
+    text-align: right !important;
+    white-space: normal !important;
+    max-width: none !important;
+  }
+  table.table-cards > tbody > tr > td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    text-align: left;
+    font-size: 11px;
+    line-height: 18px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  table.table-cards > tbody > tr > td:not([data-label])::before,
+  table.table-cards > tbody > tr > td[data-label=""]::before {
+    content: none;
+  }
+  table.table-cards > tbody > tr > td:not([data-label]),
+  table.table-cards > tbody > tr > td[data-primary],
+  table.table-cards > tbody > tr > td[data-actions] {
+    justify-content: flex-start;
+    text-align: left !important;
+  }
+  table.table-cards > tbody > tr > td[data-primary] {
+    padding-bottom: 6px !important;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  table.table-cards > tbody > tr > td[data-actions] {
+    flex-wrap: wrap;
+    padding-top: 8px !important;
+  }
+  table.table-cards > tbody > tr > td:empty,
+  table.table-cards > tbody > tr > td.hidden {
+    display: none;
+  }
+  /* Row-selection checkbox floats to the card's top-right corner. */
+  table.table-cards > tbody > tr > td[data-select] {
+    float: right;
+    width: auto;
+    padding: 2px 0 0 12px !important;
+  }
+  /* Full-width rows (empty states, group headers, colSpan rows) render as plain blocks. */
+  table.table-cards > tbody > tr > td[colspan] {
+    justify-content: center;
+    text-align: center !important;
+  }
+}
+
+/*
+ * .table-sticky-first — genuinely wide data grids keep a deliberate horizontal scroller with the first column pinned.
+ * Give the scroll wrapper `overflow-x-auto` and the table this class; the pinned cell needs an opaque background.
+ */
+.table-sticky-first > thead > tr > :first-child,
+.table-sticky-first > tbody > tr > :first-child,
+.table-sticky-first > tfoot > tr > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface-1);
+  box-shadow: inset -1px 0 0 var(--border);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+/* Bottom-sheet safe area (home indicator) for dialogs and sticky mobile action bars. */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

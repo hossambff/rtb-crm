@@ -111,7 +111,7 @@ export function EnrollmentsTable({ rows, showSequence = false, compact = false, 
         })}
       </ul>
       <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
-        <table className={cn("w-full text-sm", compact ? "min-w-[520px]" : "min-w-[860px]")}>
+        <table className={cn("table-cards w-full text-sm", compact ? "min-w-[520px]" : "min-w-[860px]")}>
           <thead className="bg-surface-1 text-left text-xs font-medium text-muted">
             <tr className="border-b border-border">
               {!compact ? (
@@ -141,7 +141,7 @@ export function EnrollmentsTable({ rows, showSequence = false, compact = false, 
               return (
                 <tr key={r.id} className={cn("border-b border-border align-top last:border-0 hover:bg-surface-2/60", selected.has(r.id) && "bg-surface-2/60")}>
                   {!compact ? (
-                    <td className="px-3 py-2.5">
+                    <td data-select className="px-3 py-2.5">
                       <input
                         type="checkbox"
                         aria-label={`Select ${r.contactName}`}
@@ -157,39 +157,45 @@ export function EnrollmentsTable({ rows, showSequence = false, compact = false, 
                       />
                     </td>
                   ) : null}
-                  <td className="px-3 py-2.5">
-                    <Link href={`/contacts/${r.contactId}`} className="font-medium text-fg hover:underline">
-                      {r.contactName}
-                    </Link>
-                    <p className="text-xs text-muted">
-                      {showSequence ? (
-                        <Link href={`/sequences/${r.sequenceId}`} className="hover:text-fg">
-                          {r.sequenceName}
-                        </Link>
-                      ) : (
-                        [r.accountName, r.dealName].filter(Boolean).join(" · ") || r.contactEmail || "—"
-                      )}
-                    </p>
-                    {r.lastError && (r.status === "failed" || r.status === "paused") ? <p className="mt-1 max-w-md text-xs text-warning">{r.lastError}</p> : null}
+                  <td data-label={showSequence ? "Contact · sequence" : "Contact"} data-primary className="px-3 py-2.5">
+                    <div className="min-w-0">
+                      <Link href={`/contacts/${r.contactId}`} className="font-medium text-fg hover:underline">
+                        {r.contactName}
+                      </Link>
+                      <p className="text-xs text-muted">
+                        {showSequence ? (
+                          <Link href={`/sequences/${r.sequenceId}`} className="hover:text-fg">
+                            {r.sequenceName}
+                          </Link>
+                        ) : (
+                          [r.accountName, r.dealName].filter(Boolean).join(" · ") || r.contactEmail || "—"
+                        )}
+                      </p>
+                      {r.lastError && (r.status === "failed" || r.status === "paused") ? <p className="mt-1 max-w-md text-xs text-warning">{r.lastError}</p> : null}
+                    </div>
                   </td>
-                  <td className="px-3 py-2.5 tabular text-secondary">
-                    {Math.min(r.currentStep + (r.status === "completed" ? 0 : 1), r.stepCount)}/{r.stepCount}
-                    <span className="block text-xs text-muted">{r.sentCount} sent</span>
-                    {r.olderVersion ? (
-                      <span className="block text-xs text-muted" title="Enrolled before the steps were last edited — they keep the steps they started with">
-                        older steps
-                      </span>
-                    ) : null}
+                  <td data-label="Step" className="px-3 py-2.5 tabular text-secondary">
+                    <div>
+                      {Math.min(r.currentStep + (r.status === "completed" ? 0 : 1), r.stepCount)}/{r.stepCount}
+                      <span className="block text-xs text-muted">{r.sentCount} sent</span>
+                      {r.olderVersion ? (
+                        <span className="block text-xs text-muted" title="Enrolled before the steps were last edited — they keep the steps they started with">
+                          older steps
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td data-label="Status" className="px-3 py-2.5">
                     <EnrollmentStatus row={r} />
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-secondary">
-                    {r.status === "active" && r.nextRunAt ? <RelativeTime value={r.nextRunAt} /> : r.lastEventAt ? <RelativeTime value={r.lastEventAt} className="text-muted" /> : "—"}
-                    {r.lastEventKind === "reconciled" ? <span className="block text-muted">Found in Sent after an interrupted send — not re-sent</span> : null}
+                  <td data-label={compact ? "Next" : "Next / last"} className="px-3 py-2.5 text-xs text-secondary">
+                    <div className="min-w-0">
+                      {r.status === "active" && r.nextRunAt ? <RelativeTime value={r.nextRunAt} /> : r.lastEventAt ? <RelativeTime value={r.lastEventAt} className="text-muted" /> : "—"}
+                      {r.lastEventKind === "reconciled" ? <span className="block text-muted">Found in Sent after an interrupted send — not re-sent</span> : null}
+                    </div>
                   </td>
-                  {!compact ? <td className="px-3 py-2.5 text-xs text-secondary">{r.senderName ?? "—"}</td> : null}
-                  <td className="px-3 py-2.5 text-right">
+                  {!compact ? <td data-label="Sender" className="px-3 py-2.5 text-xs text-secondary">{r.senderName ?? "—"}</td> : null}
+                  <td data-actions className="px-3 py-2.5 text-right">
                     {canAct ? <RowActions r={r} busy={busy} act={act} /> : null}
                   </td>
                 </tr>

@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/rbac/server";
 export default async function FocusLayout({ children }: LayoutProps<"/">) {
   await requireUser();
   return (
-    <div className="flex min-h-screen flex-col overflow-x-clip bg-bg">
+    <div className="flex min-h-dvh flex-col overflow-x-clip bg-bg">
       <header className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-4 md:px-8">
         {/* eslint-disable-next-line @next/next/no-img-element -- static brand mark, already optimized */}
         <img src="/brand/roundtable-mark-white.png" width={22} height={22} alt="" aria-hidden className="shrink-0" />

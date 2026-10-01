@@ -75,12 +75,13 @@ export function RankTable({
   if (!rows.length) return <p className="py-6 text-center text-xs text-muted">{empty}</p>;
   const max = Math.max(...rows.map((r) => r.value), 1);
   return (
-    <div className="overflow-x-auto">
+    // Wide ranking grid: deliberate horizontal scroller with rank + brand pinned (opaque surface-1, hairline after brand).
+    <div className="overflow-x-auto overscroll-x-contain">
       <table className="w-full min-w-[640px] text-left text-xs">
         <thead>
           <tr className="border-b border-border text-muted">
-            <th scope="col" className="w-8 py-1.5 pr-2 font-medium">#</th>
-            <th scope="col" className="py-1.5 pr-2 font-medium">Brand</th>
+            <th scope="col" className="sticky left-0 z-[1] w-8 min-w-8 bg-surface-1 py-1.5 pr-2 font-medium">#</th>
+            <th scope="col" className="sticky left-8 z-[1] bg-surface-1 py-1.5 pr-2 font-medium shadow-[inset_-1px_0_0_var(--border)]">Brand</th>
             {columns.map((c) => (
               <th key={c} scope="col" className="py-1.5 pr-3 text-right font-medium">
                 {c}
@@ -91,9 +92,9 @@ export function RankTable({
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={r.key} className="border-b border-border/60 last:border-0 hover:bg-surface-2/50">
-              <td className="py-1.5 pr-2 text-muted tabular">{i + 1}</td>
-              <td className="max-w-56 truncate py-1.5 pr-2 text-body">{r.label}</td>
+            <tr key={r.key} className="group border-b border-border/60 last:border-0 hover:bg-surface-2/50">
+              <td className="sticky left-0 z-[1] w-8 min-w-8 bg-surface-1 group-hover:bg-[color-mix(in_srgb,var(--surface-2)_50%,var(--surface-1))] py-1.5 pr-2 text-muted tabular">{i + 1}</td>
+              <td className="sticky left-8 z-[1] max-w-40 truncate bg-surface-1 group-hover:bg-[color-mix(in_srgb,var(--surface-2)_50%,var(--surface-1))] py-1.5 pr-2 text-body shadow-[inset_-1px_0_0_var(--border)] sm:max-w-56">{r.label}</td>
               {r.cells.map((c, j) => (
                 <td key={j} className="py-1.5 pr-3 text-right text-secondary tabular">
                   {c}

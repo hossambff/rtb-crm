@@ -176,7 +176,7 @@ export default async function CallsPage({ searchParams }: PageProps<"/calls">) {
         )
       ) : (
         <Card className="overflow-x-auto">
-          <table className="w-full sm:min-w-[560px] text-sm">
+          <table className="table-cards w-full sm:min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted">
                 <th scope="col" className="px-5 py-2.5 font-medium">Call</th>
@@ -191,30 +191,30 @@ export default async function CallsPage({ searchParams }: PageProps<"/calls">) {
             <tbody className="divide-y divide-border">
               {rows.map((r) => (
                 <tr key={r.id} className="hover:bg-surface-2/40">
-                  <td className="max-w-72 px-5 py-2.5">
-                    <Link href={`/calls/${r.id}`} className="block truncate text-fg hover:underline">
+                  <td data-label="Call" data-primary className="md:max-w-72 px-5 py-2.5">
+                    <Link href={`/calls/${r.id}`} className="block min-w-0 truncate text-fg hover:underline">
                       {r.title ?? "Untitled call"}
                     </Link>
                     {r.accountName ? <span className="text-xs text-muted">{r.accountName}</span> : null}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-secondary tabular">
+                  <td data-label="Date" className="whitespace-nowrap px-3 py-2.5 text-secondary tabular">
                     {fmtDate(r.occurredAt ?? r.createdAt, "d MMM yyyy")}
                     {r.durationMin ? <span className="ml-1 text-xs text-muted">· {r.durationMin}m</span> : null}
                   </td>
-                  <td className="hidden px-3 py-2.5 md:table-cell">
+                  <td data-label="Source" className="hidden px-3 py-2.5 md:table-cell">
                     <Badge>{SOURCE_LABELS[r.source] ?? r.source}</Badge>
                   </td>
-                  <td className="hidden max-w-48 truncate px-3 py-2.5 text-secondary sm:table-cell">
+                  <td data-label="Deal" className="hidden max-w-48 truncate px-3 py-2.5 text-secondary sm:table-cell">
                     {r.dealId ? (r.dealName ? <Link href={`/deals/${r.dealId}`} className="hover:text-fg">{r.dealName}</Link> : "Linked") : <span className="text-muted">—</span>}
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td data-label="Status" className="px-3 py-2.5">
                     <span className="inline-flex items-center gap-1.5">
                       <TranscriptStatus status={r.status} />
                       {r.appliedAt ? <Badge>Applied</Badge> : null}
                     </span>
                   </td>
-                  <td className="hidden px-3 py-2.5 text-xs text-muted 2xl:table-cell">{r.analysisEngine ? (r.analysisEngine === "heuristic" ? "Heuristic" : "AI") : "—"}</td>
-                  <td className="hidden px-5 py-2.5 text-xs text-secondary xl:table-cell">{r.uploadedBy === user.id ? "You" : (r.uploaderName ?? "—")}</td>
+                  <td data-label="Engine" className="hidden px-3 py-2.5 text-xs text-muted 2xl:table-cell">{r.analysisEngine ? (r.analysisEngine === "heuristic" ? "Heuristic" : "AI") : "—"}</td>
+                  <td data-label="Owner" className="hidden px-5 py-2.5 text-xs text-secondary xl:table-cell">{r.uploadedBy === user.id ? "You" : (r.uploaderName ?? "—")}</td>
                 </tr>
               ))}
             </tbody>

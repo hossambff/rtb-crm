@@ -55,8 +55,8 @@ export function HandoffBanner({ handoff, currentUserId, canEdit, focus }: { hand
   if (!forMe) {
     return (
       <section ref={ref} aria-label="Pending handoff" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-surface-1 px-4 py-2.5 text-[13px]">
-        <ArrowRightLeft className="size-4 text-muted" aria-hidden />
-        <span className="text-body">
+        <ArrowRightLeft className="size-4 shrink-0 text-muted" aria-hidden />
+        <span className="min-w-0 text-body">
           {HANDOFF_KIND_LABEL[handoff.kind]} to <span className="text-fg">{handoff.to.name}</span> — waiting for them to accept
         </span>
         <RelativeTime iso={handoff.createdAt} prefix="sent " className="text-[11px] text-muted" />
@@ -82,7 +82,7 @@ export function HandoffBanner({ handoff, currentUserId, canEdit, focus }: { hand
           {HANDOFF_KIND_LABEL[handoff.kind]} · <RelativeTime iso={handoff.createdAt} />
         </span>
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-[13px] leading-5 text-body">{b.context}</p>
+      <p className="mt-2 whitespace-pre-wrap break-words text-[13px] leading-5 text-body">{b.context}</p>
       <dl className="mt-3 grid gap-3 text-[12px] sm:grid-cols-2">
         {b.stakeholders ? <BriefBlock label="Stakeholders" text={b.stakeholders} /> : null}
         {b.commitments ? <BriefBlock label="Commitments" text={b.commitments} /> : null}
@@ -126,7 +126,7 @@ function BriefBlock({ label, text }: { label: string; text: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-[11px] font-medium uppercase tracking-wider text-muted">{label}</dt>
-      <dd className="mt-0.5 whitespace-pre-wrap text-body">{text}</dd>
+      <dd className="mt-0.5 whitespace-pre-wrap break-words text-body">{text}</dd>
     </div>
   );
 }

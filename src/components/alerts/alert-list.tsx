@@ -57,16 +57,19 @@ export function AlertList({
     <>
       <ul className="divide-y divide-border rounded-lg border border-border bg-surface-1" aria-label="Alerts">
         {alerts.map((a) => (
-          <li key={a.id} className="flex items-start gap-3 px-4 py-3">
-            <div className="shrink-0 pt-0.5">
+          <li key={a.id} className="flex items-start gap-3 px-3 py-3 sm:px-4">
+            <div className="shrink-0 pt-0.5 max-sm:hidden">
               <SeverityBadge severity={a.severity} />
             </div>
             <div className="min-w-0 flex-1">
-              <Link href={a.href} className="block truncate text-sm font-medium text-fg hover:underline">
+              <Link href={a.href} className="line-clamp-2 block break-words text-sm font-medium text-fg hover:underline sm:truncate">
                 {a.title}
               </Link>
               {!compact && a.detail ? <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs text-secondary">{a.detail}</p> : null}
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
+                <span className="sm:hidden">
+                  <SeverityBadge severity={a.severity} />
+                </span>
                 <span title={a.ruleName ?? undefined}>{a.ruleCode}</span>
                 <span aria-hidden>·</span>
                 <span suppressHydrationWarning>{fmtRelative(a.createdAt)}</span>

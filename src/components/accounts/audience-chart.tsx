@@ -27,7 +27,7 @@ export function AudienceChart({ data }: { data: AudiencePoint[] }) {
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
           <CartesianGrid stroke={CHART_AXIS.grid} vertical={false} />
-          <XAxis dataKey="period" tick={{ fill: CHART_AXIS.tick, fontSize: 12 }} stroke={CHART_AXIS.stroke} tickLine={false} />
+          <XAxis dataKey="period" tick={{ fill: CHART_AXIS.tick, fontSize: 12 }} stroke={CHART_AXIS.stroke} tickLine={false} interval="preserveStartEnd" minTickGap={16} />
           <YAxis tick={{ fill: CHART_AXIS.tick, fontSize: 12 }} stroke={CHART_AXIS.stroke} tickLine={false} axisLine={false} width={52} tickFormatter={(v: number) => fmtNumber(v, { compact: true })} />
           <Tooltip
             cursor={{ stroke: CHART_AXIS.stroke }}

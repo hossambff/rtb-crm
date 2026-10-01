@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/misc";
 import { previewSequence, saveSequence, searchContactsForEnroll } from "@/lib/sequences/actions";
 import { hasOptOutLine, KNOWN_VARIABLES, normalizeSteps, OPT_OUT_HINT, VARIABLE_HELP, validateSequence, type ExitRules, type Step, type StepKind } from "@/lib/sequences/core";
 import { cn } from "@/lib/utils";
+import { ScrollStrip } from "@/components/ui/scroll-strip";
 import { ModKey } from "@/components/ui/mod-key";
 
 export type BuilderInitial = {
@@ -144,8 +145,8 @@ export function SequenceBuilder({ initial, canEdit, activeEnrollments, pipelines
         </Card>
 
         {canEdit ? (
-          <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-1.5 bg-bg/95 px-1 py-2 backdrop-blur-sm" aria-label="Insert variable">
-            <span className="mr-1 text-xs text-muted">Insert</span>
+          <ScrollStrip className="sticky top-14 z-10 -mx-1 flex items-center gap-1.5 bg-bg/95 px-1 py-2 backdrop-blur-sm sm:flex-wrap" aria-label="Insert variable">
+            <span className="mr-1 shrink-0 text-xs text-muted">Insert</span>
             {KNOWN_VARIABLES.map((v) => (
               <button
                 key={v}
@@ -153,12 +154,12 @@ export function SequenceBuilder({ initial, canEdit, activeEnrollments, pipelines
                 title={VARIABLE_HELP[v]}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => insertVariable(v)}
-                className="rounded border border-border-strong px-1.5 py-0.5 font-mono text-[11px] text-secondary transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
+                className="shrink-0 rounded border border-border-strong px-1.5 py-0.5 font-mono text-[11px] text-secondary transition-colors pointer-coarse:py-2 duration-150 hover:bg-surface-2 hover:text-fg"
               >
                 {`{{${v}}}`}
               </button>
             ))}
-          </div>
+          </ScrollStrip>
         ) : null}
 
         <ol className="relative space-y-3 before:absolute before:bottom-6 before:left-[15px] before:top-6 before:w-px before:bg-border">
@@ -254,7 +255,7 @@ export function SequenceBuilder({ initial, canEdit, activeEnrollments, pipelines
                             <p className="text-xs text-warning">
                               Add an opt-out line, e.g. “{OPT_OUT_HINT}”{" "}
                               {canEdit ? (
-                                <button type="button" className="text-fg underline underline-offset-2" onClick={() => update(i, { body: `${(s.body ?? "").trimEnd()}\n\n${OPT_OUT_HINT}` })}>
+                                <button type="button" className="-my-2 py-2 text-fg underline underline-offset-2" onClick={() => update(i, { body: `${(s.body ?? "").trimEnd()}\n\n${OPT_OUT_HINT}` })}>
                                   Add it
                                 </button>
                               ) : null}
@@ -359,7 +360,7 @@ export function SequenceBuilder({ initial, canEdit, activeEnrollments, pipelines
                         disabled={ro}
                         aria-pressed={on}
                         onClick={() => (setPipelineKeys(on ? pipelineKeys.filter((k) => k !== p.key) : [...pipelineKeys, p.key]), touch())}
-                        className={cn("rounded border px-2 py-0.5 text-xs transition-colors duration-150", on ? "border-white text-fg" : "border-border-strong text-muted hover:text-fg")}
+                        className={cn("touch-target rounded border px-2 py-0.5 text-xs transition-colors duration-150", on ? "border-white text-fg" : "border-border-strong text-muted hover:text-fg")}
                       >
                         {p.key}
                       </button>
@@ -385,7 +386,7 @@ export function SequenceBuilder({ initial, canEdit, activeEnrollments, pipelines
         <Preview steps={normalized} />
 
         {canEdit ? (
-          <div className="sticky bottom-3 flex items-center gap-3 rounded-lg border border-border-strong bg-surface-2 px-4 py-3">
+          <div className="sticky bottom-3 flex items-center gap-3 rounded-lg border border-border-strong bg-surface-2 px-4 py-3 max-md:bottom-[calc(4rem+env(safe-area-inset-bottom))]">
             <div className="min-w-0 flex-1 text-xs text-muted">
               {dirty ? "Unsaved changes" : "All changes saved"}
               {activeEnrollments ? ` · ${activeEnrollments} active enrollment${activeEnrollments === 1 ? "" : "s"} keep the steps they were enrolled with — apply a new version from the People tab` : ""}

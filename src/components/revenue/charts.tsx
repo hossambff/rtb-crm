@@ -33,7 +33,7 @@ export function ConcentrationChart({ data }: { data: { name: string; cents: numb
       <ResponsiveContainer width="100%" height={Math.max(140, rows.length * 28 + 16)} initialDimension={{ width: INITIAL_DIM.width, height: Math.max(140, rows.length * 28 + 16) }}>
         <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 16, bottom: 0, left: 8 }}>
           <CartesianGrid stroke={CHART_AXIS.grid} horizontal={false} />
-          <XAxis type="number" tick={tick} axisLine={false} tickLine={false} tickFormatter={(v: number) => usd(v)} />
+          <XAxis type="number" tick={tick} axisLine={false} tickLine={false} tickFormatter={(v: number) => usd(v)} tickCount={4} minTickGap={12} />
           <YAxis type="category" dataKey="name" tick={tick} axisLine={false} tickLine={false} width={130} interval={0} tickFormatter={shortLabel(18)} />
           <Tooltip content={<TooltipBox format={(v) => fmtUsd(v, { cents: true })} />} cursor={{ fill: "#1A1A1A" }} />
           <Bar isAnimationActive={false} name="Annualized" dataKey="cents" barSize={12} radius={[0, 4, 4, 0]}>

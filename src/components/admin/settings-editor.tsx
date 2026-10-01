@@ -148,7 +148,7 @@ function AutonomySection({ value }: { value: Record<AutonomyAction, 0 | 1 | 2 | 
         </Button>
       }
     >
-      <AdminTable className="[&_table]:min-w-[480px]">
+      <AdminTable cards className="[&_table]:min-w-[480px]">
         <thead>
           <tr>
             <Th>Action</Th>
@@ -158,13 +158,15 @@ function AutonomySection({ value }: { value: Record<AutonomyAction, 0 | 1 | 2 | 
         <tbody>
           {AUTONOMY_ACTIONS.map((a) => (
             <tr key={a.key}>
-              <Td>
-                <label htmlFor={`${id}-${a.key}`} className="text-fg">
-                  {a.label}
-                </label>
-                <div className="text-xs text-muted">{AUTONOMY_LEVELS[levels[a.key]].hint}</div>
+              <Td label="Action" primary>
+                <div className="min-w-0">
+                  <label htmlFor={`${id}-${a.key}`} className="text-fg">
+                    {a.label}
+                  </label>
+                  <div className="text-xs text-muted">{AUTONOMY_LEVELS[levels[a.key]].hint}</div>
+                </div>
               </Td>
-              <Td>
+              <Td label="Level">
                 <NativeSelect
                   id={`${id}-${a.key}`}
                   value={levels[a.key]}

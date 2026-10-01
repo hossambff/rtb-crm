@@ -117,7 +117,7 @@ export function ProFormaBuilder({ mode, dealId, proposalId, initial, readOnly, r
             <Field label="Scenario label">
               <Input value={i.scenarioLabel ?? ""} onChange={(e) => set({ scenarioLabel: e.target.value })} placeholder="e.g. $250M scenario, held flat" />
             </Field>
-            <div className="grid grid-cols-[1fr_120px_90px] items-center gap-x-3 gap-y-2 pt-2 text-sm">
+            <div className="grid grid-cols-[minmax(0,1fr)_96px_64px] items-center gap-x-3 gap-y-2 pt-2 text-sm sm:grid-cols-[1fr_120px_90px]">
               <span className="text-xs text-muted">Line</span>
               <span className="text-right text-xs text-muted">$000s</span>
               <span className="text-center text-xs text-muted">Rev share</span>
@@ -242,7 +242,7 @@ export function ProFormaBuilder({ mode, dealId, proposalId, initial, readOnly, r
               </CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
             <Field label="RTB revenue share (%)" error={errors.revSharePct?.[0]}>
               <Input type="number" min={0} max={100} step="any" className="tabular" value={toPct(i.revSharePct)} onChange={(e) => set({ revSharePct: fromPct(e.target.value) })} />
             </Field>
@@ -268,7 +268,7 @@ export function ProFormaBuilder({ mode, dealId, proposalId, initial, readOnly, r
             <Field label="In-scope growth per year (%)">
               <Input type="number" min={-50} max={100} step="any" className="tabular" value={String(Math.round(i.growthPct * 10000) / 100)} onChange={(e) => set({ growthPct: Number(e.target.value || 0) / 100 })} />
             </Field>
-            <Field label="Internal notes" className="col-span-2 md:col-span-3">
+            <Field label="Internal notes" className="sm:col-span-2 md:col-span-3">
               <Textarea rows={2} value={i.notes ?? ""} onChange={(e) => set({ notes: e.target.value })} placeholder="Assumptions & sources (not printed)" />
             </Field>
           </CardContent>
@@ -321,8 +321,8 @@ export function Outputs({ out }: { out: ReturnType<typeof computeProForma> }) {
           <dt className="text-secondary">Guarantee exposure / yr</dt>
           <dd className={cn("text-right", out.guaranteeExposure > 0 ? "text-fg" : "text-muted")}>{usdK(out.guaranteeExposure)}</dd>
         </dl>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs tabular">
+        <div className="overflow-x-auto overscroll-x-contain">
+          <table className="table-sticky-first w-full min-w-[440px] text-xs tabular">
             <thead className="text-left text-muted">
               <tr>
                 <th className="py-1 pr-2 font-medium">Year</th>
@@ -365,7 +365,7 @@ function Hero({ label, value, hint }: { label: string; value: string; hint?: str
   return (
     <div>
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted">{label}</p>
-      <p className="mt-1 font-display text-2xl text-fg tabular">{value}</p>
+      <p className="mt-1 font-display text-[clamp(1.125rem,5vw,1.5rem)] leading-tight text-fg tabular">{value}</p>
       {hint ? <p className="text-[11px] text-muted">{hint}</p> : null}
     </div>
   );

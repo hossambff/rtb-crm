@@ -191,7 +191,8 @@ export default async function DealPage({ params, searchParams }: PageProps<"/dea
         <div className="order-2 min-w-0 lg:order-4 lg:col-span-2">{quickActions}</div>
         <SummaryCard className="order-3 lg:order-1" dealId={deal.id} summary={deal.aiSummary} at={deal.aiSummaryAt} restricted={deal.restricted} />
         <div className="order-4 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] lg:order-3 lg:col-span-2">
-          <dl className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
+          {/* 2×2 below lg so hero numbers never truncate on tablets; one row of four from lg. */}
+          <dl className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border lg:grid-cols-4">
             {pipeline.unit === "muu" ? (
               <>
                 <ValueCell label="MUU" value={fmtNumber(value.muu, { compact: true })} hint={deal.muu == null ? "not set" : undefined} />
@@ -213,10 +214,10 @@ export default async function DealPage({ params, searchParams }: PageProps<"/dea
             )}
             <div className="min-w-0 bg-surface-1 px-4 py-2.5">
               <dt className="text-[11px] font-medium uppercase tracking-wider text-muted">Health</dt>
-              <dd className="mt-0.5 flex items-center gap-2">
+              <dd className="mt-0.5 flex min-w-0 items-center gap-2">
                 {deal.healthScore != null ? (
                   <Tooltip content={<span className="block max-w-64">{deal.healthExplanation}</span>}>
-                    <span tabIndex={0} className="inline-flex items-center gap-2" aria-label={`Health ${deal.healthScore} of 100. ${deal.healthExplanation ?? ""}`}>
+                    <span tabIndex={0} className="inline-flex flex-wrap items-center gap-x-2" aria-label={`Health ${deal.healthScore} of 100. ${deal.healthExplanation ?? ""}`}>
                       <span className="font-display text-2xl leading-8 text-fg tabular">{deal.healthScore}</span>
                       <StatusBadge status={healthStatus(deal.healthScore)} label={HEALTH_WORD[healthStatus(deal.healthScore)]} />
                     </span>
@@ -563,12 +564,13 @@ const HEALTH_WORD = { good: "Healthy", warning: "Watch", serious: "At risk", cri
 
 function ValueCell({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="min-w-0 bg-surface-1 px-4 py-2.5">
+    <div className="@container min-w-0 bg-surface-1 px-4 py-2.5">
       <dt className="truncate text-[11px] font-medium uppercase tracking-wider text-muted" title={label}>
         {label}
       </dt>
       <dd className="mt-0.5 min-w-0">
-        <span className="block truncate font-display text-2xl leading-8 text-fg tabular" title={value}>
+        {/* Never truncated: the size follows the tile width. */}
+        <span className="block whitespace-nowrap font-display text-[clamp(1.125rem,15cqi,1.5rem)] leading-8 text-fg tabular">
           {value}
         </span>
         {hint ? <span className="block truncate text-[11px] leading-4 text-muted">{hint}</span> : null}

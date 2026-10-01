@@ -6,7 +6,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        "flex h-9 w-full rounded-md border border-border bg-surface-3/40 px-3 text-sm text-body placeholder:text-muted focus-visible:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:opacity-50",
+        "touch-target flex h-9 w-full rounded-md border border-border bg-surface-3/40 px-3 text-sm text-body placeholder:text-muted focus-visible:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:opacity-50",
         className,
       )}
       {...props}
@@ -37,7 +37,7 @@ export function NativeSelect({ className, children, ...props }: React.SelectHTML
   return (
     <select
       className={cn(
-        "h-9 w-full rounded-md border border-border bg-surface-2 px-2 text-sm text-body focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
+        "touch-target h-9 w-full rounded-md border border-border bg-surface-2 px-2 text-sm text-body focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
         className,
       )}
       {...props}

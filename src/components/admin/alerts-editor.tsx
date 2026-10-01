@@ -37,7 +37,7 @@ export function AlertsEditor({ rules }: { rules: AdminAlertRule[] }) {
       {rules.length === 0 ? (
         <EmptyState title="No alert rules" description="Run the seed script to install the PRD §12.1 alert catalog." />
       ) : (
-        <AdminTable>
+        <AdminTable cards>
           <thead>
             <tr>
               <Th className="w-16">Code</Th>
@@ -54,22 +54,24 @@ export function AlertsEditor({ rules }: { rules: AdminAlertRule[] }) {
           <tbody>
             {rules.map((r) => (
               <tr key={r.code} className={r.enabled ? undefined : "opacity-60"}>
-                <Td className="whitespace-nowrap text-xs text-muted tabular">{r.code}</Td>
-                <Td>
-                  <div className="font-medium text-fg">{r.name}</div>
-                  {r.description ? <div className="text-xs text-muted">{r.description}</div> : null}
+                <Td label="Code" className="whitespace-nowrap text-xs text-muted tabular">{r.code}</Td>
+                <Td label="Rule" primary>
+                  <div className="min-w-0">
+                    <div className="font-medium text-fg">{r.name}</div>
+                    {r.description ? <div className="text-xs text-muted">{r.description}</div> : null}
+                  </div>
                 </Td>
-                <Td>
+                <Td label="On">
                   <EnabledToggle code={r.code} name={r.name} enabled={r.enabled} />
                 </Td>
-                <Td>
+                <Td label="Severity">
                   <SeverityBadge severity={r.severity} />
                 </Td>
-                <Td className="text-right tabular">{r.escalateAfterHours != null ? `${r.escalateAfterHours}h` : "—"}</Td>
-                <Td className="max-w-56 truncate text-xs text-secondary tabular" >
+                <Td label="Escalate" className="text-right tabular">{r.escalateAfterHours != null ? `${r.escalateAfterHours}h` : "—"}</Td>
+                <Td label="Parameters" className="truncate md:max-w-56 text-xs text-secondary tabular">
                   <span title={JSON.stringify(r.params)}>{paramsSummary(r.params ?? {})}</span>
                 </Td>
-                <Td>
+                <Td actions>
                   <Button size="icon-sm" variant="ghost" aria-label={`Edit ${r.code} ${r.name}`} onClick={() => setEditing(r)}>
                     <Pencil aria-hidden />
                   </Button>

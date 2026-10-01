@@ -71,7 +71,7 @@ export default async function CommissionsPage({ searchParams }: PageProps<"/comm
       </form>
 
       <Tabs defaultValue={tab}>
-        <TabsList className="overflow-x-auto">
+        <TabsList>
           <TabsTrigger value="ledger">{repPortal ? "My accruals" : "Accrual ledger"}</TabsTrigger>
           <TabsTrigger value="statements">Statements</TabsTrigger>
           <TabsTrigger value="plans">Plans</TabsTrigger>
@@ -88,7 +88,7 @@ export default async function CommissionsPage({ searchParams }: PageProps<"/comm
             <EmptyState title="No statements yet" description="Statements are generated per rep per month from the accrual ledger." />
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[760px] text-sm">
+              <table className="table-cards w-full min-w-[760px] text-sm">
                 <thead className="bg-surface-1 text-left text-xs text-muted">
                   <tr>
                     <th className="px-3 py-2 font-medium">Period</th>
@@ -104,14 +104,14 @@ export default async function CommissionsPage({ searchParams }: PageProps<"/comm
                 <tbody>
                   {data.statements.map((st) => (
                     <tr key={`${st.userId}-${st.period}`} className="border-t border-border">
-                      <td className="px-3 py-2 tabular">{st.period}</td>
-                      <td className="px-3 py-2 text-fg">{st.userName}</td>
-                      <td className="px-3 py-2 text-right tabular">{fmtNumber(st.count)}</td>
-                      <td className="px-3 py-2 text-right tabular">{usd(st.totals.gross)}</td>
-                      <td className="px-3 py-2 text-right tabular text-secondary">{st.totals.clawbacks ? usd(st.totals.clawbacks) : "—"}</td>
-                      <td className="px-3 py-2 text-right font-medium text-fg tabular">{usd(st.totals.net)}</td>
-                      <td className="px-3 py-2 text-right tabular">{usd(st.totals.paid)}</td>
-                      <td className="px-3 py-2 text-right">
+                      <td data-label="Period" className="px-3 py-2 tabular">{st.period}</td>
+                      <td data-label="Rep" data-primary className="px-3 py-2 text-fg">{st.userName}</td>
+                      <td data-label="Lines" className="px-3 py-2 text-right tabular">{fmtNumber(st.count)}</td>
+                      <td data-label="Gross" className="px-3 py-2 text-right tabular">{usd(st.totals.gross)}</td>
+                      <td data-label="Clawbacks" className="px-3 py-2 text-right tabular text-secondary">{st.totals.clawbacks ? usd(st.totals.clawbacks) : "—"}</td>
+                      <td data-label="Net" className="px-3 py-2 text-right font-medium text-fg tabular">{usd(st.totals.net)}</td>
+                      <td data-label="Paid" className="px-3 py-2 text-right tabular">{usd(st.totals.paid)}</td>
+                      <td data-actions className="px-3 py-2 text-right">
                         <Link href={`/commissions/statement?user=${encodeURIComponent(st.userId)}&period=${st.period}`} className="text-xs text-fg underline-offset-2 hover:underline">
                           Open statement
                         </Link>

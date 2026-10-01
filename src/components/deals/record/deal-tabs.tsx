@@ -45,8 +45,8 @@ export function DealTabs({
   };
   return (
     <Tabs value={tab} onValueChange={change} className="min-w-0">
-      <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-        <TabsList aria-label="Deal sections" className="w-max min-w-full">
+      <div className="-mx-4 px-4 sm:-mx-6 sm:px-6 md:mx-0 md:px-0">
+        <TabsList aria-label="Deal sections">
           {DEAL_TABS.map((t) => (
             <TabsTrigger key={t} value={t} className="whitespace-nowrap">
               {LABEL[t]}

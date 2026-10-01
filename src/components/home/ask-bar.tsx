@@ -43,7 +43,7 @@ export function AskBar({ children }: { children?: React.ReactNode }) {
         <button
           type="submit"
           aria-label="Ask"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-accent-inverse transition-colors duration-150 hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:opacity-40"
+          className="touch-target inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-accent-inverse transition-colors duration-150 hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:opacity-40"
           disabled={!q.trim()}
         >
           <ArrowUp className="size-4" />
@@ -64,7 +64,7 @@ export function SuggestionChips({ suggestions }: { suggestions: string[] }) {
           <button
             type="button"
             onClick={() => openCopilot(s)}
-            className="rounded-full border border-border px-2.5 py-1 text-xs text-secondary transition-colors duration-150 hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            className="touch-target rounded-full border border-border px-2.5 py-1 text-xs text-secondary transition-colors duration-150 hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
           >
             {s}
           </button>

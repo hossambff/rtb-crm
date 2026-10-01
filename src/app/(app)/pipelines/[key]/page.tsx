@@ -114,16 +114,17 @@ async function BoardData({
   return (
     <>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <Link href="/pipelines" className="mb-1 inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
             <ChevronLeft className="size-3.5" /> Pipelines
           </Link>
-          <h1 className="flex items-center gap-2.5 font-display text-[28px] font-medium leading-9 text-fg">
+          <h1 className="flex items-center gap-2.5 font-display text-[clamp(1.5rem,5vw,1.75rem)] font-medium leading-9 text-fg">
             <ColorTick color={pipeline.color} className="h-6" />
             {pipeline.name}
           </h1>
         </div>
-        <dl className="flex flex-wrap gap-x-6 gap-y-1 text-right tabular">
+        {/* Phones: a tidy 3-column grid (left aligned); sm+: a right-aligned row. */}
+        <dl className="grid w-full grid-cols-3 gap-x-4 gap-y-3 border-t border-border pt-3 tabular sm:flex sm:w-auto sm:flex-wrap sm:gap-x-6 sm:gap-y-1 sm:border-0 sm:pt-0 sm:text-right">
           <Kpi label="Open deals" value={fmtNumber(kpi.openDeals)} />
           {pipeline.unit === "muu" ? <Kpi label="MUU" value={fmtNumber(kpi.muu, { compact: true })} /> : null}
           {pipeline.unit !== "activation" ? <Kpi label={pipeline.unit === "muu" ? "Gross / yr" : "Value"} value={fmtUsd(kpi.gross, { compact: true })} /> : null}
@@ -164,9 +165,9 @@ async function BoardData({
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <dt className="text-[11px] uppercase tracking-wider text-muted">{label}</dt>
-      <dd className="font-display text-2xl leading-8 text-fg">{value}</dd>
+    <div className="min-w-0">
+      <dt className="truncate text-[11px] uppercase tracking-wider text-muted">{label}</dt>
+      <dd className="whitespace-nowrap font-display text-xl leading-7 text-fg sm:text-2xl sm:leading-8">{value}</dd>
     </div>
   );
 }

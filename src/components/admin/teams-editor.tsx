@@ -51,7 +51,7 @@ export function TeamsEditor({
       {teams.length === 0 ? (
         <EmptyState title="No teams" description="Create a team to group reps by pipeline and territory." />
       ) : (
-        <AdminTable>
+        <AdminTable cards>
           <thead>
             <tr>
               <Th>Team</Th>
@@ -67,10 +67,10 @@ export function TeamsEditor({
           <tbody>
             {teams.map((t) => (
               <tr key={t.id}>
-                <Td className="font-medium text-fg">{t.name}</Td>
-                <Td>{t.leadName ?? <span className="text-muted">—</span>}</Td>
-                <Td>
-                  <div className="flex flex-wrap gap-2 text-xs">
+                <Td label="Team" primary className="font-medium text-fg">{t.name}</Td>
+                <Td label="Lead">{t.leadName ?? <span className="text-muted">—</span>}</Td>
+                <Td label="Pipelines">
+                  <div className="flex flex-wrap justify-end gap-2 text-xs md:justify-start">
                     {t.pipelineTypes.map((k) => (
                       <span key={k} className="inline-flex items-center gap-1">
                         <ColorTick color={colorOf.get(k) ?? "#828282"} />
@@ -80,9 +80,9 @@ export function TeamsEditor({
                     {!t.pipelineTypes.length ? <span className="text-muted">—</span> : null}
                   </div>
                 </Td>
-                <Td className="max-w-64 text-xs text-secondary">{territorySummary(t.territory)}</Td>
-                <Td className="text-right tabular">{fmtNumber(t.memberCount)}</Td>
-                <Td>
+                <Td label="Territory" className="text-xs md:max-w-64 text-secondary">{territorySummary(t.territory)}</Td>
+                <Td label="Members" className="text-right tabular">{fmtNumber(t.memberCount)}</Td>
+                <Td actions>
                   <div className="flex justify-end gap-0.5">
                     <Button size="icon-sm" variant="ghost" aria-label={`Edit ${t.name}`} onClick={() => setEditing(t)}>
                       <Pencil aria-hidden />

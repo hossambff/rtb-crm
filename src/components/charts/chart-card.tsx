@@ -28,10 +28,10 @@ export function Legend({ items, className }: { items: LegendItem[]; className?: 
 /** Accessible table twin of a chart. */
 export function DataTable({ table, caption }: { table: TableSpec; caption?: string }) {
   return (
-    <div className="max-h-[420px] overflow-auto">
-      <table className="w-full text-left text-xs">
+    <div className="max-h-[420px] overflow-auto overscroll-x-contain">
+      <table className="table-sticky-first w-full text-left text-xs">
         {caption ? <caption className="sr-only">{caption}</caption> : null}
-        <thead className="sticky top-0 bg-surface-1">
+        <thead className="sticky top-0 z-[2] bg-surface-1">
           <tr className="border-b border-border">
             {table.columns.map((c) => (
               <th key={c.label} scope="col" className={cn("px-2 py-1.5 font-medium text-muted", c.numeric && "text-right")}>

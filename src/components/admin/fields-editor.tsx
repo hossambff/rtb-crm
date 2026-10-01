@@ -48,7 +48,7 @@ export function FieldsEditor({ fields, pipelines }: { fields: AdminFieldDef[]; p
               {rows.length === 0 ? (
                 <EmptyState title={`No custom ${e} fields`} description="Add a field to capture data the standard layout doesn't cover." />
               ) : (
-                <AdminTable>
+                <AdminTable cards>
                   <thead>
                     <tr>
                       <Th>Label</Th>
@@ -66,16 +66,18 @@ export function FieldsEditor({ fields, pipelines }: { fields: AdminFieldDef[]; p
                       const pipe = f.pipelineKey ? pipeBy.get(f.pipelineKey) : undefined;
                       return (
                         <tr key={f.id}>
-                          <Td>
-                            <div className="font-medium text-fg">{f.label}</div>
-                            <div className="text-xs text-muted">{f.key}</div>
+                          <Td label="Label" primary>
+                            <div className="min-w-0">
+                              <div className="font-medium text-fg">{f.label}</div>
+                              <div className="text-xs text-muted">{f.key}</div>
+                            </div>
                           </Td>
-                          <Td>
+                          <Td label="Type">
                             {FIELD_TYPE_LABELS[f.fieldType as keyof typeof FIELD_TYPE_LABELS] ?? f.fieldType}
                             {f.options.length ? <span className="ml-1 text-xs text-muted tabular">({f.options.length})</span> : null}
                           </Td>
                           {e === "deal" ? (
-                            <Td>
+                            <Td label="Pipeline">
                               {pipe ? (
                                 <span className="inline-flex items-center gap-1.5">
                                   <ColorTick color={pipe.color} />
@@ -87,14 +89,14 @@ export function FieldsEditor({ fields, pipelines }: { fields: AdminFieldDef[]; p
                             </Td>
                           ) : null}
                           {e === "deal" ? (
-                            <Td>
-                              <div className="flex flex-wrap gap-1">
+                            <Td label="Required at">
+                              <div className="flex flex-wrap justify-end gap-1 md:justify-start">
                                 {f.requiredAtStages.length ? f.requiredAtStages.map((s) => <Badge key={s}>{s}</Badge>) : <span className="text-muted">—</span>}
                               </div>
                             </Td>
                           ) : null}
-                          <Td className="text-right tabular">{f.sortOrder}</Td>
-                          <Td>
+                          <Td label="Order" className="text-right tabular">{f.sortOrder}</Td>
+                          <Td actions>
                             <div className="flex justify-end gap-0.5">
                               <Button size="icon-sm" variant="ghost" aria-label={`Edit ${f.label}`} onClick={() => setEditing({ field: f, entity: e })}>
                                 <Pencil aria-hidden />

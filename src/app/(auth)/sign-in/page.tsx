@@ -12,7 +12,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
   const sp = await searchParams;
   const error = typeof sp.error === "string" ? sp.error : undefined;
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
+    <div className="grid min-h-dvh lg:grid-cols-2">
       <div className="hidden flex-col justify-between border-r border-border bg-surface-1 p-12 lg:flex">
         <LogoLockup height={120} />
         <div>

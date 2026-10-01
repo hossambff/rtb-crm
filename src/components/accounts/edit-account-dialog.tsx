@@ -247,7 +247,7 @@ export function EditAccountDialog({ account, owners, categories, canAssign }: { 
                   {f.techStack.map((t) => (
                     <span key={t} className="inline-flex items-center gap-1 rounded border border-border-strong px-1.5 py-0.5 text-xs text-secondary">
                       {t}
-                      <button type="button" aria-label={`Remove ${t}`} className="text-muted hover:text-fg" onClick={() => setF((x) => ({ ...x, techStack: x.techStack.filter((y) => y !== t) }))}>
+                      <button type="button" aria-label={`Remove ${t}`} className="relative after:absolute after:-inset-2 after:content-[''] text-muted hover:text-fg" onClick={() => setF((x) => ({ ...x, techStack: x.techStack.filter((y) => y !== t) }))}>
                         <X className="size-3" />
                       </button>
                     </span>

@@ -165,7 +165,7 @@ export function RegistrationList({ rows, empty }: { rows: RegistrationRow[]; emp
   if (!rows.length) return <EmptyState title="No registrations" description={empty} />;
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[720px] text-sm">
+      <table className="table-cards w-full min-w-[720px] text-sm">
         <thead className="bg-surface-1 text-left text-xs text-muted">
           <tr>
             <th className="px-3 py-2 font-medium">Account</th>
@@ -178,16 +178,18 @@ export function RegistrationList({ rows, empty }: { rows: RegistrationRow[]; emp
         <tbody>
           {rows.map((r) => (
             <tr key={r.id} className="border-t border-border">
-              <td className="px-3 py-2">
-                <p className="text-fg">{r.accountName}</p>
-                <p className="text-[11px] text-muted">{r.domain ?? ""}</p>
+              <td data-primary className="px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-fg">{r.accountName}</p>
+                  <p className="text-[11px] text-muted">{r.domain ?? ""}</p>
+                </div>
               </td>
-              <td className="px-3 py-2 text-secondary">{r.userName}</td>
-              <td className="px-3 py-2 tabular">{fmtDate(r.createdAt)}</td>
-              <td className="px-3 py-2">
+              <td data-label="Rep" className="px-3 py-2 text-secondary">{r.userName}</td>
+              <td data-label="Submitted" className="px-3 py-2 tabular">{fmtDate(r.createdAt)}</td>
+              <td data-label="Status" className="px-3 py-2">
                 <StateBadge r={r} />
               </td>
-              <td className="px-3 py-2 tabular">{fmtDate(r.protectedUntil)}</td>
+              <td data-label="Protected until" className="px-3 py-2 tabular">{fmtDate(r.protectedUntil)}</td>
             </tr>
           ))}
         </tbody>

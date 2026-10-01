@@ -191,7 +191,7 @@ export function CaptureForm({ onDone, autoFocus = true, initialTarget = null }: 
             {done.name}
           </Link>
         </p>
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap justify-center gap-2">
           <Button size="sm" variant="secondary" onClick={reset}>
             Capture another
           </Button>
@@ -297,7 +297,7 @@ export function CaptureForm({ onDone, autoFocus = true, initialTarget = null }: 
           {preview.tasks.map((t, i) => (
             <div key={i} className={cn("flex flex-wrap items-center gap-2 rounded-md border px-3 py-2", t.on ? "border-border-strong" : "border-border opacity-60")}>
               <input type="checkbox" className="size-4 accent-white" checked={t.on} aria-label={`Create task “${t.title}”`} onChange={(e) => set((p) => ({ ...p, tasks: p.tasks.map((x, j) => (j === i ? { ...x, on: e.target.checked } : x)) }))} />
-              <Input value={t.title} aria-label="Task" className="h-8 min-w-0 flex-1 text-sm" onChange={(e) => set((p) => ({ ...p, tasks: p.tasks.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)) }))} />
+              <Input value={t.title} aria-label="Task" className="h-8 min-w-[10rem] flex-1 text-sm" onChange={(e) => set((p) => ({ ...p, tasks: p.tasks.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)) }))} />
               <Input type="date" value={t.due} aria-label="Due date" className="h-8 w-36 text-xs" onChange={(e) => set((p) => ({ ...p, tasks: p.tasks.map((x, j) => (j === i ? { ...x, due: e.target.value } : x)) }))} />
             </div>
           ))}
@@ -312,7 +312,7 @@ export function CaptureForm({ onDone, autoFocus = true, initialTarget = null }: 
             <div className={cn("flex flex-wrap items-center gap-2 rounded-md border px-3 py-2", preview.nextStep.on && isDeal ? "border-border-strong" : "border-border opacity-60")}>
               <input type="checkbox" className="size-4 accent-white" disabled={!isDeal} checked={preview.nextStep.on} aria-label="Set next step" onChange={(e) => set((p) => ({ ...p, nextStep: p.nextStep ? { ...p.nextStep, on: e.target.checked } : null }))} />
               <span className="w-20 text-xs text-secondary">Next step</span>
-              <Input value={preview.nextStep.text} aria-label="Next step" className="h-8 min-w-0 flex-1 text-sm" onChange={(e) => set((p) => ({ ...p, nextStep: p.nextStep ? { ...p.nextStep, text: e.target.value } : null }))} />
+              <Input value={preview.nextStep.text} aria-label="Next step" className="h-8 min-w-[10rem] flex-1 text-sm" onChange={(e) => set((p) => ({ ...p, nextStep: p.nextStep ? { ...p.nextStep, text: e.target.value } : null }))} />
               <Input type="date" value={preview.nextStep.due} aria-label="Next step due" className="h-8 w-36 text-xs" onChange={(e) => set((p) => ({ ...p, nextStep: p.nextStep ? { ...p.nextStep, due: e.target.value } : null }))} />
             </div>
           ) : null}
@@ -329,7 +329,7 @@ export function CaptureForm({ onDone, autoFocus = true, initialTarget = null }: 
         <Button type="button" variant="ghost" size="sm" onClick={() => setPreview(null)}>
           <ArrowLeft /> Edit text
         </Button>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="text-[11px] text-muted">{preview.engine.startsWith("ai:") ? "Parsed by AI" : "Parsed without AI"}</span>
           <Button type="button" variant="primary" size="sm" disabled={pending || !target || count === 0} onClick={apply}>
             <Check /> {pending ? "Saving…" : `Apply ${count || ""}`.trim()}

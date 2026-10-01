@@ -157,7 +157,7 @@ export function ContactFormDialog({
                   {f.altEmails.map((e) => (
                     <span key={e} className="inline-flex items-center gap-1 rounded border border-border-strong px-1.5 py-0.5 text-xs text-secondary">
                       {e}
-                      <button type="button" aria-label={`Remove ${e}`} className="text-muted hover:text-fg" onClick={() => setF((x) => ({ ...x, altEmails: x.altEmails.filter((y) => y !== e) }))}>
+                      <button type="button" aria-label={`Remove ${e}`} className="relative after:absolute after:-inset-2 after:content-[''] text-muted hover:text-fg" onClick={() => setF((x) => ({ ...x, altEmails: x.altEmails.filter((y) => y !== e) }))}>
                         <X className="size-3" />
                       </button>
                     </span>

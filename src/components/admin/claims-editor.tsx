@@ -44,7 +44,7 @@ export function ClaimsEditor({ claims, products }: { claims: AdminClaim[]; produ
         {claims.length === 0 ? (
           <EmptyState title="No claims yet" description="Add banned or restricted claims so drafts get flagged with an approved alternative." />
         ) : (
-          <AdminTable className="[&_table]:min-w-[900px]">
+          <AdminTable cards className="[&_table]:min-w-[900px]">
             <thead>
               <tr>
                 <Th>Status</Th>
@@ -64,11 +64,11 @@ export function ClaimsEditor({ claims, products }: { claims: AdminClaim[]; produ
                 const err = c.pattern ? regexError(c.pattern) : null;
                 return (
                   <tr key={c.id}>
-                    <Td>
+                    <Td label="Status">
                       <ClaimStatusBadge status={c.status} />
                     </Td>
-                    <Td className="max-w-64 text-fg">{c.text}</Td>
-                    <Td className="max-w-56">
+                    <Td label="Claim" primary className="text-fg md:max-w-64">{c.text}</Td>
+                    <Td label="Pattern" className="md:max-w-56">
                       {c.pattern ? <code className="break-all font-mono text-xs text-secondary">{c.pattern}</code> : <span className="text-xs text-muted">Text match</span>}
                       {err ? (
                         <p className="mt-1 text-xs text-secondary" role="alert">
@@ -76,14 +76,14 @@ export function ClaimsEditor({ claims, products }: { claims: AdminClaim[]; produ
                         </p>
                       ) : null}
                     </Td>
-                    <Td className="max-w-64 text-xs text-secondary">{c.approvedAlternative ?? "—"}</Td>
-                    <Td className="text-xs">{c.productId ? (productName.get(c.productId) ?? "Unknown") : "—"}</Td>
-                    <Td className="whitespace-nowrap text-xs tabular">
+                    <Td label="Approved alternative" className="text-xs md:max-w-64 text-secondary">{c.approvedAlternative ?? "—"}</Td>
+                    <Td label="Product" className="text-xs">{c.productId ? (productName.get(c.productId) ?? "Unknown") : "—"}</Td>
+                    <Td label="Expires" className="whitespace-nowrap text-xs tabular">
                       {fmtDate(c.expiresAt)}
                       {c.expired ? <Badge className="ml-1">Expired</Badge> : null}
                     </Td>
-                    <Td className="text-xs text-muted">{c.approverName ?? "—"}</Td>
-                    <Td>
+                    <Td label="Approver" className="text-xs text-muted">{c.approverName ?? "—"}</Td>
+                    <Td actions>
                       <div className="flex justify-end gap-0.5">
                         <Button size="icon-sm" variant="ghost" aria-label={`Edit claim ${c.text}`} onClick={() => setEditing(c)}>
                           <Pencil aria-hidden />

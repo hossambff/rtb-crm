@@ -122,7 +122,7 @@ export function UploadForm({
             className={`flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-6 py-10 text-center transition-colors ${dragging ? "border-white bg-surface-2" : "border-border-strong"}`}
           >
             <FileUp className="size-6 text-muted" aria-hidden />
-            <p className="text-sm text-body">{file ? file.name : "Drop a transcript here"}</p>
+            <p className="break-all text-sm text-body">{file ? file.name : "Drop a transcript here"}</p>
             <p className="text-xs text-muted">{ACCEPTED_EXTENSIONS.join(", ")} · up to 2 MB</p>
             <Button type="button" size="sm" variant="secondary" onClick={() => fileRef.current?.click()}>
               Choose file

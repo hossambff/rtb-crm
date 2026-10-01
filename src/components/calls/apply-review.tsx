@@ -296,7 +296,7 @@ export function ApplyReview({
       </section>
 
       <section aria-labelledby="ai-email">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h4 id="ai-email" className="text-xs font-medium uppercase tracking-wider text-muted">
             Follow-up email
           </h4>
@@ -321,7 +321,7 @@ export function ApplyReview({
           </div>
         ) : (
           <div className="space-y-2 rounded-md border border-border px-3 py-2.5">
-            <p className="text-sm font-medium text-fg">{draft?.subject ?? followUp.subject}</p>
+            <p className="break-words text-sm font-medium text-fg">{draft?.subject ?? followUp.subject}</p>
             <p className="line-clamp-4 whitespace-pre-wrap text-xs text-secondary">{draft?.body ?? followUp.body}</p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="secondary" onClick={() => setDraftOpen(true)}>
@@ -338,7 +338,7 @@ export function ApplyReview({
       </section>
 
       {canEdit ? (
-        <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-1 px-5 py-3">
+        <div className="sticky bottom-0 -mx-5 flex flex-wrap max-md:bottom-[calc(3.25rem+env(safe-area-inset-bottom))] items-center justify-between gap-3 border-t border-border bg-surface-1 px-5 py-3">
           <p className="text-xs text-muted">
             {total ? `${total} item${total === 1 ? "" : "s"} selected` : "Nothing selected"}
             <span className="hidden md:inline"> · tasks are created with origin “call AI” and linked evidence · drafts are never sent</span>

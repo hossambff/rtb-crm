@@ -41,7 +41,7 @@ export function MetricsRow({ m, compact = false }: { m: SequenceMetrics; compact
     ...(compact ? [] : ([["Opted out", fmtNumber(m.unsubscribed)]] as [string, string][])),
   ];
   return (
-    <dl className={cn("grid", compact ? "grid-cols-5 gap-2" : "grid-cols-3 gap-3 sm:grid-cols-6")}>
+    <dl className={cn("grid", compact ? "grid-cols-3 gap-2 @xs:grid-cols-5" : "grid-cols-3 gap-3 sm:grid-cols-6")}>
       {items.map(([k, v]) => (
         <div key={k} className="min-w-0">
           <dt className="truncate text-[11px] uppercase tracking-wide text-muted">{k}</dt>
@@ -56,7 +56,7 @@ export function SequenceCard({ row }: { row: SequenceListRow }) {
   return (
     <Link
       href={`/sequences/${row.id}`}
-      className="group block rounded-lg border border-border bg-surface-1 p-4 transition-colors duration-150 hover:border-border-strong hover:bg-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+      className="group @container block rounded-lg border border-border bg-surface-1 p-4 transition-colors duration-150 hover:border-border-strong hover:bg-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
     >
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">

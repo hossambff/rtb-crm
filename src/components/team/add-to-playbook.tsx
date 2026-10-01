@@ -91,7 +91,7 @@ export function AddToPlaybook({ transcriptId, children, className }: { transcrip
   return (
     <div className={className}>
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
-        <p className="text-[11px] text-muted">Select a line to clip it to the team playbook.</p>
+        <p className="min-w-0 text-[11px] text-muted">Select a line to clip it to the team playbook.</p>
         <Button variant="ghost" size="sm" onClick={() => setDialog({ quote: "", at: null, speaker: null })}>
           <BookmarkPlus /> Add clip
         </Button>

@@ -44,7 +44,7 @@ export default async function UploadTranscriptPage({ searchParams }: PageProps<"
 
   return (
     <div className="mx-auto max-w-3xl">
-      <Link href="/calls" className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
+      <Link href="/calls" className="-my-2 mb-1 inline-flex items-center gap-1 py-2 text-xs text-muted hover:text-fg">
         <ChevronLeft className="size-3.5" /> Calls
       </Link>
       <PageHeader title="Add a transcript" description="Upload a .txt, .vtt, .srt or .md file, or paste the text. We'll summarize it and extract action items for review." />

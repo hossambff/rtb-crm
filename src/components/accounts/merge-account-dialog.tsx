@@ -45,7 +45,7 @@ export function AccountPicker({ id, value, onChange, excludeId, placeholder }: {
         <span className="truncate text-fg">
           {value.name} <span className="text-xs text-muted">{pickMeta(value)}</span>
         </span>
-        <button type="button" aria-label="Clear selection" className="text-muted hover:text-fg" onClick={() => onChange(null)}>
+        <button type="button" aria-label="Clear selection" className="relative after:absolute after:-inset-2 after:content-[''] text-muted hover:text-fg" onClick={() => onChange(null)}>
           <X className="size-4" />
         </button>
       </div>

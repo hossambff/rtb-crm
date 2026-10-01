@@ -104,7 +104,7 @@ function ValuesTable({ rows, onEditLabel }: { rows: AdminPicklistValue[]; onEdit
   const del = useAction(deletePicklistValue, { success: "Value deleted" });
   const last = rows.length - 1;
   return (
-    <AdminTable>
+    <AdminTable cards>
       <thead>
         <tr>
           <Th className="w-16">Order</Th>
@@ -119,7 +119,7 @@ function ValuesTable({ rows, onEditLabel }: { rows: AdminPicklistValue[]; onEdit
       <tbody>
         {rows.map((v, i) => (
           <tr key={v.id} className={v.active ? undefined : "opacity-60"}>
-            <Td>
+            <Td label="Order">
               <div className="flex gap-0.5">
                 <Button size="icon-sm" variant="ghost" aria-label={`Move ${v.label} up`} disabled={i === 0 || move.pending} onClick={() => void move.run({ id: v.id, direction: "up" })}>
                   <ArrowUp aria-hidden />
@@ -129,15 +129,15 @@ function ValuesTable({ rows, onEditLabel }: { rows: AdminPicklistValue[]; onEdit
                 </Button>
               </div>
             </Td>
-            <Td className="text-xs text-muted">{v.value}</Td>
-            <Td>
+            <Td label="Value" className="text-xs text-muted">{v.value}</Td>
+            <Td label="Label" primary>
               <span className="text-fg">{v.label}</span>
               {!v.active ? <Badge className="ml-2">Inactive</Badge> : null}
             </Td>
-            <Td>
+            <Td label="Active">
               <Switch label={`${v.label} active`} checked={v.active} disabled={active.pending} onCheckedChange={(on) => void active.run({ id: v.id, active: on })} />
             </Td>
-            <Td>
+            <Td actions>
               <div className="flex justify-end gap-0.5">
                 <Button size="icon-sm" variant="ghost" aria-label={`Edit label of ${v.label}`} onClick={() => onEditLabel(v)}>
                   <Pencil aria-hidden />

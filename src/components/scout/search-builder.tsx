@@ -288,14 +288,14 @@ export function SearchBuilder({ initial, apifyConnected, maxDomainsPerRun }: { i
                   <thead className="sticky top-0 bg-surface-1 text-left text-xs text-muted">
                     <tr>
                       <th className="px-3 py-1.5">Domain ({list.length})</th>
-                      <th className="w-40 px-3 py-1.5">Manual MUU</th>
+                      <th className="w-28 px-3 py-1.5 sm:w-40">Manual MUU</th>
                       <th className="w-10" />
                     </tr>
                   </thead>
                   <tbody>
                     {list.slice(0, 300).map((r) => (
                       <tr key={r.domain} className="border-t border-border">
-                        <td className="px-3 py-1 font-mono text-xs text-body">{r.domain}</td>
+                        <td className="break-all px-3 py-1 font-mono text-xs text-body">{r.domain}</td>
                         <td className="px-3 py-1">
                           <Input
                             aria-label={`Manual MUU for ${r.domain}`}

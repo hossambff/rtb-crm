@@ -9,7 +9,7 @@ export function TeamSetupTabs({
 }) {
   return (
     <Tabs defaultValue={tabs[0]?.key}>
-      <TabsList className="overflow-x-auto overflow-y-hidden">
+      <TabsList>
         {tabs.map((t) => (
           <TabsTrigger key={t.key} value={t.key} className="whitespace-nowrap">
             {t.label}

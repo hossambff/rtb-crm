@@ -130,12 +130,12 @@ export default async function TeamPage({ searchParams }: PageProps<"/team">) {
             ))}
             <div className="flex justify-center gap-4 pt-2 text-sm">
               {before ? (
-                <Link href={href(kind)} className="text-secondary hover:text-fg">
+                <Link href={href(kind)} className="touch-target inline-flex items-center text-secondary hover:text-fg">
                   Back to latest
                 </Link>
               ) : null}
               {nextBefore ? (
-                <Link href={`/team?${kind ? `kind=${kind}&` : ""}before=${encodeURIComponent(nextBefore)}`} className="text-secondary hover:text-fg">
+                <Link href={`/team?${kind ? `kind=${kind}&` : ""}before=${encodeURIComponent(nextBefore)}`} className="touch-target inline-flex items-center text-secondary hover:text-fg">
                   Older posts
                 </Link>
               ) : null}

@@ -6,15 +6,26 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "@/lib/utils";
 import { initials } from "@/lib/format";
 
-export function Tooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
+export function Tooltip({
+  content,
+  children,
+  side,
+  contentClassName,
+}: {
+  content: React.ReactNode;
+  children: React.ReactNode;
+  side?: "top" | "right" | "bottom" | "left";
+  contentClassName?: string;
+}) {
   return (
     <TooltipPrimitive.Provider delayDuration={200}>
       <TooltipPrimitive.Root>
         <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
         <TooltipPrimitive.Portal>
           <TooltipPrimitive.Content
+            side={side}
             sideOffset={6}
-            className="z-50 max-w-xs rounded border border-border-strong bg-surface-2 px-2 py-1 text-xs text-body"
+            className={cn("z-50 max-w-xs rounded border border-border-strong bg-surface-2 px-2 py-1 text-xs text-body", contentClassName)}
           >
             {content}
           </TooltipPrimitive.Content>
@@ -31,7 +42,7 @@ export function DropdownMenuContent({ className, ...props }: React.ComponentProp
     <DropdownPrimitive.Portal>
       <DropdownPrimitive.Content
         sideOffset={6}
-        className={cn("z-50 min-w-44 rounded-md border border-border-strong bg-surface-2 p-1 text-sm", className)}
+        className={cn("z-50 min-w-44 max-w-[calc(100vw-1rem)] rounded-md border border-border-strong bg-surface-2 p-1 text-sm", className)}
         {...props}
       />
     </DropdownPrimitive.Portal>
@@ -41,7 +52,7 @@ export function DropdownMenuItem({ className, ...props }: React.ComponentProps<t
   return (
     <DropdownPrimitive.Item
       className={cn(
-        "flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-body outline-none data-[highlighted]:bg-surface-3 [&_svg]:size-4",
+        "flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-body pointer-coarse:py-2.5 outline-none data-[highlighted]:bg-surface-3 [&_svg]:size-4",
         className,
       )}
       {...props}
@@ -57,7 +68,7 @@ export function PopoverContent({ className, ...props }: React.ComponentProps<typ
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
         sideOffset={6}
-        className={cn("z-50 w-72 rounded-md border border-border-strong bg-surface-2 p-3", className)}
+        className={cn("z-50 w-72 max-w-[calc(100vw-1rem)] rounded-md border border-border-strong bg-surface-2 p-3", className)}
         {...props}
       />
     </PopoverPrimitive.Portal>
@@ -101,19 +112,19 @@ export function PageHeader({ title, description, actions }: { title: string; des
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="font-display text-[28px] font-medium leading-9 text-fg">{title}</h1>
+        <h1 className="font-display text-[clamp(1.5rem,5vw,1.75rem)] font-medium leading-9 text-fg">{title}</h1>
         {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
 
 export function Stat({ label, value, hint }: { label: string; value: React.ReactNode; hint?: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-surface-1 px-5 py-4">
+    <div className="@container min-w-0 rounded-lg border border-border bg-surface-1 px-4 py-3.5 sm:px-5 sm:py-4">
       <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
-      <p className="mt-2 font-display text-[32px] leading-10 text-fg tabular">{value}</p>
+      <p className="mt-2 font-display text-[clamp(1.375rem,14cqi,2rem)] leading-10 text-fg tabular">{value}</p>
       {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
     </div>
   );

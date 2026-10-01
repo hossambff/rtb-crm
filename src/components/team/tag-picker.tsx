@@ -18,7 +18,7 @@ export function TagPicker({ value, onChange, label = "Tags" }: { value: Playbook
               aria-pressed={on}
               onClick={() => onChange(on ? value.filter((x) => x !== t) : [...value, t])}
               className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors duration-150",
+                "touch-target inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors duration-150",
                 on ? "border-white bg-white text-black" : "border-border-strong text-secondary hover:bg-surface-3 hover:text-fg",
               )}
             >

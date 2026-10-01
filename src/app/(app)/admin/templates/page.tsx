@@ -38,7 +38,7 @@ export default async function TemplatesAdminPage() {
         <EmptyState title="No templates yet" description="Upload the coalition term sheet (.docx) above. It starts as a draft: review the fields and tiers, then activate it for reps." />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="table-cards w-full min-w-[760px] text-sm">
             <thead className="bg-surface-1 text-left text-xs text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Template</th>
@@ -55,22 +55,24 @@ export default async function TemplatesAdminPage() {
                 const tiers = t.parsed.tiers?.length ?? 0;
                 return (
                   <tr key={t.id} className="border-t border-border hover:bg-surface-1">
-                    <td className="px-3 py-2">
-                      <Link href={`/admin/templates/${t.id}`} className="font-medium text-fg hover:underline">
-                        {t.name}
-                      </Link>
-                      <p className="text-[11px] text-muted">
-                        {kindLabel(t.kind)} · {t.fileName}
-                      </p>
+                    <td data-label="Template" data-primary className="px-3 py-2">
+                      <div className="min-w-0">
+                        <Link href={`/admin/templates/${t.id}`} className="font-medium text-fg hover:underline">
+                          {t.name}
+                        </Link>
+                        <p className="text-[11px] text-muted">
+                          {kindLabel(t.kind)} · {t.fileName}
+                        </p>
+                      </div>
                     </td>
-                    <td className="px-3 py-2 tabular text-secondary">v{t.version}</td>
-                    <td className="px-3 py-2">
+                    <td data-label="Version" className="px-3 py-2 tabular text-secondary">v{t.version}</td>
+                    <td data-label="Status" className="px-3 py-2">
                       {templateReviewBlockers(t).length ? <Badge>Draft — review</Badge> : t.active ? <StatusBadge status="good" label="Active" /> : <Badge>Inactive</Badge>}
                     </td>
-                    <td className="px-3 py-2 tabular text-secondary">
+                    <td data-label="Placeholders" className="px-3 py-2 tabular text-secondary">
                       {mapped} of {t.parsed.candidates?.length ?? 0} mapped
                     </td>
-                    <td className="px-3 py-2">
+                    <td data-label="Tiers" className="px-3 py-2">
                       {tiers ? (
                         t.parsed.tiersReviewed ? (
                           <span className="tabular text-secondary">{tiers} · reviewed</span>
@@ -81,7 +83,7 @@ export default async function TemplatesAdminPage() {
                         <span className="text-muted">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 tabular text-secondary">
+                    <td data-label="Uploaded" className="px-3 py-2 tabular text-secondary">
                       {fmtDate(t.createdAt)} · {t.uploadedByName ?? "—"}
                     </td>
                   </tr>

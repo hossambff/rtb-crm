@@ -8,6 +8,7 @@ import { Avatar, EmptyState } from "@/components/ui/misc";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { AdminTable, Td, Th, useAction } from "@/components/admin/form";
 import { cn } from "@/lib/utils";
+import { ScrollStrip } from "@/components/ui/scroll-strip";
 import { STATUS_LABELS } from "@/lib/team-setup/core";
 import { nudgeMember } from "@/lib/team-setup/actions";
 import type { BoardRow } from "@/lib/team-setup/queries";
@@ -71,12 +72,13 @@ export function ProgressBoard({ rows, readOnly }: { rows: BoardRow[]; readOnly: 
         <p className="text-sm text-muted">set up · {counts.not_started ?? 0} not started · {counts.gaps} with gaps</p>
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div role="group" aria-label="Filter by status" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+        <ScrollStrip role="group" aria-label="Filter by status" activeKey={filter} className="-mx-1 flex gap-1 px-1 pb-1">
           {filters.map((f) => (
             <button
               key={f.key}
               type="button"
               aria-pressed={filter === f.key}
+              data-active={filter === f.key}
               onClick={() => setFilter(f.key)}
               className={cn(
                 "h-7 shrink-0 rounded-full border px-3 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80",
@@ -86,7 +88,7 @@ export function ProgressBoard({ rows, readOnly }: { rows: BoardRow[]; readOnly: 
               {f.label} <span className="tabular opacity-70">{counts[f.key] ?? 0}</span>
             </button>
           ))}
-        </div>
+        </ScrollStrip>
         <div className="relative sm:w-56">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted" aria-hidden />
           <Input aria-label="Search people" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="pl-8" />

@@ -148,7 +148,7 @@ export function InvitePanel({
       </fieldset>
 
       {parsed.rows.length ? (
-        <AdminTable>
+        <AdminTable cards>
           <thead>
             <tr>
               <Th>Person</Th>
@@ -161,14 +161,16 @@ export function InvitePanel({
           <tbody>
             {parsed.rows.map((r) => (
               <tr key={`${r.line}-${r.email}`}>
-                <Td>
+                <Td primary>
+                  <div className="min-w-0">
                   <p className="text-sm text-fg">{r.name || "—"}</p>
-                  <p className="text-xs text-muted">{r.email || "—"}</p>
+                  <p className="break-all text-xs text-muted">{r.email || "—"}</p>
+                  </div>
                 </Td>
-                <Td className="text-xs">{r.role ? ROLE_LABELS[r.role] : "—"}</Td>
-                <Td className="text-xs">{leader ? (forcedTeam?.name ?? "—") : nameOf(teams, r.teamId)}</Td>
-                <Td className="text-xs">{r.managerId === me.id ? `${me.name} (you)` : nameOf(people, r.managerId)}</Td>
-                <Td>
+                <Td label="Role" className="text-xs">{r.role ? ROLE_LABELS[r.role] : "—"}</Td>
+                <Td label="Team" className="text-xs">{leader ? (forcedTeam?.name ?? "—") : nameOf(teams, r.teamId)}</Td>
+                <Td label="Manager" className="text-xs">{r.managerId === me.id ? `${me.name} (you)` : nameOf(people, r.managerId)}</Td>
+                <Td label="Check">
                   {r.errors.length ? (
                     <p className="flex items-start gap-1.5 text-xs text-secondary">
                       <X className="mt-0.5 size-3.5 shrink-0 text-critical" aria-hidden />

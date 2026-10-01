@@ -47,7 +47,7 @@ export default async function StatementPage({ searchParams }: PageProps<"/commis
         <EmptyState title="No accruals for this period" description="Either nothing accrued or you don't have access to this rep's statement." />
       ) : (
         <>
-          <table className="w-full text-sm">
+          <table className="table-cards w-full text-sm">
             <thead className="text-left text-xs text-muted">
               <tr className="border-b border-border">
                 <th className="py-2 pr-3 font-medium">Trigger</th>
@@ -60,13 +60,13 @@ export default async function StatementPage({ searchParams }: PageProps<"/commis
             <tbody>
               {st.rows.map((r) => (
                 <tr key={r.id} className="border-b border-border align-top">
-                  <td className="py-2 pr-3 text-secondary">{TRIGGER_LABELS[r.trigger as Trigger] ?? r.trigger}</td>
-                  <td className="py-2 pr-3 text-body">{r.dealName ?? "—"}</td>
-                  <td className="whitespace-pre-line py-2 pr-3 text-xs text-muted">{r.note}</td>
-                  <td className="py-2 pr-3">
+                  <td data-label="Trigger" className="py-2 pr-3 text-secondary">{TRIGGER_LABELS[r.trigger as Trigger] ?? r.trigger}</td>
+                  <td data-label="Deal" data-primary className="py-2 pr-3 text-body">{r.dealName ?? "—"}</td>
+                  <td data-label="Detail" className="whitespace-pre-line py-2 pr-3 text-xs text-muted">{r.note}</td>
+                  <td data-label="Status" className="py-2 pr-3">
                     <AccrualStatusBadge status={r.status} />
                   </td>
-                  <td className="py-2 text-right tabular text-fg">{usd(r.amountCents)}</td>
+                  <td data-label="Amount" className="py-2 text-right tabular text-fg">{usd(r.amountCents)}</td>
                 </tr>
               ))}
             </tbody>

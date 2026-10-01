@@ -22,12 +22,12 @@ export default async function HelpRequestPage({ params }: PageProps<"/help/[id]"
   const forMe = r.target.id === user.id;
   return (
     <div className="mx-auto max-w-2xl">
-      <Link href="/home" className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
+      <Link href="/home" className="-my-2 mb-1 inline-flex items-center gap-1 py-2 text-xs text-muted hover:text-fg">
         <ChevronLeft className="size-3.5" /> Today
       </Link>
       <header className="mb-4">
         <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Help request</p>
-        <h1 className="font-display text-[28px] font-medium leading-9 text-fg">{forMe ? `${r.requester.name} needs your help` : `You asked ${r.target.name}`}</h1>
+        <h1 className="break-words font-display text-2xl font-medium leading-8 text-fg sm:text-[28px] sm:leading-9">{forMe ? `${r.requester.name} needs your help` : `You asked ${r.target.name}`}</h1>
         {r.meetingId ? (
           <p className="mt-1.5 text-sm text-secondary">
             Asked from a meeting.{" "}

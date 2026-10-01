@@ -29,7 +29,7 @@ export function BatchTable({ batches }: { batches: BatchRow[] }) {
   if (!batches.length) return <EmptyState title="No imports yet" description="Imports you run appear here with row-level results and one-click rollback." />;
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-surface-1">
-      <table className="w-full min-w-[860px] text-sm">
+      <table className="table-cards w-full min-w-[860px] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
             <th className="h-9 px-3 font-medium">File</th>
@@ -47,34 +47,36 @@ export function BatchTable({ batches }: { batches: BatchRow[] }) {
         <tbody>
           {batches.map((b) => (
             <tr key={b.id} className="border-b border-border last:border-0 hover:bg-surface-2">
-              <td className="max-w-[300px] px-3 py-2">
-                <Link href={`/import/history/${b.id}`} className="block truncate text-fg hover:underline" title={b.fileName}>
-                  {b.fileName}
-                </Link>
-                {b.sheetName ? <span className="block truncate text-xs text-muted" title={b.sheetName}>{b.sheetName}</span> : null}
+              <td data-label="File" data-primary className="px-3 py-2 md:max-w-[300px]">
+                <div className="min-w-0">
+                  <Link href={`/import/history/${b.id}`} className="block truncate text-fg hover:underline" title={b.fileName}>
+                    {b.fileName}
+                  </Link>
+                  {b.sheetName ? <span className="block truncate text-xs text-muted" title={b.sheetName}>{b.sheetName}</span> : null}
+                </div>
               </td>
-              <td className="px-3">
+              <td data-label="Target" className="px-3">
                 <Badge className="whitespace-nowrap">
                   {b.target.replace(/_/g, " ")}
                   {b.pipelineKey ? ` · ${b.pipelineKey}` : ""}
                 </Badge>
               </td>
-              <td className="px-3">
+              <td data-label="Status" className="px-3">
                 <BatchStatus status={b.status} />
               </td>
-              <td className="px-3 text-right tabular text-secondary">{fmtNumber(b.stats.rows ?? 0)}</td>
-              <td className="px-3 text-right tabular text-secondary">
+              <td data-label="Rows" className="px-3 text-right tabular text-secondary">{fmtNumber(b.stats.rows ?? 0)}</td>
+              <td data-label="Accounts +/~" className="px-3 text-right tabular text-secondary">
                 {fmtNumber(b.stats.accountsCreated ?? 0)} / {fmtNumber(b.stats.accountsUpdated ?? 0)}
               </td>
-              <td className="px-3 text-right tabular text-secondary">
+              <td data-label="Deals +/~" className="px-3 text-right tabular text-secondary">
                 {fmtNumber(b.stats.dealsCreated ?? 0)} / {fmtNumber(b.stats.dealsUpdated ?? 0)}
               </td>
-              <td className="px-3 text-right tabular text-secondary">{fmtNumber(b.stats.contactsCreated ?? 0)}</td>
-              <td className="px-3 text-secondary">{b.createdByName ?? "Migration script"}</td>
-              <td className="whitespace-nowrap px-3 text-xs text-muted" title={fmtDate(b.createdAt, "d MMM yyyy HH:mm")}>
+              <td data-label="Contacts +" className="px-3 text-right tabular text-secondary">{fmtNumber(b.stats.contactsCreated ?? 0)}</td>
+              <td data-label="By" className="px-3 text-secondary">{b.createdByName ?? "Migration script"}</td>
+              <td data-label="When" className="whitespace-nowrap px-3 text-xs text-muted" title={fmtDate(b.createdAt, "d MMM yyyy HH:mm")}>
                 {fmtRelative(b.createdAt)}
               </td>
-              <td className="px-3 text-right">{b.canRollback && b.status !== "rolled_back" ? <RollbackButton batchId={b.id} label={`${b.fileName}${b.sheetName ? ` › ${b.sheetName}` : ""}`} /> : null}</td>
+              <td data-actions className="px-3 text-right">{b.canRollback && b.status !== "rolled_back" ? <RollbackButton batchId={b.id} label={`${b.fileName}${b.sheetName ? ` › ${b.sheetName}` : ""}`} /> : null}</td>
             </tr>
           ))}
         </tbody>

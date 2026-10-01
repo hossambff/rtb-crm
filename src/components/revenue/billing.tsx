@@ -21,7 +21,7 @@ export function BillingTable({ deals }: { deals: AdsDealRow[] }) {
   return (
     <>
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[900px] text-sm">
+        <table className="table-cards w-full min-w-[900px] text-sm">
           <thead className="bg-surface-1 text-left text-xs text-muted">
             <tr>
               <th className="px-3 py-2 font-medium">Deal</th>
@@ -39,19 +39,21 @@ export function BillingTable({ deals }: { deals: AdsDealRow[] }) {
               const cat = ADS_CATEGORY[d.stageKey];
               return (
                 <tr key={d.id} className="border-t border-border hover:bg-surface-1">
-                  <td className="px-3 py-2">
-                    <p className="font-medium text-fg">{d.name}</p>
-                    <p className="text-[11px] text-muted">{d.ownerName ?? "Unassigned"}</p>
+                  <td data-primary className="px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-fg">{d.name}</p>
+                      <p className="text-[11px] text-muted">{d.ownerName ?? "Unassigned"}</p>
+                    </div>
                   </td>
-                  <td className="px-3 py-2">{cat ? <Badge>{CATEGORY_LABEL[cat]}</Badge> : "—"}</td>
-                  <td className="px-3 py-2 text-secondary">{d.stageName}</td>
-                  <td className="px-3 py-2 text-right tabular">{fmtUsd(d.contractValueCents, { cents: true })}</td>
-                  <td className="px-3 py-2 text-right tabular">{fmtUsd(d.annualizedValueCents, { cents: true })}</td>
-                  <td className="px-3 py-2 tabular text-secondary">
+                  <td data-label="Category" className="px-3 py-2">{cat ? <Badge>{CATEGORY_LABEL[cat]}</Badge> : "—"}</td>
+                  <td data-label="Stage" className="px-3 py-2 text-secondary">{d.stageName}</td>
+                  <td data-label="Contract" className="px-3 py-2 text-right tabular">{fmtUsd(d.contractValueCents, { cents: true })}</td>
+                  <td data-label="Annualized" className="px-3 py-2 text-right tabular">{fmtUsd(d.annualizedValueCents, { cents: true })}</td>
+                  <td data-label="Next payment" className="px-3 py-2 tabular text-secondary">
                     {d.nextPaymentCents != null ? `${fmtUsd(d.nextPaymentCents, { cents: true })} · ${fmtDate(d.nextPaymentAt)}` : "—"}
                   </td>
-                  <td className="px-3 py-2 tabular text-secondary">{fmtDate(d.renewalAt)}</td>
-                  <td className="px-3 py-2 text-right">
+                  <td data-label="Renewal" className="px-3 py-2 tabular text-secondary">{fmtDate(d.renewalAt)}</td>
+                  <td data-actions className="px-3 py-2 text-right">
                     {d.canEdit ? (
                       <Button size="sm" variant="ghost" onClick={() => setEditing(d)}>
                         Billing…
@@ -102,7 +104,7 @@ function BillingDialog({ deal, onClose }: { deal: AdsDealRow; onClose: () => voi
             <DialogDescription>{deal.name}</DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Annualized value (USD)" error={errors.annualizedValueCents?.[0]}>
                 <Input name="annualized" type="number" min={0} step={0.01} defaultValue={deal.annualizedValueCents != null ? deal.annualizedValueCents / 100 : ""} />
               </Field>

@@ -46,7 +46,7 @@ export function ScopePicker({ options, scope }: { options: ScopeOptions; scope: 
               aria-pressed={draft.pipelineKeys.length === 0}
               onClick={() => setDraft((d) => ({ ...d, pipelineKeys: [] }))}
               className={cn(
-                "h-8 rounded-full border px-3 text-sm transition-colors duration-150",
+                "touch-target h-8 rounded-full border px-3 text-sm transition-colors duration-150",
                 draft.pipelineKeys.length === 0 ? "border-white bg-white text-black" : "border-border text-secondary hover:text-fg",
               )}
             >
@@ -62,7 +62,7 @@ export function ScopePicker({ options, scope }: { options: ScopeOptions; scope: 
                   onClick={() => togglePipe(p.key)}
                   title={p.name}
                   className={cn(
-                    "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors duration-150",
+                    "touch-target inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors duration-150",
                     on ? "border-white bg-white text-black" : "border-border text-secondary hover:text-fg",
                   )}
                 >
@@ -108,7 +108,7 @@ export function ScopePicker({ options, scope }: { options: ScopeOptions; scope: 
                   <ChevronDown className="text-muted" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 p-2">
+              <PopoverContent align="end" className="w-72 max-w-[calc(100vw-2rem)] p-2">
                 <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a person" aria-label="Find a person" className="mb-2 h-8" />
                 {/* QA POL-05: a plain checkbox group (no buttons inside role="option") */}
                 <ul className="max-h-64 overflow-y-auto" role="group" aria-label="People">
@@ -116,7 +116,7 @@ export function ScopePicker({ options, scope }: { options: ScopeOptions; scope: 
                     const on = draft.ownerIds.includes(o.id);
                     return (
                       <li key={o.id}>
-                        <label className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-body hover:bg-surface-3 has-[:focus-visible]:outline has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-white">
+                        <label className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm pointer-coarse:py-2.5 text-body hover:bg-surface-3 has-[:focus-visible]:outline has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-white">
                           <input type="checkbox" className="sr-only" checked={on} onChange={() => toggleOwner(o.id)} />
                           <span aria-hidden className={cn("flex size-4 items-center justify-center rounded border", on ? "border-white bg-white text-black" : "border-border-strong")}>
                             {on ? <Check className="size-3" /> : null}
@@ -129,7 +129,7 @@ export function ScopePicker({ options, scope }: { options: ScopeOptions; scope: 
                   {!owners.length ? <li className="px-2 py-1.5 text-sm text-muted">No one matches.</li> : null}
                 </ul>
                 {draft.ownerIds.length ? (
-                  <button type="button" onClick={() => setDraft((d) => ({ ...d, ownerIds: [] }))} className="mt-2 w-full rounded px-2 py-1 text-left text-xs text-secondary hover:text-fg">
+                  <button type="button" onClick={() => setDraft((d) => ({ ...d, ownerIds: [] }))} className="touch-target mt-2 w-full rounded px-2 py-1 text-left text-xs text-secondary hover:text-fg">
                     Clear — everyone
                   </button>
                 ) : null}

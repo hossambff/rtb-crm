@@ -3,6 +3,7 @@ import { GOOGLE_WORKSPACE_SCOPES } from "@/lib/auth";
 import { getSettingsState } from "@/lib/integrations/queries";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/misc";
+import { ScrollStrip } from "@/components/ui/scroll-strip";
 import { ProfileForm } from "@/components/settings/profile-form";
 import { GoogleConnection } from "@/components/settings/google-connection";
 import { GranolaForm } from "@/components/settings/granola-form";
@@ -53,13 +54,13 @@ export default async function SettingsPage() {
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader title="Settings" description="Your profile, connected accounts, preferences, interruptions and privacy." />
-      <nav aria-label="Settings sections" className="mb-6 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border">
+      <ScrollStrip as="nav" aria-label="Settings sections" className="mb-6 flex gap-1 overflow-y-hidden shadow-[inset_0_-1px_0_var(--border)]">
         {SECTIONS.map((sct) => (
-          <a key={sct.id} href={`#${sct.id}`} className="-mb-px whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm text-muted hover:border-border-strong hover:text-fg">
+          <a key={sct.id} href={`#${sct.id}`} className="shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm text-muted transition-colors duration-150 hover:border-border-strong hover:text-fg">
             {sct.label}
           </a>
         ))}
-      </nav>
+      </ScrollStrip>
       <div className="space-y-6">
         {showBanner ? <MailboxBanner configured={state.google.configured} /> : null}
 

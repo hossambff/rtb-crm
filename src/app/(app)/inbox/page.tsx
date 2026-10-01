@@ -117,9 +117,9 @@ export default async function InboxPage({ searchParams }: PageProps<"/inbox">) {
           />
         )
       ) : (
-        <div className="grid min-h-[60vh] gap-4 xl:grid-cols-[minmax(320px,400px)_1fr]">
+        <div className="grid gap-4 xl:min-h-[60dvh] xl:grid-cols-[minmax(320px,400px)_1fr]">
           <Card className={cn("overflow-hidden", detail && "hidden xl:block")}>
-            <div className="max-h-[calc(100vh-260px)] overflow-y-auto">
+            <div className="xl:max-h-[calc(100dvh-260px)] xl:overflow-y-auto">
               {threads.length ? (
                 <ThreadList threads={threads} params={params} selectedId={detail?.thread.id} userId={user.id} userEmail={user.email} />
               ) : (

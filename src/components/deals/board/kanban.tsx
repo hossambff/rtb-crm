@@ -22,6 +22,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { fmtNumber, fmtUsd } from "@/lib/format";
 import { PRIORITY_LABELS, type BoardDeal, type Lane, type PipelineDTO, type StageDTO, type UserLite } from "@/lib/deals/types";
 import { cn } from "@/lib/utils";
+import { KANBAN_COL_W } from "./layout";
 import { HealthBadge, NextStepLine, OwnerStack, PriorityTag, RestrictedLock, valueLabel } from "../deal-bits";
 import { sortCards, type ColumnTotals } from "@/lib/deals/board-shape";
 
@@ -106,7 +107,8 @@ export function Kanban({
 
   return (
     <DndContext id={`kanban-${pipeline.key}`} sensors={sensors} collisionDetection={collision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
-      <div className="-mx-4 overflow-x-auto px-4 pb-4 md:-mx-8 md:px-8">
+      {/* Phones/tablets: one column per swipe (scroll-snap); desktop scrolls freely. */}
+      <div className="-mx-4 snap-x snap-mandatory scroll-px-4 overflow-x-auto overscroll-x-contain px-4 pb-4 sm:-mx-6 sm:scroll-px-6 sm:px-6 md:-mx-8 md:scroll-px-8 md:px-8 lg:snap-none">
         <div className="inline-flex min-w-full flex-col gap-3">
           {/* Column headers with totals (KAN-3) */}
           <div className="sticky top-0 z-10 flex gap-3 bg-bg pb-1">
@@ -138,7 +140,7 @@ export function Kanban({
                         <button
                           type="button"
                           disabled={loadingStage === st.id}
-                          className="w-full rounded-md border border-dashed border-border-strong py-1.5 text-xs text-secondary hover:text-fg disabled:opacity-50"
+                          className="touch-target w-full rounded-md border border-dashed border-border-strong py-1.5 text-xs text-secondary hover:text-fg disabled:opacity-50"
                           onClick={() => onLoadMore(st.id, loaded)}
                         >
                           {loadingStage === st.id ? "Loading…" : `Show ${Math.min(100, total - loaded)} more of ${total - loaded}`}
@@ -166,7 +168,7 @@ function ColumnHeader({ stage, pipeline, totals, loaded }: { stage: StageDTO; pi
   const t = totals ?? { count: 0, muu: 0, gross: 0, net: 0, weighted: 0 };
   const Icon = stage.category !== "open" ? CATEGORY_ICON[stage.category] : null;
   return (
-    <div className="w-[272px] shrink-0 rounded-lg border border-border bg-surface-1 px-3 py-2.5">
+    <div className={cn(KANBAN_COL_W, "shrink-0 snap-start rounded-lg border border-border bg-surface-1 px-3 py-2.5")}>
       <div className="flex items-center gap-2">
         {Icon ? <Icon className="size-3.5 text-muted" aria-hidden /> : null}
         <h2 className="truncate font-sans text-[13px] font-semibold text-fg" title={stage.name}>
@@ -221,8 +223,9 @@ function Column({ id, stage, tall, children }: { id: string; stage: StageDTO; ta
       ref={setNodeRef}
       aria-label={`${stage.name} column`}
       className={cn(
-        "flex w-[272px] shrink-0 flex-col gap-2 rounded-lg border border-border bg-surface-1 p-2 transition-colors duration-150",
-        tall ? "max-h-[calc(100vh-270px)] min-h-40 overflow-y-auto" : "min-h-20",
+        KANBAN_COL_W,
+        "flex shrink-0 flex-col gap-2 rounded-lg border border-border bg-surface-1 p-2 transition-colors duration-150",
+        tall ? "max-h-[calc(100dvh-270px)] min-h-40 overflow-y-auto overscroll-y-contain" : "min-h-20",
         isOver ? "border-border-strong bg-surface-2/60" : "",
         stage.category === "lost" ? "bg-surface-1/60" : "",
       )}
@@ -323,7 +326,7 @@ function MoveMenu({ deal, stages, onMove }: { deal: BoardDeal; stages: StageDTO[
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="-mr-1 -mt-0.5 rounded p-0.5 text-muted opacity-70 hover:bg-surface-3 hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
+        className="relative -mr-1 -mt-0.5 rounded p-0.5 text-muted opacity-70 after:absolute after:-inset-2.5 after:content-[''] hover:bg-surface-3 hover:text-fg group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
         aria-label={`Move ${deal.name} to stage`}
         onPointerDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}

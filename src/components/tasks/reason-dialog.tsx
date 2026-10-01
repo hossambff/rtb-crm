@@ -115,7 +115,7 @@ export function ReasonDialog({
                         setUntil(toLocalInput(snoozePreset(p.key, new Date(), tz ?? browserTz()), tz));
                       }}
                       className={cn(
-                        "rounded-md border px-2.5 py-1 text-xs transition-colors duration-150",
+                        "touch-target rounded-md border px-2.5 py-1 text-xs transition-colors duration-150",
                         preset === p.key ? "border-white text-fg" : "border-border-strong text-secondary hover:text-fg",
                       )}
                     >

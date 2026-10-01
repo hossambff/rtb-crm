@@ -27,12 +27,12 @@ export function ThreadView({ detail, backHref, userEmail, canSend }: { detail: T
 
   return (
     <article aria-labelledby="thread-subject" className="flex flex-col">
-      <header className="space-y-3 border-b border-border px-5 py-4">
-        <Link href={backHref} className="inline-flex items-center gap-1 text-xs text-muted hover:text-fg xl:hidden">
+      <header className="space-y-3 border-b border-border px-4 py-4 sm:px-5">
+        <Link href={backHref} className="-my-2 inline-flex items-center gap-1 py-2 text-xs text-muted hover:text-fg xl:hidden">
           <ChevronLeft className="size-3.5" /> All threads
         </Link>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h2 id="thread-subject" className="font-display text-xl leading-7 text-fg">
+          <h2 id="thread-subject" className="min-w-0 break-words font-display text-xl leading-7 text-fg">
             {thread.private ? <Lock className="mr-1.5 inline size-4 text-muted" aria-label="Private" /> : null}
             {thread.subject ?? "(no subject)"}
           </h2>
@@ -89,7 +89,7 @@ export function ThreadView({ detail, backHref, userEmail, canSend }: { detail: T
       </header>
 
       {thread.private ? (
-        <p className="px-5 py-6 text-sm text-muted">This thread is private. Its content isn&apos;t stored and new messages aren&apos;t logged.</p>
+        <p className="px-4 py-6 text-sm text-muted sm:px-5">This thread is private. Its content isn&apos;t stored and new messages aren&apos;t logged.</p>
       ) : (
         <ol className="divide-y divide-border">
           {messages.map((m) => {
@@ -97,16 +97,16 @@ export function ThreadView({ detail, backHref, userEmail, canSend }: { detail: T
             const fresh = stripQuoted(m.bodyText ?? "");
             const hasQuoted = (m.bodyText ?? "").trim().length > fresh.length + 20;
             return (
-              <li key={m.id} className="space-y-3 px-5 py-4">
+              <li key={m.id} className="space-y-3 px-4 py-4 sm:px-5">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="flex items-center gap-1.5 text-sm">
+                  <p className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm">
                     {m.direction === "outbound" ? (
                       <ArrowUpRight className="size-3.5 text-muted" aria-label="Sent" />
                     ) : (
                       <ArrowDownLeft className="size-3.5 text-muted" aria-label="Received" />
                     )}
-                    <span className="font-medium text-fg">{m.fromAddr ?? "Unknown sender"}</span>
-                    <span className="text-xs text-muted">→ {[...m.toAddrs, ...m.ccAddrs].slice(0, 4).join(", ")}</span>
+                    <span className="break-all font-medium text-fg">{m.fromAddr ?? "Unknown sender"}</span>
+                    <span className="min-w-0 break-all text-xs text-muted">→ {[...m.toAddrs, ...m.ccAddrs].slice(0, 4).join(", ")}</span>
                   </p>
                   <time className="text-xs text-muted" dateTime={m.sentAt?.toISOString()} title={fmtDate(m.sentAt, "d MMM yyyy HH:mm")}>
                     {fmtRelative(m.sentAt)}

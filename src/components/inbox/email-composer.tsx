@@ -121,7 +121,7 @@ export function EmailComposer({
         <div className="flex items-center justify-between">
           <Label htmlFor="composer-to">To</Label>
           {!showCc ? (
-            <button type="button" className="text-xs text-muted hover:text-fg" onClick={() => setShowCc(true)}>
+            <button type="button" className="-my-2 py-2 text-xs text-muted hover:text-fg" onClick={() => setShowCc(true)}>
               Add Cc
             </button>
           ) : null}
@@ -144,7 +144,7 @@ export function EmailComposer({
         <div className="flex items-center justify-between">
           <Label htmlFor="composer-body">Message</Label>
           <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2 hover:text-fg">
+            <DropdownMenuTrigger className="touch-target inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2 hover:text-fg">
               <FileText className="size-3.5" /> Insert template
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -184,7 +184,7 @@ export function EmailComposer({
               </li>
             ))}
           </ul>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="secondary" onClick={() => setHits(null)}>
               Edit message
             </Button>

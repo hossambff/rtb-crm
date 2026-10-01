@@ -200,7 +200,7 @@ export function PostCard({ post, compact = false }: { post: FeedPost; compact?: 
               aria-pressed={r.mine}
               aria-label={`${REACTION_NAMES[r.emoji]} (${r.count})${r.mine ? ", you reacted" : ""}`}
               className={cn(
-                "inline-flex h-7 items-center gap-1 rounded-full border px-2 text-sm transition-colors duration-150",
+                "touch-target inline-flex h-7 items-center gap-1 rounded-full border px-2 text-sm transition-colors duration-150",
                 r.mine ? "border-white/50 bg-surface-3 text-fg" : "border-border text-secondary hover:border-border-strong hover:bg-surface-2",
               )}
             >
@@ -214,7 +214,7 @@ export function PostCard({ post, compact = false }: { post: FeedPost; compact?: 
             <button
               type="button"
               aria-label="Add a reaction"
-              className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-border px-2 text-xs text-muted transition-colors duration-150 hover:border-border-strong hover:text-fg"
+              className="touch-target inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-border px-2 text-xs text-muted transition-colors duration-150 hover:border-border-strong hover:text-fg"
             >
               <SmilePlus className="size-3.5" aria-hidden />
               {reactions.length ? null : <span>{post.kind === "win" ? "Celebrate" : "React"}</span>}

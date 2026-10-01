@@ -10,6 +10,7 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { BriefView } from "@/components/one-on-one/brief-view";
 import { RefreshBriefButton } from "@/components/one-on-one/refresh-button";
 import { cn } from "@/lib/utils";
+import { ScrollStrip } from "@/components/ui/scroll-strip";
 
 export const metadata = { title: "1:1 prep" };
 
@@ -53,7 +54,7 @@ export default async function OneOnOnePage({ params, searchParams }: PageProps<"
       </div>
 
       {past.length > 1 ? (
-        <nav aria-label="Earlier weeks" className="-mx-4 mb-5 overflow-x-auto px-4 md:mx-0 md:px-0">
+        <ScrollStrip as="nav" aria-label="Earlier weeks" className="-mx-4 mb-5 px-4 md:mx-0 md:px-0">
           <ul className="flex min-w-max gap-1.5">
             {past.map((p) => {
               const on = p.periodKey === viewing?.periodKey;
@@ -73,7 +74,7 @@ export default async function OneOnOnePage({ params, searchParams }: PageProps<"
               );
             })}
           </ul>
-        </nav>
+        </ScrollStrip>
       ) : null}
 
       {viewing ? (

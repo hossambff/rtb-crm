@@ -117,7 +117,7 @@ function HandoffDialog({ dealId, dealStatus, onClose }: { dealId: string; dealSt
                           setKind(k);
                           setToUserId("");
                         }}
-                        className={cn("rounded px-3 py-1.5 text-sm transition-colors duration-150", kind === k ? "bg-white text-black" : "text-secondary hover:text-fg")}
+                        className={cn("touch-target rounded px-3 py-1.5 text-sm transition-colors duration-150", kind === k ? "bg-white text-black" : "text-secondary hover:text-fg")}
                       >
                         {HANDOFF_KIND_LABEL[k]}
                       </button>

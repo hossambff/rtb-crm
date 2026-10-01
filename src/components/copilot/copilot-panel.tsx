@@ -70,7 +70,7 @@ export function CopilotPanel({
       <DialogContent side="right" className="flex max-w-lg flex-col p-0" aria-describedby={undefined}>
         <DialogTitle className="sr-only">Copilot</DialogTitle>
         <DialogDescription className="sr-only">Ask Copilot about this record.</DialogDescription>
-        <div className="absolute right-11 top-2.5 z-10">
+        <div className="absolute right-11 top-2.5 z-10 pointer-coarse:right-14 pointer-coarse:top-1">
           <Button variant="ghost" size="icon-sm" asChild aria-label="Open full-page Copilot">
             <Link href={fullPageHref(context)} onClick={() => onOpenChange(false)}>
               <Expand />

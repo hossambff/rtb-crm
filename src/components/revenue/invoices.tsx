@@ -81,7 +81,7 @@ function InvoiceDialog({ deals, invoice, onClose }: { deals: { id: string; name:
                 </NativeSelect>
               </Field>
             ) : null}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Amount (USD)" error={errors.amountCents?.[0]}>
                 <Input name="amount" type="number" min={0.01} step={0.01} required defaultValue={invoice ? invoice.amountCents / 100 : undefined} className="tabular" />
               </Field>
@@ -186,7 +186,7 @@ export function InvoicesTable({ invoices, perms, deals, highlightId }: { invoice
         <EmptyState title="No invoices" description={invoices.length ? "Nothing matches this filter." : "Schedule the first billing milestone with “New invoice”."} />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="table-cards w-full min-w-[900px] text-sm">
             <thead className="bg-surface-1 text-left text-xs text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Deal</th>
@@ -202,21 +202,23 @@ export function InvoicesTable({ invoices, perms, deals, highlightId }: { invoice
             <tbody>
               {rows.map((inv) => (
                 <tr key={inv.id} id={`invoice-${inv.id}`} className={cn("border-t border-border hover:bg-surface-1", inv.id === highlightId && "bg-surface-2")} aria-current={inv.id === highlightId ? "true" : undefined}>
-                  <td className="px-3 py-2">
-                    <p className="font-medium text-fg">{inv.dealName}</p>
-                    {inv.accountName ? <p className="text-[11px] text-muted">{inv.accountName}</p> : null}
+                  <td data-primary className="px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-fg">{inv.dealName}</p>
+                      {inv.accountName ? <p className="text-[11px] text-muted">{inv.accountName}</p> : null}
+                    </div>
                   </td>
-                  <td className="px-3 py-2 text-secondary">{inv.ownerName ?? "—"}</td>
-                  <td className="px-3 py-2 text-right font-medium text-fg tabular">{fmtUsd(inv.amountCents, { cents: true })}</td>
-                  <td className="px-3 py-2 tabular">{fmtDate(inv.dueAt)}</td>
-                  <td className="px-3 py-2">
+                  <td data-label="Owner" className="px-3 py-2 text-secondary">{inv.ownerName ?? "—"}</td>
+                  <td data-label="Amount" className="px-3 py-2 text-right font-medium text-fg tabular">{fmtUsd(inv.amountCents, { cents: true })}</td>
+                  <td data-label="Due" className="px-3 py-2 tabular">{fmtDate(inv.dueAt)}</td>
+                  <td data-label="Status" className="px-3 py-2">
                     <InvoiceStatusBadge status={inv.status} days={inv.daysOverdue} />
                   </td>
-                  <td className="px-3 py-2 tabular text-secondary">{fmtDate(inv.paidAt)}</td>
-                  <td className="max-w-48 truncate px-3 py-2 text-xs text-secondary" title={inv.paidInKind ?? undefined}>
+                  <td data-label="Paid" className="px-3 py-2 tabular text-secondary">{fmtDate(inv.paidAt)}</td>
+                  <td data-label="Payment in kind" className="max-w-48 truncate px-3 py-2 text-xs text-secondary" title={inv.paidInKind ?? undefined}>
                     {inv.paidInKind ?? "—"}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td data-actions className="px-3 py-2 text-right">
                     <RowMenu inv={inv} perms={perms} onEdit={() => setEditing(inv)} />
                   </td>
                 </tr>
@@ -243,12 +245,12 @@ export function CollectionsBoard({ invoices, perms }: { invoices: InvoiceRow[]; 
   const [now] = React.useState(() => Date.now());
   const recentPaid = (i: InvoiceRow) => i.status !== "paid" || (i.paidAt != null && now - new Date(i.paidAt).getTime() < 90 * 86_400_000);
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
+    <div className="flex snap-x gap-3 overflow-x-auto overscroll-x-contain pb-2">
       {BOARD.map((col) => {
         const items = invoices.filter((i) => i.status === col.status && recentPaid(i)).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
         const total = items.reduce((a, i) => a + i.amountCents, 0);
         return (
-          <section key={col.status} aria-label={col.title} className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-surface-1">
+          <section key={col.status} aria-label={col.title} className="flex w-72 max-w-[85vw] shrink-0 snap-start flex-col rounded-lg border border-border bg-surface-1">
             <header className="flex items-baseline justify-between border-b border-border px-3 py-2">
               <h3 className="font-sans text-sm font-medium text-fg">{col.title}</h3>
               <span className="text-xs text-muted tabular">

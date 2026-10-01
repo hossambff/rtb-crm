@@ -66,7 +66,7 @@ export function BurnUpChart({ data, goal }: { data: { label: string; live: numbe
       <ResponsiveContainer width="100%" height={240} initialDimension={INITIAL_DIM}>
         <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
           <CartesianGrid stroke={CHART_AXIS.grid} vertical={false} />
-          <XAxis dataKey="label" tick={tick} axisLine={{ stroke: CHART_AXIS.stroke }} tickLine={false} />
+          <XAxis dataKey="label" tick={tick} axisLine={{ stroke: CHART_AXIS.stroke }} tickLine={false} interval="preserveStartEnd" minTickGap={12} />
           <YAxis tick={tick} axisLine={false} tickLine={false} domain={[0, ticks[ticks.length - 1]!]} ticks={ticks} interval={0} allowDecimals={false} />
           <Tooltip content={<TooltipBox />} cursor={{ stroke: CHART_AXIS.stroke }} />
           <Legend formatter={LegendText} iconType="plainline" wrapperStyle={{ paddingTop: 4 }} />
@@ -85,7 +85,7 @@ export function FunnelChart({ data }: { data: { name: string; count: number; liv
       <ResponsiveContainer width="100%" height={Math.max(160, data.length * 26 + 20)} initialDimension={{ width: INITIAL_DIM.width, height: Math.max(160, data.length * 26 + 20) }}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, bottom: 0, left: 8 }} barCategoryGap={2}>
           <CartesianGrid stroke={CHART_AXIS.grid} horizontal={false} />
-          <XAxis type="number" tick={tick} axisLine={false} tickLine={false} allowDecimals={false} />
+          <XAxis type="number" tick={tick} axisLine={false} tickLine={false} allowDecimals={false} minTickGap={12} />
           <YAxis type="category" dataKey="name" tick={tick} axisLine={false} tickLine={false} width={150} interval={0} tickFormatter={shortLabel(22)} />
           <Tooltip content={<TooltipBox />} cursor={{ fill: "#1A1A1A" }} />
           <Bar isAnimationActive={false} name="Companies" dataKey="count" fill={R100} barSize={12} radius={[0, 4, 4, 0]} />

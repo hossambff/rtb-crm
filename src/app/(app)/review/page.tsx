@@ -42,11 +42,11 @@ export default async function ReviewPage({ searchParams }: PageProps<"/review">)
       <div className="space-y-5">
         {active ? (
           <Link href={`/review/${active.id}`} className="group flex items-center justify-between gap-3 rounded-lg border border-border-strong bg-surface-2 px-4 py-3 text-sm transition-colors duration-150 hover:bg-surface-3">
-            <span>
+            <span className="min-w-0 break-words">
               <span className="text-fg">Resume “{active.title}”</span>
               <span className="text-muted"> · {active.decisionCount} decided of {active.dealCount}</span>
             </span>
-            <ArrowRight className="size-4 text-secondary transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden />
+            <ArrowRight className="size-4 shrink-0 text-secondary transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden />
           </Link>
         ) : null}
 
@@ -59,14 +59,14 @@ export default async function ReviewPage({ searchParams }: PageProps<"/review">)
             href={approvalHref(b.approvalId)}
             className="group flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 px-4 py-3 text-sm transition-colors duration-150 hover:bg-surface-2"
           >
-            <span>
+            <span className="min-w-0">
               <span className="text-fg">Bulk probability override</span>
               <span className="text-muted">
                 {" "}
                 · {b.deals} deal{b.deals === 1 ? "" : "s"} in this scope · one decision in Approvals
               </span>
             </span>
-            <ArrowRight className="size-4 text-secondary transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden />
+            <ArrowRight className="size-4 shrink-0 text-secondary transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden />
           </Link>
         ))}
 

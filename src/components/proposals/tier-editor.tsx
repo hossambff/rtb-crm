@@ -88,7 +88,7 @@ export function TierEditor(p: { templateId: string; tables: TierTable[]; tiers: 
       ) : null}
 
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[640px] text-sm">
+        <table className="table-cards w-full min-w-[640px] text-sm">
           <thead className="bg-surface-1 text-left text-xs text-muted">
             <tr>
               <th className="px-3 py-2 font-medium">Band (as written)</th>
@@ -102,22 +102,22 @@ export function TierEditor(p: { templateId: string; tables: TierTable[]; tiers: 
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className="border-t border-border">
-                <td className="px-3 py-1.5">
-                  <Input aria-label={`Row ${i + 1} label`} className="h-8" value={r.label} disabled={p.readOnly} onChange={(e) => set(i, { label: e.target.value })} />
+                <td data-primary className="px-3 py-1.5">
+                  <Input aria-label={`Row ${i + 1} label`} className="h-8 min-w-0" value={r.label} disabled={p.readOnly} onChange={(e) => set(i, { label: e.target.value })} />
                 </td>
-                <td className="px-3 py-1.5">
-                  <Input aria-label={`Row ${i + 1} from`} className="h-8 tabular" placeholder="none" value={r.min} disabled={p.readOnly} onChange={(e) => set(i, { min: e.target.value, minExclusive: false })} />
+                <td data-label="From (MUU)" className="px-3 py-1.5">
+                  <Input aria-label={`Row ${i + 1} from`} className="h-8 min-w-0 tabular" placeholder="none" value={r.min} disabled={p.readOnly} onChange={(e) => set(i, { min: e.target.value, minExclusive: false })} />
                 </td>
-                <td className="px-3 py-1.5">
-                  <Input aria-label={`Row ${i + 1} to`} className="h-8 tabular" placeholder="none" value={r.max} disabled={p.readOnly} onChange={(e) => set(i, { max: e.target.value, maxExclusive: false })} />
+                <td data-label="To (MUU)" className="px-3 py-1.5">
+                  <Input aria-label={`Row ${i + 1} to`} className="h-8 min-w-0 tabular" placeholder="none" value={r.max} disabled={p.readOnly} onChange={(e) => set(i, { max: e.target.value, maxExclusive: false })} />
                 </td>
-                <td className="px-3 py-1.5">
-                  <Input aria-label={`Row ${i + 1} partner percent`} type="number" min={0} max={100} step="any" className="h-8 text-right tabular" value={r.partnerPct} disabled={p.readOnly} onChange={(e) => set(i, { partnerPct: e.target.value })} />
+                <td data-label="Partner %" className="px-3 py-1.5">
+                  <Input aria-label={`Row ${i + 1} partner percent`} type="number" min={0} max={100} step="any" className="h-8 min-w-0 text-right tabular" value={r.partnerPct} disabled={p.readOnly} onChange={(e) => set(i, { partnerPct: e.target.value })} />
                 </td>
-                <td className="px-3 py-1.5">
-                  <Input aria-label={`Row ${i + 1} Roundtable percent`} type="number" min={0} max={100} step="any" className="h-8 text-right tabular" value={r.rtbPct} disabled={p.readOnly} onChange={(e) => set(i, { rtbPct: e.target.value })} />
+                <td data-label="Roundtable %" className="px-3 py-1.5">
+                  <Input aria-label={`Row ${i + 1} Roundtable percent`} type="number" min={0} max={100} step="any" className="h-8 min-w-0 text-right tabular" value={r.rtbPct} disabled={p.readOnly} onChange={(e) => set(i, { rtbPct: e.target.value })} />
                 </td>
-                <td className="px-2 py-1.5">
+                <td data-actions className="px-2 py-1.5">
                   {!p.readOnly ? (
                     <Button size="icon-sm" variant="ghost" aria-label={`Remove row ${i + 1}`} onClick={() => setRows(rows.filter((_, j) => j !== i))}>
                       <Trash2 />
@@ -148,7 +148,7 @@ export function TierEditor(p: { templateId: string; tables: TierTable[]; tiers: 
       ) : null}
       {!p.readOnly ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={() => setRows([...rows, { label: "", min: "", max: "", partnerPct: "", rtbPct: "" }])}>
               <Plus /> Add tier
             </Button>

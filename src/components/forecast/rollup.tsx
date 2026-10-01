@@ -152,8 +152,8 @@ export function RollupTable({ title, rows, firstCol, emptyText }: { title: strin
             </li>
           ))}
         </ul>
-        <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
-          <table className="w-full min-w-[640px] border-collapse text-[13px] tabular">
+        <div className="hidden overflow-x-auto overscroll-x-contain rounded-lg border border-border sm:block">
+          <table className="table-sticky-first w-full min-w-[640px] border-collapse text-[13px] tabular">
             <thead className="bg-surface-1 text-[11px] uppercase tracking-wider text-muted">
               <tr>
                 <th className="h-9 px-3 text-left font-medium">{firstCol}</th>
@@ -310,13 +310,15 @@ function ChangeItems({ rows }: { rows: ChangeRow[] }) {
 export function ReconPanel({ recon }: { recon: Reconciliation }) {
   const line = (label: string, b: ReconBucket, hint: string, strong = false) => (
     <tr className="border-t border-border">
-      <td className={cn("h-9 px-3", strong ? "text-fg" : "text-body")}>
-        {label}
-        <span className="block text-[11px] text-muted">{hint}</span>
+      <td data-primary className={cn("h-9 px-3", strong ? "text-fg" : "text-body")}>
+        <span className="block">
+          {label}
+          <span className="block text-[11px] font-normal text-muted">{hint}</span>
+        </span>
       </td>
-      <td className="px-3 text-right text-muted">{fmtNumber(b.deals)}</td>
-      <td className="px-3 text-right text-body">{fmtUsd(b.grossUsd, { compact: true })}</td>
-      <td className={cn("px-3 text-right", strong ? "text-fg" : "text-body")}>{fmtUsd(b.weightedUsd, { compact: true })}</td>
+      <td data-label="Deals" className="px-3 text-right text-muted">{fmtNumber(b.deals)}</td>
+      <td data-label="Gross" className="px-3 text-right text-body">{fmtUsd(b.grossUsd, { compact: true })}</td>
+      <td data-label="Weighted" className={cn("px-3 text-right", strong ? "text-fg" : "text-body")}>{fmtUsd(b.weightedUsd, { compact: true })}</td>
     </tr>
   );
   const sum = recon.inWindow.weightedUsd + recon.closePassed.weightedUsd + recon.beyondWindow.weightedUsd + recon.noCloseDate.weightedUsd;
@@ -327,7 +329,7 @@ export function ReconPanel({ recon }: { recon: Reconciliation }) {
         How this reconciles to Pipelines <span className="text-muted">· open weighted {fmtUsd(recon.open.weightedUsd, { compact: true })}</span>
       </summary>
       <div className="overflow-x-auto border-t border-border">
-        <table className="w-full min-w-[480px] border-collapse text-[13px] tabular">
+        <table className="table-cards w-full min-w-[480px] border-collapse text-[13px] tabular">
           <thead className="text-[11px] uppercase tracking-wider text-muted">
             <tr>
               <th className="h-8 px-3 text-left font-medium">Open deals in this view</th>
@@ -345,19 +347,19 @@ export function ReconPanel({ recon }: { recon: Reconciliation }) {
           </tbody>
         </table>
         {recon.byMotion.length > 1 ? (
-          <table className="w-full min-w-[480px] border-collapse border-t border-border text-[12px] tabular">
+          <table className="table-cards w-full min-w-[480px] border-collapse border-t border-border text-[12px] tabular">
             <tbody>
               {recon.byMotion.map((m) => (
                 <tr key={m.key} className="border-t border-border first:border-t-0">
-                  <td className="h-8 px-3 text-body">
+                  <td data-primary className="h-8 px-3 text-body">
                     <span className="flex items-center gap-2">
                       <ColorTick color={m.color} /> {m.name}
                     </span>
                   </td>
-                  <td className="px-3 text-right text-muted">
+                  <td data-label="Deals" className="px-3 text-right text-muted">
                     {fmtNumber(m.inWindow.deals)} / {fmtNumber(m.open.deals)} deals in window
                   </td>
-                  <td className="px-3 text-right text-body">
+                  <td data-label="Weighted" className="px-3 text-right text-body">
                     {fmtUsd(m.inWindow.weightedUsd, { compact: true })} of {fmtUsd(m.open.weightedUsd, { compact: true })} weighted
                   </td>
                 </tr>

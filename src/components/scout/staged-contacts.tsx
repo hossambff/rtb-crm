@@ -73,7 +73,7 @@ export function StagedContacts({ rows, canReview, running }: { rows: StagedRow[]
         </div>
       ) : null}
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[820px] text-sm">
+        <table className="table-cards w-full min-w-[820px] text-sm">
           <thead className="bg-surface-1 text-left text-xs font-medium text-muted">
             <tr className="border-b border-border">
               <th className="w-9 px-3 py-2">
@@ -91,7 +91,7 @@ export function StagedContacts({ rows, canReview, running }: { rows: StagedRow[]
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="border-b border-border last:border-0">
-                <td className="px-3 py-2">
+                <td data-label="Select" className="px-3 py-2">
                   <input
                     type="checkbox"
                     className="accent-white"
@@ -108,7 +108,7 @@ export function StagedContacts({ rows, canReview, running }: { rows: StagedRow[]
                     }
                   />
                 </td>
-                <td className="px-2 py-2">
+                <td data-primary className="px-2 py-2">
                   <span className="text-fg">{r.fullName}</span>
                   {r.linkedinUrl ? (
                     <a className="ml-2 text-xs text-muted underline underline-offset-2 hover:text-fg" href={r.linkedinUrl} target="_blank" rel="noopener noreferrer">
@@ -116,15 +116,17 @@ export function StagedContacts({ rows, canReview, running }: { rows: StagedRow[]
                     </a>
                   ) : null}
                 </td>
-                <td className="px-2 py-2 text-secondary">{r.title ?? "—"}</td>
-                <td className="px-2 py-2 font-mono text-xs text-body">{r.email ?? <span className="font-sans text-muted">not found</span>}</td>
-                <td className="px-2 py-2">{r.email ? <VerificationBadge v={r.verification} /> : null}</td>
-                <td className="px-2 py-2 text-xs text-muted">
-                  {r.emailSource ? (SOURCE[r.emailSource] ?? r.emailSource) : "—"}
-                  {r.sourceActor ? <span className="block font-mono text-[10px]">{r.sourceActor}</span> : null}
+                <td data-label="Title" className="px-2 py-2 text-secondary">{r.title ?? "—"}</td>
+                <td data-label="Email" className="break-all px-2 py-2 font-mono text-xs text-body">{r.email ?? <span className="font-sans text-muted">not found</span>}</td>
+                <td data-label="Verification" className="px-2 py-2">{r.email ? <VerificationBadge v={r.verification} /> : null}</td>
+                <td data-label="Source" className="px-2 py-2 text-xs text-muted">
+                  <span className="min-w-0">
+                    {r.emailSource ? (SOURCE[r.emailSource] ?? r.emailSource) : "—"}
+                    {r.sourceActor ? <span className="block break-all font-mono text-[10px]">{r.sourceActor}</span> : null}
+                  </span>
                 </td>
-                <td className="px-2 py-2 text-right tabular text-secondary">{r.confidence != null ? `${Math.round(r.confidence * 100)}%` : "—"}</td>
-                <td className="px-2 py-2">
+                <td data-label="Confidence" className="px-2 py-2 text-right tabular text-secondary">{r.confidence != null ? `${Math.round(r.confidence * 100)}%` : "—"}</td>
+                <td data-label="State" className="px-2 py-2">
                   {r.state === "promoted" ? (
                     r.promotedContactId ? (
                       <Link href={`/contacts/${r.promotedContactId}`} className="text-xs underline underline-offset-2">

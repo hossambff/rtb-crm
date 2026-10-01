@@ -118,7 +118,7 @@ export function UsersAdmin({
       {filtered.length === 0 ? (
         <EmptyState title="No users match" description="Adjust the search or filters." />
       ) : (
-        <AdminTable className="-mx-4">
+        <AdminTable cards className="-mx-4">
           <thead>
             <tr>
               <Th className="pl-4">User</Th>
@@ -172,8 +172,8 @@ function UserRowView({ u, isSuperAdmin, isSelf, onEdit, onDeactivate }: { u: Use
   const roleOptions = ASSIGNABLE_ROLES.filter((r) => isSuperAdmin || !(PRIVILEGED_ROLES as readonly string[]).includes(r));
   return (
     <tr className={u.banned ? "opacity-60" : undefined}>
-      <Td className="pl-4">
-        <div className="flex items-center gap-2.5">
+      <Td label="User" primary className="pl-4">
+        <div className="flex min-w-0 items-center gap-2.5">
           <Avatar name={u.name} src={u.image} size={28} />
           <div className="min-w-0">
             <p className="truncate font-medium text-fg">
@@ -187,14 +187,14 @@ function UserRowView({ u, isSuperAdmin, isSelf, onEdit, onDeactivate }: { u: Use
           </div>
         </div>
       </Td>
-      <Td>
+      <Td label="Role">
         {canManage && !u.banned ? (
           <NativeSelect
             aria-label={`Role for ${u.name}`}
             value={u.role}
             disabled={role.pending}
             onChange={(e) => role.run({ userId: u.id, role: e.target.value })}
-            className="h-8 w-44 text-xs"
+            className="h-8 w-44 min-w-0 max-w-full text-xs"
           >
             {u.role === "pending" ? <option value="pending">Pending approval</option> : null}
             {roleOptions.map((r) => (
@@ -207,20 +207,20 @@ function UserRowView({ u, isSuperAdmin, isSelf, onEdit, onDeactivate }: { u: Use
           <Badge>{roleLabel(u.role)}</Badge>
         )}
       </Td>
-      <Td className="text-xs text-secondary">
+      <Td label="Team · manager" className="text-xs text-secondary">
         {u.teamName ?? "—"}
         <span className="block text-muted">{u.managerName ? `→ ${u.managerName}` : ""}</span>
       </Td>
-      <Td className="text-xs text-secondary">{EMPLOYMENT_LABELS[u.employmentType ?? ""] ?? "—"}</Td>
-      <Td>
+      <Td label="Employment" className="text-xs text-secondary">{EMPLOYMENT_LABELS[u.employmentType ?? ""] ?? "—"}</Td>
+      <Td label="Status">
         <StatusBadge status={st.status} label={st.label} />
       </Td>
-      <Td className="whitespace-nowrap text-xs text-secondary">
+      <Td label="Last active" className="whitespace-nowrap text-xs text-secondary">
         {u.lastActiveAt ? fmtRelative(u.lastActiveAt) : "Never"}
         {u.activeSessions ? <span className="block text-muted">{u.activeSessions} session{u.activeSessions === 1 ? "" : "s"}</span> : null}
       </Td>
-      <Td className="whitespace-nowrap text-xs text-secondary tabular">{u.accessExpiresAt ? fmtDate(u.accessExpiresAt) : "—"}</Td>
-      <Td className="pr-4">
+      <Td label="Access expiry" className="whitespace-nowrap text-xs text-secondary tabular">{u.accessExpiresAt ? fmtDate(u.accessExpiresAt) : "—"}</Td>
+      <Td actions className="pr-4">
         {canManage ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -589,7 +589,7 @@ export function PlaceholdersPanel({ placeholders, users }: { placeholders: Place
       {open.length === 0 ? (
         <p className="py-4 text-center text-xs text-muted">No unclaimed placeholders.</p>
       ) : (
-        <AdminTable className="-mx-4">
+        <AdminTable cards className="-mx-4">
           <thead>
             <tr>
               <Th className="pl-4">Placeholder</Th>
@@ -604,14 +604,16 @@ export function PlaceholdersPanel({ placeholders, users }: { placeholders: Place
           <tbody>
             {open.map((p) => (
               <tr key={p.id}>
-                <Td className="pl-4">
-                  <p className="font-medium text-fg">{p.name}</p>
-                  <p className="text-xs text-muted">{p.email}</p>
+                <Td label="Placeholder" primary className="pl-4">
+                  <div className="min-w-0">
+                    <p className="font-medium text-fg">{p.name}</p>
+                    <p className="break-all text-xs text-muted md:break-normal">{p.email}</p>
+                  </div>
                 </Td>
-                <Td className="text-right tabular">{p.deals}</Td>
-                <Td className="text-right tabular">{p.accounts}</Td>
-                <Td className="text-right tabular">{p.tasks}</Td>
-                <Td className="pr-4 text-right">
+                <Td label="Deals" className="text-right tabular">{p.deals}</Td>
+                <Td label="Accounts" className="text-right tabular">{p.accounts}</Td>
+                <Td label="Open tasks" className="text-right tabular">{p.tasks}</Td>
+                <Td actions className="pr-4 text-right">
                   <Button size="sm" onClick={() => setClaiming(p)}>
                     Claim…
                   </Button>

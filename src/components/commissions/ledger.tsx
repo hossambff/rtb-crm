@@ -113,7 +113,7 @@ export function Ledger({ rows, perms, currentUserId }: { rows: AccrualRow[]; per
         <EmptyState title="No accruals" description={rows.length ? "Nothing matches this filter." : "Accruals appear after finance runs the accrual engine on assigned plans."} />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[960px] text-sm">
+          <table className="table-cards w-full min-w-[960px] text-sm">
             <thead className="bg-surface-1 text-left text-xs text-muted">
               <tr>
                 {bulk ? (
@@ -135,7 +135,7 @@ export function Ledger({ rows, perms, currentUserId }: { rows: AccrualRow[]; per
               {filtered.map((r) => (
                 <tr key={r.id} className="border-t border-border align-top hover:bg-surface-1">
                   {bulk ? (
-                    <td className="px-3 py-2">
+                    <td data-label="Select" className="px-3 py-2">
                       <input
                         type="checkbox"
                         aria-label={`Select accrual ${r.dealName ?? r.trigger}`}
@@ -150,16 +150,16 @@ export function Ledger({ rows, perms, currentUserId }: { rows: AccrualRow[]; per
                       />
                     </td>
                   ) : null}
-                  <td className="px-3 py-2 tabular">{r.period}</td>
-                  <td className="px-3 py-2 text-secondary">{r.userName}</td>
-                  <td className="px-3 py-2 text-secondary">{TRIGGER_LABELS[r.trigger as Trigger] ?? r.trigger}</td>
-                  <td className="px-3 py-2 text-body">{r.dealName ?? "—"}</td>
-                  <td className="max-w-72 whitespace-pre-line px-3 py-2 text-xs text-muted">{r.note}</td>
-                  <td className="px-3 py-2 text-right font-medium text-fg tabular">{fmtUsd(r.amountCents, { cents: true })}</td>
-                  <td className="px-3 py-2">
+                  <td data-label="Period" className="px-3 py-2 tabular">{r.period}</td>
+                  <td data-label="Rep" className="px-3 py-2 text-secondary">{r.userName}</td>
+                  <td data-label="Trigger" className="px-3 py-2 text-secondary">{TRIGGER_LABELS[r.trigger as Trigger] ?? r.trigger}</td>
+                  <td data-label="Deal" className="px-3 py-2 text-body">{r.dealName ?? "—"}</td>
+                  <td data-label="Detail" className="max-w-72 whitespace-pre-line px-3 py-2 text-xs text-muted">{r.note}</td>
+                  <td data-label="Amount" className="px-3 py-2 text-right font-medium text-fg tabular">{fmtUsd(r.amountCents, { cents: true })}</td>
+                  <td data-label="Status" className="px-3 py-2">
                     <AccrualStatusBadge status={r.status} />
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td data-actions className="px-3 py-2 text-right">
                     {r.status === "disputed" && perms.canMarkPaid ? (
                       <Button size="sm" variant="ghost" onClick={() => setResolving(r)}>
                         Resolve
@@ -254,7 +254,7 @@ function ResolveDialog({ row, onClose }: { row: AccrualRow; onClose: () => void 
           </DialogHeader>
           <DialogBody>
             <p className="whitespace-pre-line rounded-md border border-border bg-surface-1 p-3 text-xs text-secondary">{row.note}</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Amount (USD)" hint="Leave as is to keep the amount">
                 <Input name="amount" type="number" step={0.01} defaultValue={row.amountCents / 100} className="tabular" />
               </Field>

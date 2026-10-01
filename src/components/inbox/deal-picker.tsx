@@ -70,7 +70,7 @@ export function DealPicker({
             {value.name}
             {value.subtitle ? <span className="ml-2 text-xs text-muted">{value.subtitle}</span> : null}
           </span>
-          <button type="button" onClick={() => onChange(null)} className="rounded p-0.5 text-muted hover:text-fg" aria-label={`Clear ${label.toLowerCase()}`}>
+          <button type="button" onClick={() => onChange(null)} className="relative rounded p-0.5 text-muted after:absolute after:-inset-2 after:content-[''] hover:text-fg" aria-label={`Clear ${label.toLowerCase()}`}>
             <X className="size-3.5" />
           </button>
         </div>

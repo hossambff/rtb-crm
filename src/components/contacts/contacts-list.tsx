@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/misc";
+import { FilterSheet } from "@/components/ui/filter-sheet";
 import { Pager, ServerTable, type ColumnUi, type ListFeatures } from "@/components/accounts/server-table";
 import { useQueryParams } from "@/components/accounts/use-query-params";
 import { RelativeTime } from "@/components/ui/relative-time";
@@ -110,7 +111,7 @@ export function ContactsList({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-72">
+        <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden />
           <Input
             value={q}
@@ -125,6 +126,7 @@ export function ContactsList({
             className="h-8 pl-8 text-sm"
           />
         </div>
+        <FilterSheet count={active.length} onClear={() => set(Object.fromEntries(active.map((k) => [k, null])))}>
         <NativeSelect aria-label="Status" value={get("status")} onChange={(e) => set({ status: e.target.value || null })} className="h-8 w-auto min-w-28 text-xs">
           <option value="">Status</option>
           <option value="active">Active</option>
@@ -145,8 +147,9 @@ export function ContactsList({
           <option value="">Any consent</option>
           <option value="yes">Do not contact</option>
         </NativeSelect>
+        </FilterSheet>
         {active.length ? (
-          <Button size="sm" variant="ghost" onClick={() => set(Object.fromEntries(active.map((k) => [k, null])))}>
+          <Button size="sm" variant="ghost" className="hidden md:inline-flex" onClick={() => set(Object.fromEntries(active.map((k) => [k, null])))}>
             <X /> Clear
           </Button>
         ) : null}

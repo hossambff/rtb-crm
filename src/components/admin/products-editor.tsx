@@ -46,7 +46,7 @@ export function ProductsEditor({ products, pipelines }: { products: AdminProduct
           {families.map((family) => (
             <div key={family}>
               <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">{family}</h3>
-              <AdminTable>
+              <AdminTable cards>
                 <thead>
                   <tr>
                     <Th>Product</Th>
@@ -64,15 +64,17 @@ export function ProductsEditor({ products, pipelines }: { products: AdminProduct
                     .filter((p) => p.family === family)
                     .map((p) => (
                       <tr key={p.id} className={p.active ? undefined : "opacity-60"}>
-                        <Td>
-                          <div className="font-medium text-fg">{p.name}</div>
-                          <div className="text-xs text-muted">
-                            {p.sku ?? "No SKU"}
-                            {!p.active ? " · inactive" : ""}
+                        <Td label="Product" primary>
+                          <div className="min-w-0">
+                            <div className="font-medium text-fg">{p.name}</div>
+                            <div className="text-xs text-muted">
+                              {p.sku ?? "No SKU"}
+                              {!p.active ? " · inactive" : ""}
+                            </div>
                           </div>
                         </Td>
-                        <Td>
-                          <div className="flex flex-wrap gap-2 text-xs">
+                        <Td label="Pipelines">
+                          <div className="flex flex-wrap justify-end gap-2 text-xs md:justify-start">
                             {p.pipelineKeys.map((k) => (
                               <span key={k} className="inline-flex items-center gap-1">
                                 <ColorTick color={colorOf.get(k) ?? "#828282"} />
@@ -82,12 +84,12 @@ export function ProductsEditor({ products, pipelines }: { products: AdminProduct
                             {!p.pipelineKeys.length ? <span className="text-muted">—</span> : null}
                           </div>
                         </Td>
-                        <Td className="text-xs">{p.pricingModel ? (PRICING_MODEL_LABELS[p.pricingModel as Pricing] ?? p.pricingModel) : "—"}</Td>
-                        <Td>
+                        <Td label="Pricing" className="text-xs">{p.pricingModel ? (PRICING_MODEL_LABELS[p.pricingModel as Pricing] ?? p.pricingModel) : "—"}</Td>
+                        <Td label="Status">
                           <ProductStatusBadge status={p.status} />
                         </Td>
-                        <Td className="max-w-48 truncate font-mono text-xs text-muted">{Object.keys(p.defaultTerms ?? {}).length ? JSON.stringify(p.defaultTerms) : "—"}</Td>
-                        <Td>
+                        <Td label="Default terms" className="truncate md:max-w-48 font-mono text-xs text-muted">{Object.keys(p.defaultTerms ?? {}).length ? JSON.stringify(p.defaultTerms) : "—"}</Td>
+                        <Td actions>
                           <div className="flex justify-end gap-0.5">
                             <Button size="icon-sm" variant="ghost" aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)}>
                               <Pencil aria-hidden />

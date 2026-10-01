@@ -60,9 +60,9 @@ export function InsightPanels({ a }: { a: TranscriptAnalysis }) {
       <Section title="Qualification">
         <dl className="divide-y divide-border rounded-md border border-border">
           {rows.map(([k, v]) => (
-            <div key={k} className="grid grid-cols-[140px_1fr] gap-3 px-3 py-2 text-sm">
+            <div key={k} className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-3 px-3 py-2 text-sm sm:grid-cols-[140px_minmax(0,1fr)]">
               <dt className="text-xs text-muted">{k}</dt>
-              <dd className={v ? "text-body" : "text-muted"}>{v ?? "—"}</dd>
+              <dd className={v ? "min-w-0 break-words text-body" : "text-muted"}>{v ?? "—"}</dd>
             </div>
           ))}
         </dl>

@@ -48,7 +48,7 @@ export function SearchesTable({ rows, canCreate }: { rows: SearchRow[]; canCreat
   return (
     <>
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="table-cards w-full min-w-[860px] text-sm">
           <thead className="bg-surface-1 text-left text-xs font-medium text-muted">
             <tr className="border-b border-border">
               <th className="px-4 py-2">Search</th>
@@ -64,17 +64,19 @@ export function SearchesTable({ rows, canCreate }: { rows: SearchRow[]; canCreat
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="border-b border-border last:border-0 hover:bg-surface-2/60">
-                <td className="px-4 py-2.5">
-                  <Link href={`/scout?tab=queue&search=${r.id}&state=all`} className="font-medium text-fg hover:underline">
-                    {r.name}
-                  </Link>
-                  <p className="text-xs text-muted">{r.summary}</p>
+                <td data-primary className="px-4 py-2.5">
+                  <div className="min-w-0">
+                    <Link href={`/scout?tab=queue&search=${r.id}&state=all`} className="font-medium text-fg hover:underline">
+                      {r.name}
+                    </Link>
+                    <p className="text-xs font-normal text-muted">{r.summary}</p>
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-secondary">{r.ownerName ?? "—"}</td>
-                <td className="px-3 py-2.5">
+                <td data-label="Owner" className="px-3 py-2.5 text-secondary">{r.ownerName ?? "—"}</td>
+                <td data-label="Schedule" className="px-3 py-2.5">
                   <Badge>{r.schedule === "weekly" ? "Weekly" : "Once"}</Badge>
                 </td>
-                <td className="px-3 py-2.5 text-secondary">
+                <td data-label="Last run" className="px-3 py-2.5 text-secondary">
                   {r.lastRunStatus ? (
                     <Link href={r.lastRunId ? `/scout/runs/${r.lastRunId}` : "#"} className="inline-flex items-center gap-2">
                       <RunStatusBadge status={r.lastRunStatus} />
@@ -84,10 +86,10 @@ export function SearchesTable({ rows, canCreate }: { rows: SearchRow[]; canCreat
                     <span className="text-muted">Never</span>
                   )}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular">{r.total}</td>
-                <td className="px-3 py-2.5 text-right tabular">{r.pending}</td>
-                <td className="px-3 py-2.5 text-right tabular">{r.accepted}</td>
-                <td className="px-3 py-2.5">
+                <td data-label="Candidates" className="px-3 py-2.5 text-right tabular">{r.total}</td>
+                <td data-label="To review" className="px-3 py-2.5 text-right tabular">{r.pending}</td>
+                <td data-label="Accepted" className="px-3 py-2.5 text-right tabular">{r.accepted}</td>
+                <td data-actions className="px-3 py-2.5">
                   <div className="flex justify-end gap-1">
                     {r.canEdit ? (
                       <>
