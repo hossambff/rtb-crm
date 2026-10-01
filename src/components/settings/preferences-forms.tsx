@@ -2,9 +2,10 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Label, NativeSelect, Textarea } from "@/components/ui/input";
-import { saveBlocklist, saveNotificationPrefs } from "@/lib/integrations/actions";
-import type { NotificationPrefs, UserPrefs } from "@/lib/integrations/core";
+import { Label, Textarea } from "@/components/ui/input";
+import { saveBlocklist } from "@/lib/integrations/actions";
+import { saveDraftingPrefs } from "@/lib/prefs/actions";
+import type { UserPrefs } from "@/lib/integrations/core";
 
 function Toggle({ id, label, hint, checked, onChange }: { id: string; label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -18,14 +19,16 @@ function Toggle({ id, label, hint, checked, onChange }: { id: string; label: str
   );
 }
 
-const hour = (h: number) => `${String(h).padStart(2, "0")}:00`;
-
+/**
+ * Settings → "Email & drafting": AI-action notices, signature and voice samples. Alert budget, severity floor, quiet
+ * hours and Slack live in Preferences → Interruptions (one save; QA MAJ-04). The old In-app / Mentions / Approvals /
+ * email-digest switches were removed: nothing read them.
+ */
 export function NotificationForm({ prefs }: { prefs: UserPrefs }) {
-  const [n, setN] = useState<NotificationPrefs>(prefs.notifications);
+  const [aiActions, setAiActions] = useState(prefs.notifications.aiActions);
   const [signature, setSignature] = useState(prefs.signature);
   const [voice, setVoice] = useState(prefs.voiceSamples);
   const [pending, start] = useTransition();
-  const set = <K extends keyof NotificationPrefs>(k: K, v: NotificationPrefs[K]) => setN((p) => ({ ...p, [k]: v }));
 
   return (
     <form
@@ -33,58 +36,13 @@ export function NotificationForm({ prefs }: { prefs: UserPrefs }) {
       onSubmit={(e) => {
         e.preventDefault();
         start(async () => {
-          const r = await saveNotificationPrefs({ notifications: n, signature, voiceSamples: voice });
+          const r = await saveDraftingPrefs({ aiActions, signature, voiceSamples: voice });
           if (!r.ok) toast.error(r.error);
-          else toast.success("Preferences saved.");
+          else toast.success("Email settings saved.");
         });
       }}
     >
-      <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
-        <Toggle id="n-inapp" label="In-app notifications" checked={n.inApp} onChange={(v) => set("inApp", v)} />
-        <Toggle id="n-slack" label="Slack" hint="When the Slack app is installed" checked={n.slack} onChange={(v) => set("slack", v)} />
-        <Toggle id="n-ai" label="AI actions" hint="Tell me when tasks are created from my email and calls" checked={n.aiActions} onChange={(v) => set("aiActions", v)} />
-        <Toggle id="n-mentions" label="Mentions" checked={n.mentions} onChange={(v) => set("mentions", v)} />
-        <Toggle id="n-approvals" label="Approvals" checked={n.approvals} onChange={(v) => set("approvals", v)} />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="n-digest">Email digest</Label>
-          <NativeSelect id="n-digest" value={n.emailDigest} onChange={(e) => set("emailDigest", e.target.value as NotificationPrefs["emailDigest"])}>
-            <option value="off">Off</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-          </NativeSelect>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="n-sev">Alert me from</Label>
-          <NativeSelect id="n-sev" value={n.minSeverity} onChange={(e) => set("minSeverity", e.target.value as NotificationPrefs["minSeverity"])}>
-            <option value="info">Info and above</option>
-            <option value="warning">Warning and above</option>
-            <option value="serious">Serious and above</option>
-            <option value="critical">Critical only</option>
-          </NativeSelect>
-        </div>
-        <fieldset className="space-y-1.5">
-          <legend className="text-xs font-medium text-secondary">Quiet hours</legend>
-          <div className="flex items-center gap-2">
-            <NativeSelect aria-label="Quiet hours start" value={n.quietHoursStart} onChange={(e) => set("quietHoursStart", Number(e.target.value))}>
-              {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>
-                  {hour(h)}
-                </option>
-              ))}
-            </NativeSelect>
-            <span className="text-muted">–</span>
-            <NativeSelect aria-label="Quiet hours end" value={n.quietHoursEnd} onChange={(e) => set("quietHoursEnd", Number(e.target.value))}>
-              {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>
-                  {hour(h)}
-                </option>
-              ))}
-            </NativeSelect>
-          </div>
-        </fieldset>
-      </div>
+      <Toggle id="n-ai" label="Tell me about AI actions" hint="A notification when tasks are created from my email and calls" checked={aiActions} onChange={setAiActions} />
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="n-signature">Email signature</Label>
@@ -98,7 +56,7 @@ export function NotificationForm({ prefs }: { prefs: UserPrefs }) {
         </div>
       </div>
       <Button type="submit" variant="primary" size="sm" disabled={pending}>
-        {pending ? "Saving…" : "Save preferences"}
+        {pending ? "Saving…" : "Save email settings"}
       </Button>
     </form>
   );

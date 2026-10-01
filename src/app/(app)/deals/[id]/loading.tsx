@@ -1,5 +1,6 @@
 import { Skeleton } from "@/components/ui/misc";
 
+/** Mirrors the summary-first layout (V2 §B6) so the page doesn't jump when it streams in. */
 export default function Loading() {
   return (
     <div className="space-y-5" aria-busy="true" aria-label="Loading deal">
@@ -9,22 +10,18 @@ export default function Loading() {
         <Skeleton className="h-4 w-56" />
       </div>
       <Skeleton className="h-8 w-full" />
-      <div className="grid gap-3 lg:grid-cols-3">
-        <Skeleton className="h-24" />
-        <Skeleton className="h-24" />
-        <Skeleton className="h-24" />
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <Skeleton className="order-2 h-28 lg:order-1" />
+        <Skeleton className="order-1 h-28 lg:order-2" />
+        <Skeleton className="order-3 h-16 lg:col-span-2" />
       </div>
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="space-y-5">
-          <Skeleton className="h-40" />
-          <Skeleton className="h-96" />
-        </div>
-        <div className="space-y-4">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-48" />
-          <Skeleton className="h-40" />
-        </div>
+      <div className="flex gap-2">
+        <Skeleton className="h-8 w-28" />
+        <Skeleton className="h-8 w-20" />
+        <Skeleton className="h-8 w-24" />
       </div>
+      <Skeleton className="h-9 w-full" />
+      <Skeleton className="h-96" />
     </div>
   );
 }

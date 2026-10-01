@@ -2,7 +2,8 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
-import { aiAvailable, aiObject, modelFor, untrusted } from "@/lib/ai";
+import { aiObject, modelFor, untrusted } from "@/lib/ai";
+import { aiAllowedFor } from "@/lib/gmail/ai-gate";
 import { checkClaims } from "@/lib/claims";
 import { safeErrorMessage } from "@/lib/integrations/core";
 import { dealStageNames } from "@/lib/integrations/directory";
@@ -14,6 +15,8 @@ import {
   type TranscriptAnalysis,
   type TranscriptContext,
 } from "./analysis-core";
+import { detectTranscriptSignals } from "@/lib/signals/service";
+import { runPostCallAutopilot } from "./autopilot";
 
 /**
  * CALL-6 post-call processing: strong-tier AI with heuristic fallback. Stores analysis + analysisEngine and sets
@@ -35,7 +38,8 @@ export async function analyzeTranscript(id: string): Promise<TranscriptAnalysis 
       stageNames: await dealStageNames(t.dealId),
     };
     let analysis: TranscriptAnalysis | null = null;
-    if (aiAvailable() && t.rawText.trim().length > 40) {
+    // SEC M-6: AI only when the call owner's role has copilot.use_ai
+    if (t.rawText.trim().length > 40 && (await aiAllowedFor(t.uploadedBy))) {
       try {
         const model = await modelFor("strong");
         const ai = await aiObject({
@@ -54,15 +58,23 @@ export async function analyzeTranscript(id: string): Promise<TranscriptAnalysis 
     const draft = analysis.follow_up_email_draft;
     const claims = await checkClaims(`${draft.subject}\n${draft.body}`);
     analysis.follow_up_email_draft = { ...draft, claims_check: claims.hits.length ? "flagged" : "pass" };
+    // Re-analysis keeps what already happened to the call (manual Apply history, autopilot record, saved draft).
+    const prev = (t.analysis ?? {}) as Record<string, unknown>;
+    const kept = Object.fromEntries(["applied", "autopilot", "draft"].filter((k) => prev[k] !== undefined).map((k) => [k, prev[k]]));
     await db
       .update(s.transcripts)
       .set({
-        analysis: { ...analysis, analyzedAt: new Date().toISOString() } as unknown as Record<string, unknown>,
+        analysis: { ...analysis, ...kept, analyzedAt: new Date().toISOString() } as unknown as Record<string, unknown>,
         analysisEngine: analysis.engine,
         status: "ready",
         error: null,
       })
       .where(eq(s.transcripts.id, id));
+    // V2: deal signals (suggestions) and the zero-touch post-call autopilot (owner opted into "auto"). Both never throw.
+    if (t.dealId) {
+      await detectTranscriptSignals(id, analysis);
+      await runPostCallAutopilot(id);
+    }
     return analysis;
   } catch (e) {
     await db.update(s.transcripts).set({ status: "failed", error: safeErrorMessage(e) }).where(eq(s.transcripts.id, id));

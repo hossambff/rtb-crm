@@ -8,6 +8,8 @@ import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { assertCan, ForbiddenError, inScope, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { notify } from "@/lib/notifications/notify";
+import { isSensitiveEntity, resolveSubject, type Subject } from "@/lib/notifications/sensitive";
+import { assertReceiverCanSee, loadReceiver } from "@/lib/rbac/receiver";
 import { runSweep } from "./engine";
 import { alertHref } from "./rules";
 import { recordSweep } from "@/lib/background";
@@ -85,8 +87,17 @@ export const reassignAlert = action(z.object({ id, userId: z.string().min(1) }),
   if (userId === before.recipientId) return { id };
   const scope = await assertCan(user, "tasks", "assign");
   if (!inScope(user, scope, { ownerId: userId }) && scope !== "pipeline") throw new ForbiddenError("You can't reassign to that person.");
-  const [target] = await db.select({ id: s.user.id, role: s.user.role, banned: s.user.banned }).from(s.user).where(eq(s.user.id, userId));
-  if (!target || target.role === "pending" || target.banned) throw new UserError("That user can't receive alerts.");
+  // Session-equivalent receiver (null for pending / banned / expired / removed-domain users).
+  const target = await loadReceiver(userId, "alerts");
+  // SEC M-1: the alert's title/detail name its subject — the receiver must be able to see that deal / account (incl.
+  // restricted access lists). Unresolvable subjects fail closed.
+  let subject: Subject | null;
+  try {
+    subject = await resolveSubject(before.entity, before.entityId);
+  } catch {
+    throw new UserError("This alert can't be reassigned — resolve it or ask an admin.");
+  }
+  if (subject) await assertReceiverCanSee(target, subject, "this alert");
   try {
     const [after] = await db.update(s.alerts).set({ recipientId: userId, state: "open", snoozedUntil: null }).where(eq(s.alerts.id, id)).returning();
     await audit({ actorId: user.id, action: "alert.reassign", entity: "alert", entityId: id, before, after });
@@ -95,7 +106,7 @@ export const reassignAlert = action(z.object({ id, userId: z.string().min(1) }),
     await db.update(s.alerts).set({ state: "resolved", resolvedAt: new Date(), resolution: "Duplicate after reassignment" }).where(eq(s.alerts.id, id));
     await audit({ actorId: user.id, action: "alert.reassign_merge", entity: "alert", entityId: id, before });
   }
-  await notify(userId, { kind: "alert", title: `${user.name} assigned you an alert: ${before.title}`, body: before.detail, href: alertHref(before.entity, before.entityId) });
+  await notify(userId, { kind: "alert", severity: before.severity, title: `${user.name} assigned you an alert: ${before.title}`, body: before.detail, href: alertHref(before.entity, before.entityId), sensitive: await isSensitiveEntity(before.entity, before.entityId) });
   revalidate();
   return { id };
 });

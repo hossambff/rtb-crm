@@ -5,6 +5,7 @@ import { Columns3, Download, Loader2, Rows3, Search, X } from "lucide-react";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { activeFilterCount, withParam } from "@/lib/deals/filters";
+import { listHref } from "@/lib/views/core";
 import { PRIORITY_LABELS, type BoardFilters, type BoardView, type Lane, type UserLite } from "@/lib/deals/types";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +40,7 @@ export function BoardToolbar({
   const go = React.useCallback(
     (key: string, value: string | null | undefined) => {
       const qs = withParam(new URLSearchParams(sp.toString()), key, value);
-      startTransition(() => router.replace(`${pathname}${qs === "?" ? "" : qs}`, { scroll: false }));
+      startTransition(() => router.replace(listHref(pathname, qs), { scroll: false }));
     },
     [pathname, router, sp],
   );
@@ -65,6 +66,7 @@ export function BoardToolbar({
       <FilterSelect label="Owner" value={filters.owner ?? ""} onChange={(v) => go("owner", v)}>
         <option value="">All owners</option>
         <option value="me">Me</option>
+        <option value="team">My team</option>
         <option value="none">Unassigned</option>
         {uniqueUsers.map((u) => (
           <option key={u.id} value={u.id}>
@@ -118,7 +120,7 @@ export function BoardToolbar({
               if (v) keep.set(k, v);
             }
             const s = keep.toString();
-            startTransition(() => router.replace(`${pathname}${s ? `?${s}` : ""}`, { scroll: false }));
+            startTransition(() => router.replace(listHref(pathname, s), { scroll: false }));
           }}
         >
           <X /> Clear ({n})

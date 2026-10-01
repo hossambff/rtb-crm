@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, exists, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
 import * as s from "@/db/schema";
@@ -67,7 +67,10 @@ export async function listContacts(user: AppUser, p: ContactListParams) {
   if (p.status) conds.push(eq(s.contacts.status, p.status));
   if (p.dnc === "yes") conds.push(eq(s.contacts.doNotContact, true));
   if (p.owner === "me") conds.push(or(eq(s.contacts.ownerId, user.id), eq(s.contacts.relationshipOwnerId, user.id))!);
-  else if (p.owner === "none") conds.push(isNull(s.contacts.relationshipOwnerId));
+  else if (p.owner === "team") {
+    const team = user.teamMemberIds.length ? user.teamMemberIds : [user.id];
+    conds.push(or(inArray(s.contacts.ownerId, team), inArray(s.contacts.relationshipOwnerId, team))!);
+  } else if (p.owner === "none") conds.push(isNull(s.contacts.relationshipOwnerId));
   else if (p.owner) conds.push(eq(s.contacts.relationshipOwnerId, p.owner));
   const where = and(...conds)!;
   const desc_ = p.dir ? p.dir === "desc" : p.sort === "lastContacted" || p.sort === "updated";

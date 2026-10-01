@@ -10,6 +10,7 @@ import { requestApproval } from "@/lib/approvals/service";
 import { SCOPE_RANK } from "@/lib/rbac/model";
 import { assertCan, dealModule, ForbiddenError, inScope, ownedEntityWhere, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { isLive } from "@/lib/r100/calc";
+import { applyStagePlaybook } from "@/lib/playbooks/service";
 import { filledKeys, GATE_FIELDS, gateFieldMeta, missingFields, needsReason, parseGateValue, reasonPicklist } from "./gates";
 import { getPicklist } from "./queries";
 import { loadDealForWrite, logActivity, onDealWon, recomputeDealHealth, type DealWriteContext } from "./service";
@@ -42,13 +43,22 @@ export const moveSchema = z.object({
 });
 export type MoveInput = z.infer<typeof moveSchema>;
 
-export type MoveResult = { moved: boolean; stageId: string; status: string; created: string[]; health: number | null; pendingApproval?: boolean };
+export type MoveResult = {
+  moved: boolean;
+  stageId: string;
+  status: string;
+  created: string[];
+  health: number | null;
+  pendingApproval?: boolean;
+  /** Stage-playbook tasks created on entry (V2 §A7). */
+  playbookTasks?: number;
+};
 
 export type MoveOptions = {
   /** Skip the requiresApproval gate (the stage_gate approval handler, after an approver said yes). */
   approved?: boolean;
   /** Where the move came from (stored on the activity + audit). */
-  via?: "board" | "call_review" | "copilot" | "approval" | "bulk" | "r100";
+  via?: "board" | "call_review" | "copilot" | "approval" | "bulk" | "r100" | "signal" | "review";
   /**
    * Extra writes that must commit atomically with the move (e.g. the stage_gate approval flipping its own status).
    * Runs inside the move's transaction, after the deal row is locked; use `tx` for every query. Throwing rolls back the move.
@@ -128,8 +138,14 @@ export async function performStageMove(user: AppUser, ctx: DealWriteContext, inp
     const list = reasonPicklist(target.category);
     if (list) {
       const options = await getPicklist(list);
-      if (!input.reasonCode || !options.some((o) => o.value === input.reasonCode)) throw new UserError(`Pick a ${target.category} reason.`);
-      reason = input.reasonText ? `${input.reasonCode}: ${input.reasonText}` : input.reasonCode;
+      if (!options.length) {
+        // QA MIN-34: an admin emptied the reason picklist — fall back to a free-text reason instead of dead-ending.
+        if (!input.reasonText || input.reasonText.trim().length < 3) throw new UserError(`Add a short ${target.category} reason.`);
+        reason = input.reasonText.trim();
+      } else {
+        if (!input.reasonCode || !options.some((o) => o.value === input.reasonCode)) throw new UserError(`Pick a ${target.category} reason.`);
+        reason = input.reasonText ? `${input.reasonCode}: ${input.reasonText}` : input.reasonCode;
+      }
     } else {
       if (!input.reasonText) throw new UserError("Add a short note on why this deal was won.");
       reason = input.reasonText;
@@ -246,13 +262,15 @@ export async function performStageMove(user: AppUser, ctx: DealWriteContext, inp
   if (result.noop) return { moved: false, stageId: target.id, status: result.deal.status, created: [], health: result.deal.healthScore };
 
   // After commit: never throw (the move succeeded; an error here would invite a retry).
+  // Stage playbook (V2 §A7): the entered stage's task checklist, idempotent per deal × stage × title.
+  const playbook = await applyStagePlaybook({ dealId: ctx.deal.id, stageId: target.id, actorId: user.id });
   let health: number | null = null;
   try {
     health = (await recomputeDealHealth(ctx.deal.id))?.score ?? null;
   } catch (e) {
     logServerError("stage-move.health", e);
   }
-  return { moved: true, stageId: target.id, status: target.category, created: result.created, health };
+  return { moved: true, stageId: target.id, status: target.category, created: result.created, health, playbookTasks: playbook.created };
 }
 
 /** Approve scope ≥ own on the deal's pipeline with the deal in scope → the user may pass an approval-gated stage directly. */

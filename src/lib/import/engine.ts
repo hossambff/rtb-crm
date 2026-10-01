@@ -14,6 +14,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as s from "../../db/schema";
+import { resolveAlertsForDeleted } from "../alerts/deleted";
 import { inferSeniority, isValidEmail, nameFromEmail, splitName } from "../contacts/seniority";
 import { accountKey, fillEmpty, isEmptyValue, normalizeName } from "./dedupe";
 import type { NormalizedRecord } from "./normalize";
@@ -1142,6 +1143,9 @@ async function rollbackBatchTx(d: Tx, batchId: string, actorId: string | null) {
   for (const part of chunk(ids("deal"), 500)) removed += (await d.update(s.deals).set({ deletedAt: now }).where(and(inArray(s.deals.id, part), isNull(s.deals.deletedAt))).returning({ id: s.deals.id })).length;
   for (const part of chunk(ids("contact"), 500)) removed += (await d.update(s.contacts).set({ deletedAt: now }).where(and(inArray(s.contacts.id, part), isNull(s.contacts.deletedAt))).returning({ id: s.contacts.id })).length;
   for (const part of chunk(ids("account"), 500)) removed += (await d.update(s.accounts).set({ deletedAt: now }).where(and(inArray(s.accounts.id, part), isNull(s.accounts.deletedAt))).returning({ id: s.accounts.id })).length;
+  // their open alerts go with them
+  await resolveAlertsForDeleted(d, "deal", ids("deal"));
+  await resolveAlertsForDeleted(d, "account", ids("account"));
 
   await d.update(s.importBatches).set({ status: "rolled_back", rolledBackAt: now }).where(eq(s.importBatches.id, batchId));
   await d.insert(s.auditLog).values({

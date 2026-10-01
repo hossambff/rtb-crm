@@ -2,12 +2,14 @@ import "server-only";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
-import { can, dealAccessWhere, type AppUser } from "@/lib/rbac/server";
+import { can, dealAccessWhere, getHiddenFields, type AppUser } from "@/lib/rbac/server";
+import { proFormaPrefill, type PrefillItem } from "./prefill";
 import { approvalRules, proposalWhere } from "./access";
 import { approvalTriggers, canExport, computeProForma, normalizeInputs, type ProFormaInputs, type ProFormaOutputs } from "./calc";
 
 export type ProposalListRow = {
   id: string;
+  kind: string;
   dealId: string;
   dealName: string;
   pipelineKey: string;
@@ -20,6 +22,9 @@ export type ProposalListRow = {
   uplift: number;
   rtbShare: number;
   clientNetAfterShare: number;
+  /** Coalition term sheets: the applicable tier label and partner share (0..100). */
+  tierLabel: string | null;
+  partnerPct: number | null;
 };
 
 export async function listProposals(user: AppUser) {
@@ -34,28 +39,33 @@ export async function listProposals(user: AppUser) {
     .where(where)
     .orderBy(desc(s.proposals.createdAt))
     .limit(1000);
-  // Latest version per deal.
+  // Latest version per deal and proposal kind.
   const byDeal = new Map<string, ProposalListRow>();
   const counts = new Map<string, number>();
-  for (const r of rows) counts.set(r.p.dealId, (counts.get(r.p.dealId) ?? 0) + 1);
+  const keyOf = (p: { dealId: string; kind: string }) => `${p.dealId}:${p.kind}`;
+  for (const r of rows) counts.set(keyOf(r.p), (counts.get(keyOf(r.p)) ?? 0) + 1);
   for (const r of rows) {
-    const cur = byDeal.get(r.p.dealId);
+    const cur = byDeal.get(keyOf(r.p));
     if (cur && cur.version >= r.p.version) continue;
     const o = r.p.outputs as Partial<ProFormaOutputs>;
-    byDeal.set(r.p.dealId, {
+    const ts = r.p.outputs as { tier?: { label?: string; partnerPct?: number } | null };
+    byDeal.set(keyOf(r.p), {
       id: r.p.id,
+      kind: r.p.kind,
       dealId: r.p.dealId,
       dealName: r.dealName,
       pipelineKey: r.pipelineKey,
       accountName: r.accountName,
       version: r.p.version,
-      versions: counts.get(r.p.dealId) ?? 1,
+      versions: counts.get(keyOf(r.p)) ?? 1,
       status: r.p.status,
       createdAt: r.p.createdAt.toISOString(),
       createdByName: r.createdByName,
       uplift: Number(o.uplift ?? 0),
       rtbShare: Number(o.rtbShare ?? 0),
       clientNetAfterShare: Number(o.clientNetAfterShare ?? 0),
+      tierLabel: r.p.kind === "pro_forma" ? null : (ts.tier?.label ?? null),
+      partnerPct: r.p.kind === "pro_forma" ? null : typeof ts.tier?.partnerPct === "number" ? ts.tier.partnerPct : null,
     });
   }
   return [...byDeal.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -69,13 +79,13 @@ export async function getProposal(user: AppUser, id: string) {
     .innerJoin(s.deals, eq(s.deals.id, s.proposals.dealId))
     .innerJoin(s.pipelines, eq(s.pipelines.id, s.deals.pipelineId))
     .leftJoin(s.accounts, eq(s.accounts.id, s.deals.accountId))
-    .where(and(eq(s.proposals.id, id), where));
+    .where(and(eq(s.proposals.id, id), eq(s.proposals.kind, "pro_forma"), where));
   if (!row) return null;
   const versions = await db
     .select({ id: s.proposals.id, version: s.proposals.version, status: s.proposals.status, createdAt: s.proposals.createdAt, inputs: s.proposals.inputs, createdByName: s.user.name })
     .from(s.proposals)
     .leftJoin(s.user, eq(s.user.id, s.proposals.createdBy))
-    .where(eq(s.proposals.dealId, row.p.dealId))
+    .where(and(eq(s.proposals.dealId, row.p.dealId), eq(s.proposals.kind, "pro_forma")))
     .orderBy(asc(s.proposals.version));
   const approvals = await db
     .select({ a: s.approvals, requestedByName: s.user.name })
@@ -142,15 +152,42 @@ export async function proposalDeal(user: AppUser, dealId: string) {
   return row ?? null;
 }
 
-/** Prefill a new pro forma from the deal's commercial terms. */
-export async function prefillFromDeal(dealId: string): Promise<Partial<ProFormaInputs>> {
-  const [d] = await db.select().from(s.deals).where(eq(s.deals.id, dealId));
-  if (!d) return {};
-  const out: Partial<ProFormaInputs> = {};
-  if (d.revSharePct != null) out.revSharePct = d.revSharePct;
-  if (d.rampMonths != null) out.rampMonths = d.rampMonths;
-  if (d.termYears != null) out.termYears = d.termYears;
-  if (d.guaranteeType === "fixed_monthly" || d.guaranteeType === "profit_floor" || d.guaranteeType === "none") out.guaranteeType = d.guaranteeType;
-  if (d.guaranteeMonthlyCents != null && out.guaranteeType === "fixed_monthly") out.guaranteeAmount = d.guaranteeMonthlyCents / 100;
-  return out;
+/** A6: prefill a new pro forma from the deal's commercial terms (hidden deal fields are never used). */
+export async function prefillFromDeal(user: AppUser, dealId: string): Promise<{ inputs: Partial<ProFormaInputs>; filled: PrefillItem[] }> {
+  const [row] = await db
+    .select({ d: s.deals, unit: s.pipelines.unit, pipelineUsdPerMuu: s.pipelines.usdPerMuu, pipelineRevSharePct: s.pipelines.defaultRevSharePct })
+    .from(s.deals)
+    .innerJoin(s.pipelines, eq(s.pipelines.id, s.deals.pipelineId))
+    .where(and(eq(s.deals.id, dealId), await dealAccessWhere(user, "view")));
+  if (!row) return { inputs: {}, filled: [] };
+  const hidden = await getHiddenFields(user.role, "deal");
+  const d = row.d;
+  return proFormaPrefill(
+    {
+      unit: row.unit,
+      muu: d.muu,
+      usdPerMuu: d.usdPerMuu,
+      pipelineUsdPerMuu: row.pipelineUsdPerMuu,
+      revSharePct: d.revSharePct,
+      pipelineRevSharePct: row.pipelineRevSharePct,
+      guaranteeType: d.guaranteeType,
+      guaranteeMonthlyCents: d.guaranteeMonthlyCents,
+      rampMonths: d.rampMonths,
+      termYears: d.termYears,
+      contractValueCents: d.contractValueCents,
+      annualizedValueCents: d.annualizedValueCents,
+    },
+    hidden,
+  );
+}
+
+/** Kind of a proposal the user can see (null = not found / not visible). Used to route /proposals/[id]. */
+export async function proposalKindOf(user: AppUser, id: string): Promise<string | null> {
+  const where = await proposalWhere(user, "view");
+  const [row] = await db
+    .select({ kind: s.proposals.kind })
+    .from(s.proposals)
+    .innerJoin(s.deals, eq(s.deals.id, s.proposals.dealId))
+    .where(and(eq(s.proposals.id, id), where));
+  return row?.kind ?? null;
 }

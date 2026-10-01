@@ -7,6 +7,8 @@ import { getSetting } from "@/lib/settings";
 import { getMatrix } from "@/lib/rbac/server";
 import { ROLES, type Module, type Action, type Role } from "@/lib/rbac/model";
 import { notify } from "@/lib/notifications/notify";
+import { isSensitiveEntity } from "@/lib/notifications/sensitive";
+import { postCriticalAlertsToChannel } from "@/lib/slack/deliver";
 import {
   alertHref,
   alertKey,
@@ -43,6 +45,7 @@ import {
   type Severity,
 } from "./rules";
 import { businessDaysPassed, isBusinessDay } from "./time";
+import { resolveAlertsOnDeletedRecords } from "./deleted";
 import { DEFAULT_RESOLVE_COOLDOWN_H, indexSuppressions, SUPPRESSING_RESOLUTION_PREFIXES, suppressionDecision } from "./suppression";
 
 /** Closed rows that record a user decision (dismissal, or resolved by a person — not auto-resolved/merged). */
@@ -213,6 +216,28 @@ async function loadOpenDeals() {
 /** Title for a deal-scoped alert. Restricted (MNPI) deal names are never shown to non-owners. */
 function dealLabel(d: { name: string; restricted: boolean; ownerId: string | null }, recipientId: string) {
   return d.restricted && d.ownerId !== recipientId ? "Restricted deal" : d.name;
+}
+
+/**
+ * SEC H-2: who may read a restricted deal's / account's name — super admins plus the record's access list (and the deal
+ * owner). One query per rule; `can(entityIds, userId)` is true when any listed record grants the user access.
+ */
+async function restrictedReaders(ctx: Ctx, refs: { dealId?: string | null; accountId?: string | null }[]) {
+  const ids = Array.from(new Set(refs.flatMap((r) => [r.dealId, r.accountId]).filter((x): x is string => Boolean(x))));
+  const rows = ids.length
+    ? await db.select({ entityId: s.restrictedAccess.entityId, userId: s.restrictedAccess.userId }).from(s.restrictedAccess).where(inArray(s.restrictedAccess.entityId, ids))
+    : [];
+  const byId = new Map<string, Set<string>>();
+  for (const r of rows) byId.set(r.entityId, (byId.get(r.entityId) ?? new Set()).add(r.userId));
+  const supers = new Set(ctx.byRoles(["super_admin"]));
+  /** Label for `recipientId`: the real name only when nothing is restricted or the recipient is on every relevant list. */
+  return (p: { name: string; dealRestricted: boolean; accountRestricted: boolean; dealId?: string | null; accountId?: string | null; ownerId?: string | null }, recipientId: string, generic: string) => {
+    if (!p.dealRestricted && !p.accountRestricted) return p.name;
+    if (supers.has(recipientId)) return p.name;
+    const dealOk = !p.dealRestricted || p.ownerId === recipientId || Boolean(p.dealId && byId.get(p.dealId)?.has(recipientId));
+    const accountOk = !p.accountRestricted || Boolean(p.accountId && byId.get(p.accountId)?.has(recipientId)) || Boolean(p.dealId && byId.get(p.dealId)?.has(recipientId));
+    return dealOk && accountOk ? p.name : generic;
+  };
 }
 
 /* ───────────── Rule evaluators ───────────── */
@@ -462,18 +487,19 @@ const EVALUATORS: Record<string, Evaluator> = {
   "NS-16": async (ctx, rule) => {
     const days = num(P(rule), "days", 7);
     const rows = await db
-      .select({ id: s.leadRegistrations.id, userId: s.leadRegistrations.userId, status: s.leadRegistrations.status, protectedUntil: s.leadRegistrations.protectedUntil, account: s.accounts.name })
+      .select({ id: s.leadRegistrations.id, userId: s.leadRegistrations.userId, status: s.leadRegistrations.status, protectedUntil: s.leadRegistrations.protectedUntil, account: s.accounts.name, accountId: s.accounts.id, restricted: s.accounts.restricted })
       .from(s.leadRegistrations)
       .innerJoin(s.accounts, eq(s.accounts.id, s.leadRegistrations.accountId))
       .where(eq(s.leadRegistrations.status, "approved"));
-    return rows
-      .filter((r) => ctx.isActive(r.userId) && registrationExpiring(r, ctx.now, days))
+    const due = rows.filter((r) => ctx.isActive(r.userId) && registrationExpiring(r, ctx.now, days));
+    const label = await restrictedReaders(ctx, due.filter((r) => r.restricted).map((r) => ({ accountId: r.accountId })));
+    return due
       .map((r) => ({
         ruleCode: rule.code,
         entity: "lead_registration",
         entityId: r.id,
         recipientId: r.userId,
-        title: `Registration expiring: ${r.account}`,
+        title: `Registration expiring: ${label({ name: r.account, dealRestricted: false, accountRestricted: r.restricted, accountId: r.accountId }, r.userId, "a restricted account")}`,
         detail: `Protection ends ${r.protectedUntil!.toISOString().slice(0, 10)}.`,
         suggestedAction: "Advance the deal or request an extension.",
       }));
@@ -517,14 +543,21 @@ const EVALUATORS: Record<string, Evaluator> = {
 
   "NS-19": async (ctx, rule) => {
     const days = num(P(rule), "days", 10);
-    return (await db.select().from(s.migrationProjects).where(eq(s.migrationProjects.launched, false)))
-      .filter((p) => ctx.isActive(p.ownerId) && migrationStalled(p, ctx.now, days))
-      .map((p) => ({
+    const rows = await db
+      .select({ p: s.migrationProjects, dealRestricted: s.deals.restricted, dealOwnerId: s.deals.ownerId, accountRestricted: s.accounts.restricted })
+      .from(s.migrationProjects)
+      .leftJoin(s.deals, eq(s.deals.id, s.migrationProjects.dealId))
+      .leftJoin(s.accounts, eq(s.accounts.id, s.migrationProjects.accountId))
+      .where(eq(s.migrationProjects.launched, false));
+    const due = rows.filter(({ p }) => ctx.isActive(p.ownerId) && migrationStalled(p, ctx.now, days));
+    const label = await restrictedReaders(ctx, due.filter((r) => r.dealRestricted || r.accountRestricted).map(({ p }) => ({ dealId: p.dealId, accountId: p.accountId })));
+    return due
+      .map(({ p, dealRestricted, dealOwnerId, accountRestricted }) => ({
         ruleCode: rule.code,
         entity: "migration",
         entityId: p.id,
         recipientId: p.ownerId!,
-        title: `Migration stalled: ${p.name}`,
+        title: `Migration stalled: ${label({ name: p.name, dealRestricted: Boolean(dealRestricted), accountRestricted: Boolean(accountRestricted), dealId: p.dealId, accountId: p.accountId, ownerId: dealOwnerId }, p.ownerId!, "a restricted project")}`,
         detail: `In "${p.stage}" for ${days}+ days.${p.blockers ? ` Blockers: ${p.blockers.slice(0, 160)}` : ""}`,
         suggestedAction: "Unblock or update the stage.",
       }));
@@ -532,12 +565,14 @@ const EVALUATORS: Record<string, Evaluator> = {
 
   "NS-20": async (ctx, rule) => {
     const rows = await db
-      .select({ p: s.migrationProjects, dealOwnerId: s.deals.ownerId })
+      .select({ p: s.migrationProjects, dealOwnerId: s.deals.ownerId, dealRestricted: s.deals.restricted, accountRestricted: s.accounts.restricted })
       .from(s.migrationProjects)
       .leftJoin(s.deals, eq(s.deals.id, s.migrationProjects.dealId))
+      .leftJoin(s.accounts, eq(s.accounts.id, s.migrationProjects.accountId))
       .where(and(eq(s.migrationProjects.launched, false), isNotNull(s.migrationProjects.targetGoLive)));
+    const label = await restrictedReaders(ctx, rows.filter((r) => r.dealRestricted || r.accountRestricted).map(({ p }) => ({ dealId: p.dealId, accountId: p.accountId })));
     const out: AlertCandidate[] = [];
-    for (const { p, dealOwnerId } of rows) {
+    for (const { p, dealOwnerId, dealRestricted, accountRestricted } of rows) {
       if (!goLiveSlipped(p, ctx.now)) continue;
       for (const r of new Set([p.ownerId, dealOwnerId])) {
         if (!ctx.isActive(r)) continue;
@@ -547,7 +582,7 @@ const EVALUATORS: Record<string, Evaluator> = {
           entityId: p.id,
           recipientId: r,
           dedupe: "recipient",
-          title: `Go-live slipped: ${p.name}`,
+          title: `Go-live slipped: ${label({ name: p.name, dealRestricted: Boolean(dealRestricted), accountRestricted: Boolean(accountRestricted), dealId: p.dealId, accountId: p.accountId, ownerId: dealOwnerId }, r!, "a restricted project")}`,
           detail: `Target go-live was ${p.targetGoLive!.toISOString().slice(0, 10)}.`,
           suggestedAction: "Set a new date and tell the partner.",
         });
@@ -606,14 +641,16 @@ const EVALUATORS: Record<string, Evaluator> = {
   "NS-23": async (ctx, rule) => {
     const tiers = numList(P(rule), "days", [1, 7, 14]).sort((a, b) => a - b);
     const rows = await db
-      .select({ inv: s.invoices, dealName: s.deals.name, ownerId: s.deals.ownerId, restricted: s.deals.restricted })
+      .select({ inv: s.invoices, dealName: s.deals.name, ownerId: s.deals.ownerId, restricted: s.deals.restricted, accountId: s.deals.accountId, accountRestricted: s.accounts.restricted })
       .from(s.invoices)
       .innerJoin(s.deals, eq(s.deals.id, s.invoices.dealId))
+      .leftJoin(s.accounts, eq(s.accounts.id, s.deals.accountId))
       .where(and(isNull(s.invoices.paidAt), inArray(s.invoices.status, ["scheduled", "sent", "overdue"]), lt(s.invoices.dueAt, ctx.now)));
+    const label = await restrictedReaders(ctx, rows.filter((r) => r.restricted || r.accountRestricted).map((r) => ({ dealId: r.inv.dealId, accountId: r.accountId })));
     const finance = ctx.byRoles(["finance"]);
     const execs = ctx.byRoles(["executive"]);
     const out: AlertCandidate[] = [];
-    for (const { inv, dealName, ownerId, restricted } of rows) {
+    for (const { inv, dealName, ownerId, restricted, accountId, accountRestricted } of rows) {
       const tier = invoiceOverdueTier(inv, ctx.now, tiers);
       if (tier == null) continue;
       const recips = new Set<string>();
@@ -627,7 +664,7 @@ const EVALUATORS: Record<string, Evaluator> = {
           entityId: `${inv.id}#t${tier}`,
           recipientId: r,
           dedupe: "recipient",
-          title: `Invoice ${tier}+ days overdue: ${restricted && ownerId !== r ? "restricted deal" : dealName}`,
+          title: `Invoice ${tier}+ days overdue: ${label({ name: dealName, dealRestricted: Boolean(restricted), accountRestricted: Boolean(accountRestricted), dealId: inv.dealId, accountId, ownerId }, r, "restricted deal")}`,
           detail: `$${Math.round(inv.amountCents / 100).toLocaleString("en-US")} was due ${inv.dueAt.toISOString().slice(0, 10)}.`,
           suggestedAction: "Chase payment.",
         });
@@ -971,19 +1008,24 @@ async function notifyNew(created: AlertRow[]): Promise<number> {
   for (const [userId, list] of byUser) {
     if (list.length <= 3) {
       for (const a of list) {
-        await notify(userId, { kind: "alert", title: a.title, body: a.detail, href: alertHref(a.entity, a.entityId) });
+        await notify(userId, { kind: "alert", severity: a.severity, title: a.title, body: a.detail, href: alertHref(a.entity, a.entityId), sensitive: await isSensitiveEntity(a.entity, a.entityId) });
         n++;
       }
     } else {
       const crit = list.filter((a) => a.severity === "critical" || a.severity === "serious").length;
+      const order = ["info", "warning", "serious", "critical"] as const;
+      const top = list.reduce((m, a) => Math.max(m, order.indexOf(a.severity)), 0);
+      const shown = list.slice(0, 5);
+      // MNPI: the summary is sensitive when ANY member is (not only the ones named in the body), so it never reaches Slack.
+      let sensitive = false;
+      for (const a of list) if (!sensitive) sensitive = await isSensitiveEntity(a.entity, a.entityId);
       await notify(userId, {
         kind: "alert",
+        severity: order[top],
         title: `${list.length} new alerts${crit ? ` (${crit} serious or critical)` : ""}`,
-        body: list
-          .slice(0, 5)
-          .map((a) => `• ${a.title}`)
-          .join("\n"),
+        body: shown.map((a) => `• ${a.title}`).join("\n"),
         href: "/tasks?tab=alerts",
+        sensitive,
       });
       n++;
     }
@@ -1049,6 +1091,12 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
   }
   const evaluated = new Set(stats.evaluated);
   const disabled = new Set(rules.filter((r) => !r.enabled).map((r) => r.code));
+
+  // 1b) alerts on soft-deleted deals/accounts are closed ("Record deleted"), never escalated or re-notified
+  const deletedResolved = await resolveAlertsOnDeletedRecords(db).catch((e) => {
+    console.error("[sweep] resolving alerts on deleted records failed", e);
+    return 0;
+  });
 
   // 2) existing open alerts
   const existing = await db.select().from(s.alerts).where(inArray(s.alerts.state, [...OPEN_STATES]));
@@ -1146,8 +1194,8 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
         .set({ state: "resolved", resolvedAt: ctx.now, resolution: "Auto-resolved: condition cleared" })
         .where(inArray(s.alerts.id, chunk.map((a) => a.id)));
     }
-    stats.resolved = toResolve.length;
   }
+  stats.resolved = toResolve.length + deletedResolved;
   const resolvedIds = new Set(toResolve.map((a) => a.id));
 
   // 5) wake expired snoozes
@@ -1198,8 +1246,9 @@ export async function runSweep(opts: { only?: string[] } = {}): Promise<SweepSta
     }
   }
 
-  // 7) notify (grouped)
+  // 7) notify (grouped) + critical alerts to the Slack alerts channel (non-restricted only)
   stats.notified = await notifyNew(created);
+  await postCriticalAlertsToChannel(created.map((a) => ({ ruleCode: a.ruleCode, entity: a.entity, entityId: a.entityId, title: a.title, severity: a.severity, href: alertHref(a.entity, a.entityId) })));
   stats.ms = Date.now() - t0;
 
   await db

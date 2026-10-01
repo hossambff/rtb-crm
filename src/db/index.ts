@@ -13,7 +13,7 @@ if (!url) throw new Error("DATABASE_URL is not set");
  * A single client is reused across requests on the same Fluid Compute instance.
  */
 const POOL_MAX = Math.max(1, Number(process.env.DB_POOL_MAX ?? 5));
-const globalForDb = globalThis as unknown as { __rsoSql?: ReturnType<typeof postgres> };
+const globalForDb = globalThis as unknown as { __rsoSql?: ReturnType<typeof postgres>; __rsoLimited?: ReturnType<typeof postgres> };
 const client =
   globalForDb.__rsoSql ??
   postgres(url, {
@@ -87,7 +87,21 @@ function limitInFlight(sqlClient: Sql, max: number): Sql {
   });
 }
 
-export const db = drizzle(limitInFlight(client, POOL_MAX), { schema, casing: "snake_case" });
+/**
+ * CR L1: run `fn` outside the "in transaction" async context. `after()` callbacks and fire-and-forget work scheduled
+ * from code that runs inside a transaction inherit that AsyncLocalStorage flag, so their global-`db` queries would skip
+ * the limiter (and log the nested-transaction warning) long after the transaction committed. Wrap them with this.
+ */
+export function outsideTransaction<T>(fn: () => T): T {
+  return inTransaction.exit(fn);
+}
+
+// ONE limiter per client, process-wide: the bundler can instantiate this module more than once (separate route bundles /
+// server layers, and every HMR re-evaluation in dev) while the client itself is shared via globalThis. Separate limiter
+// instances would each admit POOL_MAX queries onto the same POOL_MAX connections → pipelining → stuck backends.
+const limited = globalForDb.__rsoLimited ?? limitInFlight(client, POOL_MAX);
+if (process.env.NODE_ENV !== "production") globalForDb.__rsoLimited = limited;
+export const db = drizzle(limited, { schema, casing: "snake_case" });
 export type DB = typeof db;
 /** A transaction handle (the `tx` passed to `db.transaction(async (tx) => …)`). */
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];

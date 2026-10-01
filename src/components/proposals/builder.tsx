@@ -26,6 +26,7 @@ import {
   usdK,
 } from "@/lib/proposals/calc";
 import { NY_POST_FIXTURE } from "@/lib/proposals/fixtures";
+import type { PrefillItem } from "@/lib/proposals/prefill";
 
 /** Money inputs are entered in $000s (the playbook convention) and stored in whole USD. */
 const K = 1000;
@@ -41,9 +42,11 @@ type Props = {
   initial: ProFormaInputs;
   readOnly?: boolean;
   rules: ApprovalRules;
+  /** A6: fields prefilled from the deal (shown so the rep knows what to review). */
+  prefilled?: PrefillItem[];
 };
 
-export function ProFormaBuilder({ mode, dealId, proposalId, initial, readOnly, rules }: Props) {
+export function ProFormaBuilder({ mode, dealId, proposalId, initial, readOnly, rules, prefilled }: Props) {
   const router = useRouter();
   const [i, setI] = React.useState<ProFormaInputs>(initial);
   const [errors, setErrors] = React.useState<Record<string, string[]>>({});
@@ -75,6 +78,18 @@ export function ProFormaBuilder({ mode, dealId, proposalId, initial, readOnly, r
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       <fieldset disabled={readOnly || pending} className="min-w-0 space-y-6">
         <legend className="sr-only">Pro forma inputs</legend>
+        {prefilled?.length && !readOnly ? (
+          <div className="rounded-lg border border-border bg-surface-1 px-4 py-3 text-sm">
+            <p className="font-medium text-fg">Prefilled from the deal: review before saving</p>
+            <ul className="mt-1.5 grid gap-x-6 gap-y-0.5 text-xs text-secondary sm:grid-cols-2">
+              {prefilled.map((f) => (
+                <li key={f.field}>
+                  <span className="text-muted">{f.label}:</span> {f.value}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {!readOnly ? (
           <div className="flex flex-wrap items-center gap-2">
             <Button

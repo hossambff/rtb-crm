@@ -1,11 +1,17 @@
 import "server-only";
+import { cache } from "react";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { dealAccessWhere, type AppUser } from "@/lib/rbac/server";
 
-/** A deal the user may view/edit (per-pipeline scope, ownership/splits/team, restricted access list), or null. */
-export async function getAccessibleDeal(user: AppUser, dealId: string, action: "view" | "edit" = "view") {
+/**
+ * A deal the user may view/edit (per-pipeline scope, ownership/splits/team, restricted access list), or null.
+ * Request-memoized (React cache, keyed by the cached user object + id + action): several slots of one page and the
+ * transcript apply → stage change path ask the same question. Callers treat the row as read-only (access check +
+ * pipeline/stage ids), so sharing it is safe; outside a React request (cron, scripts) cache is a pass-through.
+ */
+export const getAccessibleDeal = cache(async (user: AppUser, dealId: string, action: "view" | "edit" = "view") => {
   const where = await dealAccessWhere(user, action);
   const [d] = await db
     .select({
@@ -26,4 +32,4 @@ export async function getAccessibleDeal(user: AppUser, dealId: string, action: "
     .where(and(eq(s.deals.id, dealId), where))
     .limit(1);
   return d ?? null;
-}
+});

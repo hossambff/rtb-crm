@@ -11,7 +11,7 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EmptyState } from "@/components/ui/misc";
 import { fmtNumber, fmtUsd } from "@/lib/format";
-import { PIPELINE_COLORS } from "@/lib/palette";
+import { PIPELINE_COLORS, VIZ_OTHER } from "@/lib/palette";
 import { acceptCandidates, markDuplicate, rejectCandidates, restoreCandidates, snoozeCandidates } from "@/lib/scout/actions";
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge, FactorBars, FitScore, Sparkline, Trend } from "./bits";
@@ -333,7 +333,7 @@ function Details({ r, weights }: { r: CandidateRow; weights: Record<string, numb
       <div className="space-y-2 text-sm">
         <p className="text-body">{r.fitExplanation ?? "No explanation."}</p>
         <p className="text-xs text-muted">
-          Routing suggestion: <ColorTick color={PIPELINE_COLORS[r.routing] ?? "#828282"} className="mx-1 align-middle" />
+          Routing suggestion: <ColorTick color={PIPELINE_COLORS[r.routing] ?? VIZ_OTHER} className="mx-1 align-middle" />
           <span className="text-secondary">{r.routing}</span> — {r.routingReason ?? ""}
         </p>
         <p className="text-xs text-muted">

@@ -1,5 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { and, asc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
@@ -11,11 +12,14 @@ import { assertCan, can, dealAccessWhere, dealModule, ForbiddenError, ownedEntit
 import { SCOPE_RANK } from "@/lib/rbac/model";
 import { parseUserDate } from "@/lib/time";
 import { notifyMany } from "@/lib/notifications/notify";
+import { approvalHref } from "@/lib/slack/core";
+import { isSensitive } from "@/lib/notifications/sensitive";
+import { approvalSlaFields } from "@/lib/approvals/sla";
 import { toCsv } from "./csv";
 import { stageSlice } from "./board-shape";
-import { filledKeys, gateFieldMeta, missingFields } from "./gates";
-import { getPipelineByKey, getStagesByPipeline, listActiveUsers, listDealsForBoard } from "./queries";
-import { extractMentions, overrideAutoApproved, splitsChanged, validateSplits } from "./rules";
+import { filledKeys, gateFieldMeta, missingFields, requiredForStage } from "./gates";
+import { getPipelineByKey, getStagesByPipeline, listDealsForBoard } from "./queries";
+import { overrideAutoApproved, splitsChanged, validateSplits } from "./rules";
 import {
   canAssignTo,
   executiveIds,
@@ -26,11 +30,15 @@ import {
   recomputeDealHealth,
 } from "./service";
 import { buildDealSummary } from "./summary";
+import { applyStagePlaybook } from "@/lib/playbooks/service";
+import { autofillFieldsTouched, enrichNewDeal } from "./enrich";
+import { AUTOFILL_FIELDS, readAutofill, withoutAutofill } from "./create-core";
 import { getVisibleAccount } from "@/lib/accounts/queries";
 import { contactVisibilityWhere } from "@/lib/contacts/queries";
 import { assertNotSelfDecision } from "@/lib/approvals/sod";
 import { canEditR100Bonus, changedBonusFields, R100_BONUS_FORBIDDEN } from "@/lib/r100/bonus-policy";
 import { assertContactUsable, createContactForDeal, moveSchema, performStageMove, stageById } from "./stage-service";
+import { scheduleApprovalCardRefresh } from "@/lib/slack/card-refresh";
 
 export type { MoveResult } from "./stage-service";
 
@@ -54,13 +62,18 @@ function revalidateDeal(dealId: string, pipelineKey?: string) {
   revalidatePath("/pipelines");
 }
 
+/** QA MIN-11: the create toast names each auto-filled field ("Priority: High · Close: 14 Jan"). */
+const AUTOFILL_LABEL: Record<string, string> = { priority: "Priority", expectedCloseDate: "Close", primaryContactId: "Primary contact", source: "Source" };
+
 /* ═════════════════════ Stage moves (KAN-1, DEAL-2/3/7) — logic lives in ./stage-service ═════════════════════ */
 
 export const moveDealStage = action(moveSchema, async (input, user) => {
   const ctx = await loadDealForWrite(user, input.dealId, "edit");
   const res = await performStageMove(user, ctx, input, { via: "board" });
   revalidateDeal(ctx.deal.id, ctx.pipeline.key);
-  return res;
+  // V2 §C9 "won moment": closing a deal invites a story. Posting needs owner/split/edit scope on the deal — which this
+  // caller just proved (loadDealForWrite "edit"), so the prompt is shown exactly to people who can post.
+  return { ...res, sharePrompt: res.moved && (res.status === "won" || res.status === "lost") };
 });
 
 export const bulkMoveStage = action(
@@ -112,7 +125,7 @@ export const bulkReassign = action(z.object({ dealIds: z.array(uuid).min(1).max(
     }
   }
   if (moved.length && target.id !== user.id) {
-    await notifyMany([target.id], { kind: "system", title: `${user.name} assigned you ${moved.length} deal${moved.length === 1 ? "" : "s"}`, href: pipelineKey ? `/pipelines/${pipelineKey}?owner=me` : "/pipelines" });
+    await notifyMany([target.id], { kind: "assignment", title: `${user.name} assigned you ${moved.length} deal${moved.length === 1 ? "" : "s"}`, href: pipelineKey ? `/pipelines/${pipelineKey}?owner=me` : "/pipelines" });
   }
   if (pipelineKey) revalidatePath(`/pipelines/${pipelineKey}`);
   return { moved, skipped };
@@ -143,7 +156,8 @@ const createSchema = z
   .object({
     name: z.string().trim().max(200).optional(),
     pipelineId: uuid,
-    stageId: uuid,
+    /** Optional (V2 §B4 "More details"): defaults to the pipeline's first open stage. */
+    stageId: uuid.optional(),
     accountId: uuid.optional(),
     newAccount: z.object({ name: z.string().trim().min(2).max(200), domain: z.string().trim().max(200).optional() }).optional(),
     ownerId: z.string().max(100).optional(),
@@ -153,6 +167,7 @@ const createSchema = z
     nextStepDueAt: z.string().min(1, "Pick a due date"),
     priority: priorityEnum.optional(),
     source: z.string().trim().max(120).optional(),
+    expectedCloseDate: optDate,
   })
   .refine((v) => v.accountId || v.newAccount, { message: "Pick or create an account", path: ["accountId"] });
 
@@ -161,7 +176,8 @@ export const createDeal = action(createSchema, async (input, user) => {
   if (!pipeline) throw new UserError("Unknown pipeline.");
   const mod = dealModule(pipeline.key);
   await assertCan(user, mod, "create");
-  const stage = await stageById(input.stageId);
+  const stageId = input.stageId ?? (await getStagesByPipeline())[pipeline.id]?.find((st) => st.category === "open")?.id;
+  const stage = stageId ? await stageById(stageId) : null;
   if (!stage || stage.pipelineId !== pipeline.id) throw new UserError("Pick a stage in this pipeline.");
   if (stage.category !== "open") throw new UserError("New deals must start in an open stage.");
   const due = parseUserDate(input.nextStepDueAt, user.timezone);
@@ -208,6 +224,8 @@ export const createDeal = action(createSchema, async (input, user) => {
     }
     if (existing) {
       if (existing.restricted && user.role !== "super_admin") throw new UserError("An account with that domain already exists. Ask an admin for access.");
+      // QA MIN-13: never link (or echo the name of) an account outside the caller's account scope.
+      if (!(await getVisibleAccount(user, existing.id))) throw new UserError("An account with that domain already exists and is owned by someone else — ask its owner or an admin to share it, then pick it.");
       accountId = existing.id;
       accountName = existing.name;
       accountMuu = existing.muu;
@@ -256,6 +274,7 @@ export const createDeal = action(createSchema, async (input, user) => {
         teamId: owner.teamId,
         priority: input.priority ?? null,
         source: input.source || "manual",
+        expectedCloseDate: userDate(input.expectedCloseDate, user) ?? null,
         nextStep: input.nextStep,
         nextStepDueAt: due,
         muu,
@@ -271,11 +290,16 @@ export const createDeal = action(createSchema, async (input, user) => {
   if (createdAccountId && createAccount)
     await audit({ actorId: user.id, action: "account.create", entity: "account", entityId: createdAccountId, after: { name: createAccount.name, domain: createAccount.domain } });
   await audit({ actorId: user.id, action: "deal.create", entity: "deal", entityId: dealId, after: { name, pipeline: pipeline.key, stage: stage.key, ownerId, accountId } });
+  // V2 §B4: fill what the rep skipped (priority, close date, primary contact, source) — marked "auto", undoable.
+  const { autofill, refine } = await enrichNewDeal(user, dealId);
+  if (refine) after(refine);
+  // V2 §A7: entering the first stage runs its playbook too (idempotent).
+  await applyStagePlaybook({ dealId, stageId: stage.id, actorId: user.id });
   await recomputeDealHealth(dealId);
-  if (ownerId !== user.id) await notifyMany([ownerId], { kind: "system", title: `${user.name} assigned you ${name}`, href: `/deals/${dealId}` });
+  if (ownerId !== user.id) await notifyMany([ownerId], { kind: "assignment", title: `${user.name} assigned you ${name}`, href: `/deals/${dealId}`, sensitive: await isSensitive({ dealId }) });
   revalidatePath(`/pipelines/${pipeline.key}`);
   revalidatePath("/pipelines");
-  return { id: dealId, linkedExisting, accountName };
+  return { id: dealId, linkedExisting, accountName, autofilled: Object.entries(autofill).map(([field, a]) => `${AUTOFILL_LABEL[field] ?? gateFieldMeta(field).label}: ${a.label}`) };
 });
 
 /* ═════════════════════ Inline edits ═════════════════════ */
@@ -319,10 +343,12 @@ export const updateDealQuick = action(quickSchema, async ({ dealId, patch }, use
     throw new UserError("Open deals need a next step with a due date — or a waiting reason (e.g. “Waiting on client until 15 Oct”).");
   }
   if (Object.keys(upd).length === 0) return { ok: true };
-  await db.update(s.deals).set(upd).where(eq(s.deals.id, dealId));
   const before = Object.fromEntries(Object.keys(upd).map((k) => [k, (ctx.deal as Record<string, unknown>)[k]]));
+  const touched = autofillFieldsTouched(upd).filter((f) => readAutofill(ctx.deal.customFields)[f]);
+  if (touched.length) upd.customFields = withoutAutofill(ctx.deal.customFields, touched); // a person set it: no longer "auto"
+  await db.update(s.deals).set(upd).where(eq(s.deals.id, dealId));
   await audit({ actorId: user.id, action: "deal.update", entity: "deal", entityId: dealId, before, after: upd });
-  if (upd.ownerId && upd.ownerId !== user.id) await notifyMany([upd.ownerId], { kind: "system", title: `${user.name} assigned you ${next.name}`, href: `/deals/${dealId}` });
+  if (upd.ownerId && upd.ownerId !== user.id) await notifyMany([upd.ownerId], { kind: "assignment", title: `${user.name} assigned you ${next.name}`, href: `/deals/${dealId}`, sensitive: await isSensitive({ dealId }) });
   await recomputeDealHealth(dealId);
   revalidateDeal(dealId, ctx.pipeline.key);
   return { ok: true };
@@ -513,7 +539,7 @@ export const createDealTask = action(
     await audit({ actorId: user.id, action: "task.create", entity: "task", entityId: t!.id, after: { dealId: ctx.deal.id, title: input.title, assigneeId } });
     if (assigneeId !== user.id) {
       const recipients = await filterRecipientsForDeal(ctx.deal, [assigneeId]);
-      await notifyMany(recipients, { kind: "system", title: `New task: ${input.title}`, body: ctx.deal.name, href: `/deals/${ctx.deal.id}` });
+      await notifyMany(recipients, { kind: "task", title: `New task: ${input.title}`, body: ctx.deal.name, href: `/deals/${ctx.deal.id}`, sensitive: await isSensitive({ dealId: ctx.deal.id }) });
     }
     await recomputeDealHealth(ctx.deal.id);
     revalidateDeal(ctx.deal.id, ctx.pipeline.key);
@@ -552,7 +578,7 @@ export const addStakeholder = action(
       .insert(s.dealContacts)
       .values({ dealId: ctx.deal.id, contactId, role: input.role ?? null })
       .onConflictDoUpdate({ target: [s.dealContacts.dealId, s.dealContacts.contactId], set: { role: input.role ?? null } });
-    if (input.makePrimary || !ctx.deal.primaryContactId) await db.update(s.deals).set({ primaryContactId: contactId }).where(eq(s.deals.id, ctx.deal.id));
+    if (input.makePrimary || !ctx.deal.primaryContactId) await db.update(s.deals).set({ primaryContactId: contactId, ...primaryMarkerPatch(ctx.deal) }).where(eq(s.deals.id, ctx.deal.id));
     await audit({ actorId: user.id, action: "deal.stakeholder_add", entity: "deal", entityId: ctx.deal.id, after: { contactId, role: input.role } });
     await recomputeDealHealth(ctx.deal.id);
     revalidateDeal(ctx.deal.id, ctx.pipeline.key);
@@ -567,10 +593,10 @@ export const updateStakeholder = action(
     const key = and(eq(s.dealContacts.dealId, ctx.deal.id), eq(s.dealContacts.contactId, input.contactId));
     if (input.remove) {
       await db.delete(s.dealContacts).where(key);
-      if (ctx.deal.primaryContactId === input.contactId) await db.update(s.deals).set({ primaryContactId: null }).where(eq(s.deals.id, ctx.deal.id));
+      if (ctx.deal.primaryContactId === input.contactId) await db.update(s.deals).set({ primaryContactId: null, ...primaryMarkerPatch(ctx.deal) }).where(eq(s.deals.id, ctx.deal.id));
     } else {
       if (input.role !== undefined) await db.update(s.dealContacts).set({ role: input.role }).where(key);
-      if (input.makePrimary) await db.update(s.deals).set({ primaryContactId: input.contactId }).where(eq(s.deals.id, ctx.deal.id));
+      if (input.makePrimary) await db.update(s.deals).set({ primaryContactId: input.contactId, ...primaryMarkerPatch(ctx.deal) }).where(eq(s.deals.id, ctx.deal.id));
     }
     await audit({ actorId: user.id, action: input.remove ? "deal.stakeholder_remove" : "deal.stakeholder_update", entity: "deal", entityId: ctx.deal.id, after: input });
     await recomputeDealHealth(ctx.deal.id);
@@ -578,6 +604,43 @@ export const updateStakeholder = action(
     return { ok: true };
   },
 );
+
+/** A person changed the primary contact: drop its "auto" marker (no-op patch when there is none). */
+function primaryMarkerPatch(deal: { customFields: Record<string, unknown> | null }): { customFields?: Record<string, unknown> } {
+  return readAutofill(deal.customFields).primaryContactId ? { customFields: withoutAutofill(deal.customFields, ["primaryContactId"]) } : {};
+}
+
+/* ═════════════════════ Auto-fill undo (V2 §B4) ═════════════════════ */
+
+/** Undo one auto-filled field: clear it (only if it still holds the auto value) and drop the marker. */
+export const undoAutofill = action(z.object({ dealId: uuid, field: z.enum(AUTOFILL_FIELDS) }), async ({ dealId, field }, user) => {
+  const ctx = await loadDealForWrite(user, dealId, "edit");
+  const mark = readAutofill(ctx.deal.customFields)[field];
+  if (!mark) throw new UserError("Nothing to undo — this field was set by hand.");
+  const current = (ctx.deal as Record<string, unknown>)[field];
+  const cur = current instanceof Date ? current.toISOString() : current == null ? null : String(current);
+  const stillAuto = field === "expectedCloseDate" ? cur?.slice(0, 10) === mark.value.slice(0, 10) : cur === mark.value;
+  // QA MIN-18: clearing an auto-filled value the current stage requires would leave the deal failing its own gate.
+  if (stillAuto && field !== "source" && requiredForStage(ctx.stage).includes(field)) {
+    throw new UserError(`${gateFieldMeta(field).label} is required in ${ctx.stage.name} — change it instead of clearing it.`);
+  }
+  const upd: Partial<typeof s.deals.$inferInsert> = { customFields: withoutAutofill(ctx.deal.customFields, [field]) };
+  if (stillAuto) {
+    if (field === "priority") upd.priority = null;
+    if (field === "expectedCloseDate") upd.expectedCloseDate = null;
+    if (field === "primaryContactId") upd.primaryContactId = null;
+    if (field === "source") upd.source = "manual";
+  }
+  await db.update(s.deals).set(upd).where(eq(s.deals.id, dealId));
+  if (stillAuto && field === "primaryContactId") {
+    // The auto-linked stakeholder row goes too, unless someone gave it a role meanwhile.
+    await db.delete(s.dealContacts).where(and(eq(s.dealContacts.dealId, dealId), eq(s.dealContacts.contactId, mark.value), isNull(s.dealContacts.role)));
+  }
+  await audit({ actorId: user.id, action: "deal.autofill_undo", entity: "deal", entityId: dealId, before: { [field]: cur }, after: { [field]: stillAuto ? null : cur, cleared: stillAuto } });
+  await recomputeDealHealth(dealId);
+  revalidateDeal(dealId, ctx.pipeline.key);
+  return { cleared: stillAuto };
+});
 
 /* ═════════════════════ Documents (CARD-6) ═════════════════════ */
 
@@ -632,21 +695,6 @@ export const updateDocumentStatus = action(z.object({ documentId: uuid, status: 
   return { ok: true };
 });
 
-/* ═════════════════════ Comments + @mentions (CARD-10) ═════════════════════ */
-
-export const addComment = action(z.object({ dealId: uuid, body: z.string().trim().min(1).max(5000), mentionIds: z.array(z.string().max(100)).max(20).optional() }), async (input, user) => {
-  const ctx = await loadDealForWrite(user, input.dealId, "view");
-  const users = await listActiveUsers();
-  const parsed = extractMentions(input.body, users);
-  const ids = Array.from(new Set([...parsed, ...(input.mentionIds ?? []).filter((id) => users.some((u) => u.id === id) && input.body.includes(`@${users.find((u) => u.id === id)!.name}`))]));
-  const [c] = await db.insert(s.comments).values({ entity: "deal", entityId: ctx.deal.id, authorId: user.id, body: input.body, mentions: ids }).returning({ id: s.comments.id });
-  const recipients = await filterRecipientsForDeal(ctx.deal, ids.filter((id) => id !== user.id));
-  await notifyMany(recipients, { kind: "mention", title: `${user.name} mentioned you on ${ctx.deal.name}`, body: input.body.slice(0, 280), href: `/deals/${ctx.deal.id}#comments` });
-  await audit({ actorId: user.id, action: "comment.create", entity: "deal", entityId: ctx.deal.id, after: { commentId: c!.id, mentions: ids } });
-  revalidateDeal(ctx.deal.id);
-  return { id: c!.id, notified: recipients.length };
-});
-
 /* ═════════════════════ Probability override (DEAL-4) ═════════════════════ */
 
 export const requestProbabilityOverride = action(
@@ -655,7 +703,8 @@ export const requestProbabilityOverride = action(
     const ctx = await loadDealForWrite(user, dealId, "edit");
     const auto = overrideAutoApproved(user.role);
     const probability = pct / 100;
-    await db.transaction(async (tx) => {
+    const sla = auto ? null : await approvalSlaFields("probability_override"); // C7 due date (computed outside the tx)
+    const approvalId = await db.transaction(async (tx) => {
       await tx
         .update(s.deals)
         .set({ probabilityOverride: probability, overrideReason: reason, overrideStatus: auto ? "approved" : "pending", overrideApprovedBy: auto ? user.id : null })
@@ -666,19 +715,26 @@ export const requestProbabilityOverride = action(
         .set({ status: "rejected", note: "Superseded by a newer request", decidedAt: new Date(), decidedBy: user.id })
         .where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entityId, dealId), eq(s.approvals.status, "pending")));
       if (!auto) {
-        await tx.insert(s.approvals).values({
-          kind: "probability_override",
-          entity: "deal",
-          entityId: dealId,
-          requestedBy: user.id,
-          approverRole: "executive",
-          payload: { from: ctx.stage.probability, previousOverride: ctx.deal.probabilityOverride, to: probability, reason, dealName: ctx.deal.name },
-        });
+        const [a] = await tx
+          .insert(s.approvals)
+          .values({
+            kind: "probability_override",
+            entity: "deal",
+            entityId: dealId,
+            requestedBy: user.id,
+            approverRole: "executive",
+            payload: { from: ctx.stage.probability, previousOverride: ctx.deal.probabilityOverride, to: probability, reason, dealName: ctx.deal.name },
+            ...sla,
+          })
+          .returning({ id: s.approvals.id });
+        return a?.id ?? null;
       }
+      return null;
     });
+    scheduleApprovalCardRefresh({ kind: "probability_override", entityId: dealId }); // superseded requests' Slack cards
     if (!auto) {
       const recipients = await filterRecipientsForDeal(ctx.deal, await executiveIds());
-      await notifyMany(recipients, { kind: "approval", title: `Probability override needs approval: ${ctx.deal.name}`, body: `${Math.round(ctx.stage.probability * 100)}% → ${pct}% — ${reason}`, href: `/deals/${dealId}` });
+      await notifyMany(recipients, { kind: "approval", title: `Probability override needs approval: ${ctx.deal.name}`, body: `${Math.round(ctx.stage.probability * 100)}% → ${pct}% — ${reason}`, href: approvalId ? approvalHref(approvalId) : `/deals/${dealId}`, sensitive: await isSensitive({ dealId }) });
     }
     await audit({ actorId: user.id, action: auto ? "deal.override_set" : "deal.override_requested", entity: "deal", entityId: dealId, before: { probabilityOverride: ctx.deal.probabilityOverride, overrideStatus: ctx.deal.overrideStatus }, after: { probabilityOverride: probability, reason, status: auto ? "approved" : "pending" } });
     await logActivity({ type: "field_change", subject: `Probability override ${auto ? "set" : "requested"}: ${pct}%`, body: reason, actorId: user.id, dealId, accountId: ctx.deal.accountId });
@@ -694,6 +750,7 @@ export const clearProbabilityOverride = action(z.object({ dealId: uuid }), async
     .update(s.approvals)
     .set({ status: "rejected", note: "Override withdrawn", decidedAt: new Date(), decidedBy: user.id })
     .where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entityId, dealId), eq(s.approvals.status, "pending")));
+  scheduleApprovalCardRefresh({ kind: "probability_override", entityId: dealId });
   await audit({ actorId: user.id, action: "deal.override_cleared", entity: "deal", entityId: dealId, before: { probabilityOverride: ctx.deal.probabilityOverride } });
   revalidateDeal(dealId, ctx.pipeline.key);
   return { ok: true };
@@ -720,8 +777,9 @@ export const decideProbabilityOverride = action(z.object({ dealId: uuid, approve
       .set({ status: approve ? "approved" : "rejected", decidedBy: user.id, decidedAt: new Date(), note: note ?? null })
       .where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entityId, dealId), eq(s.approvals.status, "pending")));
   });
+  scheduleApprovalCardRefresh({ kind: "probability_override", entityId: dealId });
   const [req] = await db.select({ requestedBy: s.approvals.requestedBy }).from(s.approvals).where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entityId, dealId))).orderBy(sql`${s.approvals.createdAt} desc`).limit(1);
-  if (req && req.requestedBy !== user.id) await notifyMany([req.requestedBy], { kind: "approval", title: `Override ${approve ? "approved" : "rejected"}: ${ctx.deal.name}`, body: note ?? null, href: `/deals/${dealId}` });
+  if (req && req.requestedBy !== user.id) await notifyMany([req.requestedBy], { kind: "approval", title: `Override ${approve ? "approved" : "rejected"}: ${ctx.deal.name}`, body: note ?? null, href: `/deals/${dealId}`, sensitive: await isSensitive({ dealId }) });
   await audit({ actorId: user.id, action: approve ? "deal.override_approved" : "deal.override_rejected", entity: "deal", entityId: dealId, after: { note } });
   revalidateDeal(dealId, ctx.pipeline.key);
   return { ok: true };
@@ -780,6 +838,14 @@ export const exportDealsCsv = action(
     const stageName = new Map((stagesBy[pipeline.id] ?? []).map((st) => [st.id, st.name]));
     let deals = await listDealsForBoard(user, pipelineKey, filters);
     deals = deals.filter((d) => !d.restricted); // MNPI never leaves via export
+    // SEC M-7: a deal on a RESTRICTED ACCOUNT is MNPI too (account name/domain, values) — never exported either.
+    const accountIds = Array.from(new Set(deals.map((d) => d.accountId).filter((x): x is string => !!x)));
+    const restrictedAccounts = new Set<string>();
+    for (let i = 0; i < accountIds.length; i += 1000) {
+      const rows = await db.select({ id: s.accounts.id }).from(s.accounts).where(and(inArray(s.accounts.id, accountIds.slice(i, i + 1000)), eq(s.accounts.restricted, true)));
+      for (const r of rows) restrictedAccounts.add(r.id);
+    }
+    deals = deals.filter((d) => !d.accountId || !restrictedAccounts.has(d.accountId));
     if (dealIds?.length) {
       const set = new Set(dealIds);
       deals = deals.filter((d) => set.has(d.id));

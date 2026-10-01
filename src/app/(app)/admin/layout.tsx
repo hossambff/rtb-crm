@@ -10,8 +10,11 @@ const CONFIG_ITEMS: AdminNavItem[] = [
   { href: "/admin/pipelines", label: "Pipelines & stages" },
   { href: "/admin/fields", label: "Fields & picklists" },
   { href: "/admin/alerts", label: "Alert rules" },
+  { href: "/admin/playbooks", label: "Stage playbooks" },
+  { href: "/admin/slack", label: "Slack & approvals" },
   { href: "/admin/settings", label: "Settings" },
   { href: "/admin/claims", label: "Claims library" },
+  { href: "/admin/templates", label: "Templates" },
   { href: "/admin/products", label: "Products" },
   { href: "/admin/teams", label: "Teams" },
 ];

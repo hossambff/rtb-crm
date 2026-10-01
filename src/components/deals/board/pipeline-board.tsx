@@ -7,6 +7,8 @@ import type { ColumnTotals } from "@/lib/deals/board-shape";
 import type { BoardDeal, BoardFilters, BoardView, Lane, Picklist, PipelineDTO, StageDTO, UserLite } from "@/lib/deals/types";
 import { useStageMove } from "../stage-move";
 import { BoardToolbar } from "./board-toolbar";
+import { ShareDealsButton } from "@/components/share/share-dialog";
+import { MAX_SHARE_DEALS } from "@/lib/share/fields";
 import { Kanban } from "./kanban";
 import { DealsTable, type ServerListPage } from "./deals-table";
 
@@ -31,6 +33,7 @@ export function PipelineBoard({
   hiddenFields,
   canCreateContact,
   createButton,
+  playbookHints,
 }: {
   pipeline: PipelineDTO;
   stages: StageDTO[];
@@ -49,6 +52,8 @@ export function PipelineBoard({
   hiddenFields: string[];
   canCreateContact: boolean;
   createButton?: React.ReactNode;
+  /** V2 §B5: playbook first task per stage → prefills the required next step in the move dialog. */
+  playbookHints?: Record<string, { title: string; dueInDays: number }>;
 }) {
   const stageById = React.useMemo(() => new Map(stages.map((s) => [s.id, s])), [stages]);
 
@@ -97,6 +102,7 @@ export function PipelineBoard({
     picklists,
     hiddenFields,
     canCreateContact,
+    playbookHints,
     onOptimistic: (dealId, stageId) => applyMove({ dealId, stageId }),
   });
 
@@ -137,7 +143,13 @@ export function PipelineBoard({
         canExport={perms.canExport}
         onExport={() => runExport()}
         exporting={exporting}
-        right={createButton}
+        right={
+          <>
+            {/* QA MAJ-17: share the visible (filtered) deals with a partner; restricted deals never go into a link. */}
+            <ShareDealsButton dealIds={deals.filter((d) => !d.restricted).slice(0, MAX_SHARE_DEALS).map((d) => d.id)} />
+            {createButton}
+          </>
+        }
       />
       {deals.length === 0 && hasFilters ? (
         <EmptyState title="No deals match these filters" description="Clear a filter or search for something else." />

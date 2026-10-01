@@ -9,19 +9,36 @@ import { GranolaForm } from "@/components/settings/granola-form";
 import { ZoomForm } from "@/components/settings/zoom-form";
 import { BlocklistForm, NotificationForm } from "@/components/settings/preferences-forms";
 import { MailboxBanner } from "@/components/settings/mailbox-banner";
+import { PreferencesSection } from "@/components/settings/preferences-section";
+import { ChecklistRestoreButton } from "@/components/onboarding-checklist/checklist-card";
+import { getSlackContext } from "@/lib/slack/config";
+import { HOME_PAGE_NAME } from "@/lib/nav";
+import { getMyMotions, getPrefs as getUserPrefs } from "@/lib/prefs";
+import { permittedNav, visibleNav } from "@/lib/rbac/nav-server";
+import { loadChecklist } from "@/lib/prefs/checklist";
 
 export const metadata = { title: "Settings" };
 
 const SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "connections", label: "Connections" },
-  { id: "notifications", label: "Notifications" },
+  { id: "preferences", label: "Preferences" },
+  { id: "email", label: "Email & drafting" },
   { id: "privacy", label: "Privacy" },
 ];
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const state = await getSettingsState(user);
+  const [state, prefs, motions, nav, allNav, checklist, slack] = await Promise.all([
+    getSettingsState(user),
+    getUserPrefs(user.id),
+    getMyMotions(user),
+    visibleNav(user),
+    permittedNav(user),
+    loadChecklist(user),
+    getSlackContext().catch(() => null),
+  ]);
+  const moreSet = new Set(nav.filter((n) => n.more).map((n) => n.href));
   let zones: string[] = [];
   try {
     zones = Intl.supportedValuesOf("timeZone");
@@ -33,7 +50,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <PageHeader title="Settings" description="Your profile, connected accounts, notifications and privacy." />
+      <PageHeader title="Settings" description="Your profile, connected accounts, preferences, interruptions and privacy." />
       <nav aria-label="Settings sections" className="mb-6 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border">
         {SECTIONS.map((sct) => (
           <a key={sct.id} href={`#${sct.id}`} className="-mb-px whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm text-muted hover:border-border-strong hover:text-fg">
@@ -80,11 +97,53 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card id="notifications" className="scroll-mt-20">
+        <Card id="preferences" className="scroll-mt-20">
           <CardHeader>
             <div>
-              <CardTitle>Notifications &amp; email</CardTitle>
-              <CardDescription>How and when Roundtable reaches you.</CardDescription>
+              <CardTitle>Preferences</CardTitle>
+              <CardDescription>Shape the app around how you work: what you sell, what you see, what may interrupt you and when.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <PreferencesSection
+              motions={motions.permitted.map((m) => ({ key: m.key, name: m.name, color: m.color }))}
+              pipelineKeys={prefs.pipelineKeys.filter((k) => motions.permitted.some((m) => m.key === k))}
+              autoMotions={{ keys: motions.keys, source: motions.source }}
+              nav={allNav.map((n) => ({ href: n.href, label: n.label, more: moreSet.has(n.href) }))}
+              alertBudgetPerDay={prefs.alertBudgetPerDay}
+              autopilot={{
+                postCall: prefs.autopilot.postCall ?? "review",
+                meetingBriefs: prefs.autopilot.meetingBriefs ?? true,
+                emailSignals: prefs.autopilot.emailSignals ?? true,
+                forecastSuggest: prefs.autopilot.forecastSuggest ?? true,
+              }}
+              slackDm={prefs.slackDm}
+              slackUserId={prefs.slackUserId}
+              slackConfigured={Boolean(slack)}
+              interruptions={{
+                minSeverity: state.prefs.notifications.minSeverity,
+                quietHoursStart: state.prefs.notifications.quietHoursStart,
+                quietHoursEnd: state.prefs.notifications.quietHoursEnd,
+              }}
+            />
+          </CardContent>
+        </Card>
+
+        {/* The checklist lives on My Day; Settings only offers to bring it back (QA MIN-03 — no duplicate card). */}
+        {checklist && !checklist.complete && checklist.dismissed ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
+            <p className="text-sm text-body">
+              Setup checklist: {checklist.done} of {checklist.total} done · hidden from {HOME_PAGE_NAME}.
+            </p>
+            <ChecklistRestoreButton />
+          </div>
+        ) : null}
+
+        <Card id="email" className="scroll-mt-20">
+          <CardHeader>
+            <div>
+              <CardTitle>Email &amp; drafting</CardTitle>
+              <CardDescription>Your signature, the voice for drafted follow-ups, and AI-action notices.</CardDescription>
             </div>
           </CardHeader>
           <CardContent>

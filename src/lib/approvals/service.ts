@@ -7,7 +7,14 @@ import { ForbiddenError, type AppUser } from "@/lib/rbac/server";
 import { UserError } from "@/lib/actions";
 import { logServerError } from "@/lib/errors";
 import { notify, notifyMany } from "@/lib/notifications/notify";
+import { isSensitiveEntity } from "@/lib/notifications/sensitive";
+import { approvalHref } from "@/lib/slack/core";
 import { canDecide, getApprovalHandler, type ApprovalDecision, type ApprovalRow } from "./registry";
+import { routeRestrictedApproval } from "./routing";
+import { restrictedFallbackTitle } from "./routing-core";
+import { approvalDueAt, effectiveDueAt, getSlaSettings } from "./sla";
+import { slaStatus, type SlaStatus } from "./sla-core";
+import { scheduleApprovalCardRefresh } from "@/lib/slack/card-refresh";
 
 export { registerApprovalHandler } from "./registry";
 
@@ -15,7 +22,8 @@ class AlreadyDecided extends Error {}
 
 /**
  * Create an approval request and notify the approver role. Other modules call this (e.g. deals when a probability
- * override exceeds the threshold, proposals when terms fall outside guardrails).
+ * override exceeds the threshold, proposals when terms fall outside guardrails). Sets the SLA due date (C7); the
+ * notification links to the request itself, which Slack delivery turns into an Approve / Reject message.
  */
 export async function requestApproval(input: {
   kind: string;
@@ -37,6 +45,7 @@ export async function requestApproval(input: {
       approverRole: input.approverRole ?? "executive",
       payload: input.payload ?? {},
       note: input.note ?? null,
+      dueAt: await approvalDueAt(input.kind),
     })
     .returning();
   await audit({ actorId: input.requestedBy, action: "approval.request", entity: "approval", entityId: row!.id, after: row });
@@ -46,19 +55,21 @@ export async function requestApproval(input: {
     .where(inArray(s.user.role, [row!.approverRole, ...(row!.approverRole === "executive" ? [] : ["executive"])]));
   // SEC M-5: approvers are notified by role, and most are not on a restricted deal's access list — for restricted deals
   // the notification is neutral (no deal name, no free-text note); the approvals inbox labels it permission-aware.
+  // MNPI hard guard: restricted subjects (deal or its account, proposals of such deals) never reach Slack.
   let title = input.title ?? `Approval requested: ${input.kind.replace(/_/g, " ")}`;
   let body = input.note ?? null;
-  if (input.entity === "deal") {
-    const [d] = await db.select({ restricted: s.deals.restricted }).from(s.deals).where(eq(s.deals.id, input.entityId));
-    if (d?.restricted) {
-      title = `Approval requested: ${input.kind.replace(/_/g, " ")} on a restricted deal`;
-      body = null;
-    }
+  let recipients = approvers.map((a) => a.id).filter((id) => id !== input.requestedBy);
+  const sensitive = await isSensitiveEntity(input.entity, input.entityId);
+  if (sensitive) {
+    // Any restricted subject (deal, its account, a proposal / registration / migration of one) — not only entity "deal".
+    title = `Approval requested: ${input.kind.replace(/_/g, " ")} on a restricted record`;
+    body = null;
+    // QA MIN-36: only approvers on the access list (or super_admin); none → super_admins under a neutral title.
+    const routed = await routeRestrictedApproval(row!, recipients);
+    recipients = routed.recipients;
+    if (routed.fallback) title = restrictedFallbackTitle(input.kind.replace(/_/g, " "));
   }
-  await notifyMany(
-    approvers.map((a) => a.id).filter((id) => id !== input.requestedBy),
-    { kind: "approval", title, body, href: "/tasks?tab=approvals" },
-  );
+  await notifyMany(recipients, { kind: "approval", title, body, href: approvalHref(row!.id), sensitive });
   return row!;
 }
 
@@ -110,12 +121,15 @@ export async function decide(user: AppUser, id: string, decision: ApprovalDecisi
         .set({ status: "failed", decidedBy: user.id, decidedAt: new Date(), note: `${approval.note ? `${approval.note}\n` : ""}Apply failed (${decision} by ${user.name}): ${reason}` })
         .where(and(eq(s.approvals.id, id), inArray(s.approvals.status, ["pending", decision])));
       await audit({ actorId: user.id, action: "approval.apply_failed", entity: "approval", entityId: id, before: approval, after: { decision, reason } });
+      scheduleApprovalCardRefresh({ ids: [id] });
     } catch (e2) {
       logServerError("approvals.mark_failed", e2);
     }
     throw e;
   }
   if (!after) throw new UserError("This request was already decided.");
+  // Stale Slack cards: every card posted for this request now shows the decision (after the response; never throws).
+  scheduleApprovalCardRefresh({ ids: [id] });
 
   // After commit: never throw (the decision is recorded).
   try {
@@ -141,7 +155,9 @@ export async function decide(user: AppUser, id: string, decision: ApprovalDecisi
       kind: "approval",
       title: `${user.name} ${decision} your ${approval.kind.replace(/_/g, " ")} request`,
       body: note,
-      href: "/tasks?tab=approvals",
+      // The request itself: in-app it opens the approvals tab on it; on Slack it renders the decided card.
+      href: approvalHref(id),
+      sensitive: await isSensitiveEntity(approval.entity, approval.entityId),
     });
   return after;
 }
@@ -159,6 +175,10 @@ export type ApprovalView = {
   decidedAt: string | null;
   deciderName: string | null;
   canDecide: boolean;
+  /** C7: approver group ("who holds it"), escalation and SLA state (pending rows only). */
+  approverRole: string;
+  escalatedAt: string | null;
+  sla: SlaStatus | null;
 };
 
 /** Pending requests the user may decide + the user's own recent requests. */
@@ -169,8 +189,9 @@ export async function listApprovals(user: AppUser): Promise<{ pending: ApprovalV
     db.select({ id: s.user.id, name: s.user.name }).from(s.user),
   ]);
   const names = new Map(users.map((u) => [u.id, u.name]));
-  const decidable: ApprovalRow[] = [];
-  for (const a of pendingRows) if (await canDecide(user, a)) decidable.push(a);
+  const settings = await getSlaSettings();
+  const now = new Date();
+  const decidable = await filterDecidable(user, pendingRows);
   const view = async (a: ApprovalRow, can: boolean): Promise<ApprovalView> => {
     const h = getApprovalHandler(a.kind);
     const label = (h.label ? await h.label(user, a) : null) ?? `${a.entity} ${a.entityId.slice(0, 8)}`;
@@ -187,8 +208,13 @@ export async function listApprovals(user: AppUser): Promise<{ pending: ApprovalV
       decidedAt: a.decidedAt?.toISOString() ?? null,
       deciderName: a.decidedBy ? (names.get(a.decidedBy) ?? null) : null,
       canDecide: can,
+      approverRole: a.approverRole,
+      escalatedAt: a.escalatedAt?.toISOString() ?? null,
+      sla: a.status === "pending" ? slaStatus({ createdAt: a.createdAt, dueAt: effectiveDueAt(a, settings) }, now) : null,
     };
   };
+  // Most urgent first: overdue, then soonest due, then oldest.
+  decidable.sort((x, y) => effectiveDueAt(x, settings).getTime() - effectiveDueAt(y, settings).getTime() || x.createdAt.getTime() - y.createdAt.getTime());
   const pending = await Promise.all(decidable.map((a) => view(a, true)));
   const mine = await Promise.all(mineRows.map((a) => view(a, false)));
   const isApprover = pending.length > 0 || ["executive", "admin", "super_admin", "sales_leader", "finance"].includes(user.role);
@@ -207,7 +233,20 @@ function safePayload(p: Record<string, unknown>): Record<string, unknown> {
 
 export async function pendingApprovalCount(user: AppUser): Promise<number> {
   const rows = await db.select().from(s.approvals).where(eq(s.approvals.status, "pending")).limit(300);
-  let n = 0;
-  for (const a of rows) if (await canDecide(user, a)) n++;
-  return n;
+  return (await filterDecidable(user, rows)).length;
+}
+
+/**
+ * CR L16: the rows `user` may decide, without one sequential round trip per row: permission checks run in small
+ * parallel waves (the DB limiter caps real concurrency). Order is preserved; a failing check counts as "can't decide".
+ */
+async function filterDecidable(user: AppUser, rows: ApprovalRow[]): Promise<ApprovalRow[]> {
+  const out: boolean[] = new Array(rows.length).fill(false);
+  const WAVE = 8;
+  for (let i = 0; i < rows.length; i += WAVE) {
+    const slice = rows.slice(i, i + WAVE);
+    const res = await Promise.all(slice.map((a) => canDecide(user, a).catch(() => false)));
+    res.forEach((ok, j) => (out[i + j] = ok));
+  }
+  return rows.filter((_, i) => out[i]);
 }

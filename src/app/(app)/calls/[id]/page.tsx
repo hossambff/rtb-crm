@@ -6,17 +6,21 @@ import { getHiddenFields, requireUser } from "@/lib/rbac/server";
 import { getTranscriptForUser } from "@/lib/transcripts/queries";
 import { getGoogleAccount } from "@/lib/integrations/google";
 import { GMAIL_SEND_SCOPE, hasScope } from "@/lib/integrations/core";
-import { internalDomains } from "@/lib/integrations/directory";
-import { isInternal, normalizeEmail } from "@/lib/integrations/matching-core";
+import { followUpRecipients } from "@/lib/transcripts/drafts";
 import { fmtDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/misc";
 import { TranscriptViewer } from "@/components/calls/transcript-viewer";
+import { AddToPlaybook } from "@/components/team/add-to-playbook";
 import { SummaryPanel, InsightPanels } from "@/components/calls/analysis-panels";
 import { ApplyReview } from "@/components/calls/apply-review";
 import { AttachDeal, AutoRefresh, ReanalyzeTranscriptButton } from "@/components/calls/call-controls";
 import { SOURCE_LABELS, TranscriptStatus } from "@/components/calls/transcript-status";
+import { AutopilotBanner, type AutopilotView } from "@/components/calls/autopilot-banner";
+import { getPrefs } from "@/lib/prefs";
+import { AUTOPILOT_UNDO_MS, undoAvailable, type AutopilotRecord } from "@/lib/transcripts/autopilot-core";
+import type { StoredDraft } from "@/lib/gmail/drafts-core";
 
 // One load per request, shared by generateMetadata and the page (QA-27 record-named tab titles).
 const loadCall = cache(async (id: string) => (/^[0-9a-f-]{36}$/i.test(id) ? getTranscriptForUser(await requireUser(), id) : null));
@@ -36,14 +40,30 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
   if (!detail) notFound();
   const { transcript: t, analysis, deal } = detail;
 
-  const [acct, internal] = await Promise.all([getGoogleAccount(user.id), internalDomains(user.email)]);
-  const followUpTo = [...new Set([...(detail.meeting?.attendees ?? []), ...t.participants].map((p) => normalizeEmail(p)).filter((e): e is string => Boolean(e)))]
-    .filter((e) => !isInternal(e, internal))
-    .slice(0, 5);
+  // SEC L-8: only calendar attendees and visible CRM contacts pre-fill the follow-up; other transcript names don't
+  const [acct, rcpt] = await Promise.all([getGoogleAccount(user.id), followUpRecipients(t, user)]);
+  const followUpTo = rcpt.to;
   const hiddenDeal = await getHiddenFields(user.role, "deal");
   const hiddenFields = (Object.keys(FIELD_COLS) as (keyof typeof FIELD_COLS)[]).filter((f) => hiddenDeal.has(FIELD_COLS[f]));
   const stages = detail.stages.filter((st) => (st.category === "open" || st.category === "hold") && !st.requiresApproval).map((st) => ({ id: st.id, name: st.name }));
   const busy = t.status === "pending" || t.status === "processing";
+  // QA MAJ-13: the autopilot mode is the call OWNER's setting, not the viewer's (a manager sees the rep's mode)
+  const prefs = await getPrefs(t.uploadedBy ?? user.id);
+  const extra = (analysis ?? {}) as { autopilot?: AutopilotRecord; draft?: StoredDraft };
+  const isOwner = t.uploadedBy === user.id;
+  const ap = extra.autopilot;
+  const autopilotView: AutopilotView | null = ap
+    ? {
+        status: ap.status,
+        reason: ap.reason ?? null,
+        at: ap.at,
+        tasks: ap.taskIds.length,
+        nextStep: ap.nextStep?.after.text ?? null,
+        undoUntil: undoAvailable(ap.at, ap.undoneAt, new Date()) ? new Date(new Date(ap.at).getTime() + AUTOPILOT_UNDO_MS).toISOString() : null,
+      }
+    : null;
+  // Drafts live in the call owner's mailbox: only the owner sees the stored draft body.
+  const draft = isOwner ? (extra.draft ?? null) : null;
 
   return (
     <div>
@@ -100,6 +120,7 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
             />
           ) : (
             <>
+              {autopilotView ? <AutopilotBanner id={t.id} view={autopilotView} canUndo={isOwner} /> : null}
               <Card>
                 <CardHeader>
                   <CardTitle>Summary</CardTitle>
@@ -117,7 +138,7 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
                 </CardHeader>
                 <CardContent className="pb-0">
                   <ApplyReview
-                    key={`${analysis.analyzedAt ?? ""}-${t.dealId ?? ""}-${t.appliedAt?.getTime() ?? 0}`}
+                    key={`${analysis.analyzedAt ?? ""}-${t.dealId ?? ""}-${t.appliedAt?.getTime() ?? 0}-${draft?.createdAt ?? ""}`}
                     id={t.id}
                     analysis={analysis}
                     deal={deal ? { id: deal.id, name: deal.name, stageId: deal.stageId, stageName: deal.stageName, muu: deal.muu, nextStep: deal.nextStep } : null}
@@ -127,6 +148,9 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
                     canSendEmail={hasScope(acct?.scope, GMAIL_SEND_SCOPE)}
                     followUpTo={followUpTo}
                     appliedAt={t.appliedAt?.toISOString() ?? null}
+                    mode={prefs.autopilot.postCall ?? "review"}
+                    draft={draft}
+                    canDraft={isOwner && detail.canEdit}
                   />
                 </CardContent>
               </Card>
@@ -146,7 +170,9 @@ export default async function CallDetailPage({ params }: PageProps<"/calls/[id]"
             <div className="border-b border-border px-4 py-3">
               <p className="font-display text-base text-fg">Transcript</p>
             </div>
-            <TranscriptViewer text={t.rawText} />
+            <AddToPlaybook transcriptId={t.id} className="flex min-h-0 flex-1 flex-col">
+              <TranscriptViewer text={t.rawText} />
+            </AddToPlaybook>
           </div>
         </Card>
       </div>

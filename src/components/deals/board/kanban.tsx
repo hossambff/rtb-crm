@@ -290,15 +290,17 @@ export function DealCard({
         {pipeline.unit !== "activation" ? (
           <span className="text-[11px] text-muted" title={`Weighted at ${Math.round(deal.probability * 100)}%${deal.overridden ? " (override)" : ""}`}>
             {pipeline.unit === "muu" && deal.grossUsd ? `${fmtUsd(deal.grossUsd, { compact: true })} · ` : ""}
-            wtd {fmtUsd(deal.weightedUsd, { compact: true })}
+            weighted {fmtUsd(deal.weightedUsd, { compact: true })}
             {deal.overridden ? "*" : ""}
           </span>
         ) : null}
       </div>
 
-      <div className="mt-1.5">
-        <NextStepLine nextStep={deal.nextStep} dueAt={deal.nextStepDueAt} overdueDays={deal.overdueDays} waitingReason={deal.nextStepWaitingReason} compact />
-      </div>
+      {deal.status === "open" || deal.nextStep ? (
+        <div className="mt-1.5">
+          <NextStepLine nextStep={deal.nextStep} dueAt={deal.nextStepDueAt} overdueDays={deal.overdueDays} waitingReason={deal.nextStepWaitingReason} compact />
+        </div>
+      ) : null}
 
       <div className="mt-2 flex items-center gap-1.5">
         <OwnerStack owners={deal.owners} size={20} />

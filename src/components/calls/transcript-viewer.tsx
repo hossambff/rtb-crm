@@ -21,7 +21,7 @@ function highlight(text: string, q: string) {
   const parts = text.split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "ig"));
   return parts.map((p, i) =>
     p.toLowerCase() === q.toLowerCase() ? (
-      <mark key={i} className="rounded-sm bg-white px-0.5 text-black">
+      <mark key={i} className="rounded-sm bg-fg px-0.5 text-accent-inverse">
         {p}
       </mark>
     ) : (
@@ -54,12 +54,14 @@ export function TranscriptViewer({ text }: { text: string }) {
       </div>
       <ol className="flex-1 space-y-3 overflow-y-auto px-4 py-4 text-sm leading-6">
         {shown.map((l, i) => (
-          <li key={i} id={l.ts ? lineId(l.ts) : undefined} className="scroll-mt-24 target:rounded target:bg-surface-2">
+          <li key={i} id={l.ts ? lineId(l.ts) : undefined} data-ts={l.ts ?? undefined} data-speaker={l.speaker ?? undefined} className="scroll-mt-24 target:rounded target:bg-surface-2">
             <div className="flex items-baseline gap-2">
               {l.ts ? <span className="shrink-0 font-mono text-[11px] text-muted tabular">{l.ts}</span> : null}
               {l.speaker ? <span className="text-xs font-medium text-fg">{highlight(l.speaker, query)}</span> : null}
             </div>
-            <p className="text-body">{highlight(l.text, query)}</p>
+            <p data-clip-text className="text-body">
+              {highlight(l.text, query)}
+            </p>
           </li>
         ))}
         {!shown.length ? <li className="text-sm text-muted">No lines match “{query}”.</li> : null}

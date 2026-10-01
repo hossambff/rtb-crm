@@ -14,6 +14,9 @@ export type ListColumn<T extends RowData> = ColumnDef<ListFeatures, T, any>;
 
 export type ColumnUi = { sortKey?: string; align?: "right"; className?: string; hideOnMobile?: boolean };
 
+/** Optional row selection (checkbox column). The parent owns the set; ids are row ids on the current page. */
+export type TableSelection = { selected: ReadonlySet<string>; onChange: (next: Set<string>) => void; label: (id: string) => string };
+
 /**
  * Dense, server-paginated table (sorting/paging live in the URL; the server does the work).
  * Headers with a sortKey are buttons; rows navigate to `rowHref` on click (the primary cell should also be a Link).
@@ -27,6 +30,7 @@ export function ServerTable<T extends RowData & { id: string }>({
   onSort,
   rowHref,
   pending,
+  selection,
 }: {
   columns: ListColumn<T>[];
   ui: Record<string, ColumnUi>;
@@ -36,15 +40,39 @@ export function ServerTable<T extends RowData & { id: string }>({
   onSort: (key: string) => void;
   rowHref?: (row: T) => string;
   pending?: boolean;
+  selection?: TableSelection;
 }) {
   const router = useRouter();
   const table = useTable({ features: listFeatures, columns, data, getRowId: (r) => r.id });
+  const pageIds = data.map((r) => r.id);
+  const allOnPage = !!selection && pageIds.length > 0 && pageIds.every((id) => selection.selected.has(id));
+  const toggle = (id: string) => {
+    if (!selection) return;
+    const n = new Set(selection.selected);
+    if (n.has(id)) n.delete(id);
+    else n.add(id);
+    selection.onChange(n);
+  };
   return (
     <div className={cn("overflow-x-auto rounded-lg border border-border bg-surface-1 transition-opacity duration-150", pending && "opacity-60")}>
       <table className="w-full border-collapse text-sm md:min-w-[720px]">
         <thead>
           {table.getHeaderGroups().map((group) => (
             <tr key={group.id} className="border-b border-border">
+              {selection ? (
+                <th scope="col" className="w-9 px-3">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all on this page"
+                    className="size-3.5 accent-white"
+                    checked={allOnPage}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allOnPage && pageIds.some((id) => selection.selected.has(id));
+                    }}
+                    onChange={() => selection.onChange(allOnPage ? new Set() : new Set(pageIds))}
+                  />
+                </th>
+              ) : null}
               {group.headers.map((header) => {
                 const u = ui[header.column.id] ?? {};
                 const active = u.sortKey && u.sortKey === sort;
@@ -86,8 +114,23 @@ export function ServerTable<T extends RowData & { id: string }>({
                 if (!rowHref || (e.target as HTMLElement).closest("a,button,input,select")) return;
                 router.push(rowHref(row.original));
               }}
-              className={cn("border-b border-border last:border-0 transition-colors duration-100 hover:bg-surface-2", rowHref && "cursor-pointer")}
+              className={cn(
+                "border-b border-border last:border-0 transition-colors duration-100 hover:bg-surface-2",
+                rowHref && "cursor-pointer",
+                selection?.selected.has(row.id) && "bg-surface-2",
+              )}
             >
+              {selection ? (
+                <td className="w-9 px-3 align-middle">
+                  <input
+                    type="checkbox"
+                    aria-label={selection.label(row.id)}
+                    className="size-3.5 accent-white"
+                    checked={selection.selected.has(row.id)}
+                    onChange={() => toggle(row.id)}
+                  />
+                </td>
+              ) : null}
               {row.getAllCells().map((cell) => {
                 const u = ui[cell.column.id] ?? {};
                 return (

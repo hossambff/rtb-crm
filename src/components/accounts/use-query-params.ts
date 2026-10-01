@@ -1,6 +1,7 @@
 "use client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useTransition } from "react";
+import { listHref } from "@/lib/views/core";
 
 /** URL-backed list state (search, filters, sort, page) for server-paginated tables. */
 export function useQueryParams() {
@@ -18,7 +19,7 @@ export function useQueryParams() {
       }
       if (opts.resetPage !== false && !("page" in updates)) next.delete("page");
       const qs = next.toString();
-      startTransition(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
+      startTransition(() => router.replace(listHref(pathname, qs), { scroll: false }));
     },
     [params, pathname, router],
   );

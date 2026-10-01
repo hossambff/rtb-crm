@@ -213,7 +213,7 @@ export function ScoutSettingsForm({ initial }: { initial: Settings }) {
           <CardHeader>
             <div>
               <CardTitle>Apify budget</CardTitle>
-              <CardDescription>Pilot defaults (D8): org $10/month, user $2, SVP/exec $5, $0.50 per run, 50 domains per run.</CardDescription>
+              <CardDescription>Defaults: org $5/month (the Apify free plan hard cap), user $2, SVP/exec $5, $0.50 per run, 50 domains per run.</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3">

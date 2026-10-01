@@ -60,6 +60,8 @@ export type CopilotChatProps = {
   context: CopilotContext;
   threadKey: string;
   initialPrompt?: string;
+  /** Unique per open (openCopilot / CopilotButton): the same question asked again in a new open is sent again. */
+  promptNonce?: string;
   onInitialPromptSent?: () => void;
   variant?: "page" | "panel";
   contextLabel?: string | null;
@@ -102,6 +104,7 @@ function ChatInner({
   context,
   threadKey,
   initialPrompt,
+  promptNonce,
   onInitialPromptSent,
   variant = "page",
   contextLabel,
@@ -115,16 +118,17 @@ function ChatInner({
     transport,
     throttle: 40,
   });
-  const [input, setInput] = useState("");
+  // AI off (QA MAJ-03): a seeded question lands in the composer instead of being dropped.
+  const [input, setInput] = useState(() => (!aiEnabled && initialPrompt ? initialPrompt.trim() : ""));
   const sentInitial = useRef(false);
-  const latest = useRef({ context, initialPrompt, onInitialPromptSent });
+  const latest = useRef({ context, initialPrompt, promptNonce, onInitialPromptSent });
   const scroller = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
 
   useEffect(() => {
-    latest.current = { context, initialPrompt, onInitialPromptSent };
-  }, [context, initialPrompt, onInitialPromptSent]);
+    latest.current = { context, initialPrompt, promptNonce, onInitialPromptSent };
+  }, [context, initialPrompt, promptNonce, onInitialPromptSent]);
 
   const send = useCallback(
     (text: string) => {
@@ -139,11 +143,12 @@ function ChatInner({
 
   // Send the ?q= seed prompt once.
   useEffect(() => {
-    const { initialPrompt: seed } = latest.current;
+    const { initialPrompt: seed, promptNonce: nonce } = latest.current;
     if (!seed || sentInitial.current || !aiEnabled) return;
     // Deferred + cancellable so React StrictMode's mount/unmount/mount sends exactly once.
-    // Session guard: a reload (or the router restoring ?q=) must not resend the same seed prompt.
-    const seedKey = `${storageKey}.seed.${seed.trim().slice(0, 200)}`;
+    // Session guard: a reload (or the router restoring ?q=) must not resend the same seed prompt. Opens from the Ask bar,
+    // suggestions or the checklist carry a per-open nonce, so asking the same question again is not dropped (QA MAJ-03).
+    const seedKey = `${storageKey}.seed.${nonce ? `n:${nonce}` : seed.trim().slice(0, 200)}`;
     const timer = setTimeout(() => {
       if (sentInitial.current) return;
       sentInitial.current = true;
@@ -285,7 +290,7 @@ function ChatInner({
             ref={textarea}
             rows={1}
             value={input}
-            disabled={!aiEnabled}
+            readOnly={!aiEnabled}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {

@@ -26,5 +26,17 @@ export function myDayDigestText(c: DigestCounts): { title: string; body: string 
   }
   if (!lines.length) return null;
   const urgent = c.overdueTasks + a.critical + a.serious;
-  return { title: urgent ? `My Day: ${urgent} item${urgent === 1 ? " needs" : "s need"} attention` : "My Day: your plan for today", body: lines.map((l) => `• ${l}`).join("\n") };
+  return { title: urgent ? `Today: ${urgent} item${urgent === 1 ? " needs" : "s need"} attention` : "Today: your plan for the day", body: lines.map((l) => `• ${l}`).join("\n") };
+}
+
+/**
+ * Pure: final daily digest = Today lines + the "Bundled for you" section (alert-budget overflow, V2 §B3).
+ * Titles always start with "Today" (the once-a-day dedupe matches on it). Null when there's nothing at all.
+ */
+export function composeDailyDigest(myDay: { title: string; body: string } | null, bundled: string | null): { title: string; body: string } | null {
+  if (!myDay && !bundled) return null;
+  return {
+    title: myDay?.title ?? "Today: a few quiet updates bundled for you",
+    body: [myDay?.body, bundled].filter(Boolean).join("\n\n"),
+  };
 }

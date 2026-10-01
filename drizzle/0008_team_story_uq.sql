@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "team_posts_story_uq" ON "rso"."team_posts" USING btree ("deal_id") WHERE "rso"."team_posts"."kind" in ('win','loss') and "rso"."team_posts"."deleted_at" is null;

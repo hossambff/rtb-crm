@@ -1,7 +1,7 @@
 import * as React from "react";
 import { CheckCircle2, AlertTriangle, AlertOctagon, XCircle, TrendingDown, TrendingUp, Minus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { STATUS_COLORS } from "@/lib/palette";
+import { STATUS_COLORS, VIZ } from "@/lib/palette";
 import { FIT_FACTOR_LABELS, FIT_FACTORS, fitStatus, type FitFactor } from "@/lib/scout/fit";
 import { cn } from "@/lib/utils";
 
@@ -75,7 +75,7 @@ export function Sparkline({ series }: { series: number[] }) {
   const pts = series.map((v, i) => `${(i / (series.length - 1)) * w},${h - ((v - min) / (max - min || 1)) * (h - 2) - 1}`).join(" ");
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="shrink-0">
-      <polyline points={pts} fill="none" stroke="#5C98D5" strokeWidth={1.5} strokeLinejoin="round" />
+      <polyline points={pts} fill="none" stroke={VIZ[0]} strokeWidth={1.5} strokeLinejoin="round" />
     </svg>
   );
 }

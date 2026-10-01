@@ -1,7 +1,6 @@
 "use client";
 import * as React from "react";
-import Link from "next/link";
-import { AudioLines, FileText, ListPlus, Loader2, Mail, PhoneCall } from "lucide-react";
+import { ListPlus, Loader2, Mail, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,6 +10,7 @@ import { CopilotButton } from "@/components/copilot";
 import { EmailComposer } from "@/components/inbox/email-composer";
 import { EnrichButton } from "@/components/scout/enrich-button";
 import { useRun } from "./use-run";
+import { MoreActions } from "./more-actions";
 
 function nowLocal() {
   const d = new Date();
@@ -18,7 +18,11 @@ function nowLocal() {
   return d.toISOString().slice(0, 16);
 }
 
-/** CARD-1 quick actions: log call/note, email, add task, upload transcript, generate proposal, find executives, ask Copilot. */
+/**
+ * CARD-1 quick actions (QA MAJ-10): the visible row is Log · Email · Task · Ask Copilot · More. Everything else — share,
+ * hand off, request help (passed in as `more`) and find executives — sits in the "More" overflow.
+ * Proposals live in the Docs tab and call uploads in the Activity tab's "Calls & transcripts" panel (no duplicates).
+ */
 export function QuickActions({
   dealId,
   dealName,
@@ -31,7 +35,7 @@ export function QuickActions({
   canLog,
   canTask,
   canUseAi,
-  showProposal,
+  more,
 }: {
   dealId: string;
   contacts: ContactLite[];
@@ -41,7 +45,8 @@ export function QuickActions({
   canLog: boolean;
   canTask: boolean;
   canUseAi: boolean;
-  showProposal: boolean;
+  /** Server-rendered secondary actions (share / hand off / request help) shown in the overflow menu. */
+  more?: React.ReactNode;
   dealName?: string;
   /** Gmail compose (EML-8): shown when the user has email access; `canSend` = gmail.send scope granted. */
   email?: { to: string[]; canSend: boolean } | null;
@@ -66,20 +71,11 @@ export function QuickActions({
           <ListPlus /> Add task
         </Button>
       ) : null}
-      <Button size="sm" variant="secondary" asChild>
-        <Link href={`/calls/upload?dealId=${dealId}`}>
-          <AudioLines /> Upload transcript
-        </Link>
-      </Button>
-      {showProposal ? (
-        <Button size="sm" variant="secondary" asChild>
-          <Link href={`/proposals/new?dealId=${dealId}`}>
-            <FileText /> Generate proposal
-          </Link>
-        </Button>
-      ) : null}
-      {enrich ? <EnrichButton accountId={enrich.accountId} motion={enrich.motion} dealId={dealId} /> : null}
       {canUseAi ? <CopilotButton context={{ dealId }} contextLabel={dealName} /> : null}
+      <MoreActions>
+        {more}
+        {enrich ? <EnrichButton accountId={enrich.accountId} motion={enrich.motion} dealId={dealId} /> : null}
+      </MoreActions>
       {dialog === "log" ? <LogActivityDialog dealId={dealId} contacts={contacts} onClose={() => setDialog(null)} /> : null}
       {dialog === "email" && email ? <EmailDialog dealId={dealId} to={email.to} canSend={email.canSend} onClose={() => setDialog(null)} /> : null}
       {dialog === "task" ? (

@@ -9,7 +9,11 @@ import { SearchesTable } from "@/components/scout/searches-table";
 import { Funnel, RunsTable, ScoutTabNav, SCOUT_TABS, SpendBar, type ScoutTab } from "@/components/scout/scout-views";
 import { ActorRegistryTable, ApifyTokenCard, ScoutSettingsForm } from "@/components/scout/settings-form";
 import { usd } from "@/components/scout/bits";
-import { requireUser } from "@/lib/rbac/server";
+import { can, requireUser } from "@/lib/rbac/server";
+import { OutreachBatch } from "@/components/scout/outreach-batch";
+import { listOutreachBatch } from "@/lib/scout/outreach";
+import { GMAIL_CONNECT_HREF } from "@/lib/sequences/access";
+import { enrollReadiness, listEnrollableSequences } from "@/lib/sequences/queries";
 import { SCOPE_RANK } from "@/lib/rbac/model";
 import { crmStatusLabel, type CrmMatch } from "@/lib/scout/core";
 import { describeCriteria, type Criteria } from "@/lib/scout/criteria";
@@ -49,6 +53,8 @@ export default async function ScoutPage(props: PageProps<"/scout">) {
   const requested = one("tab") as ScoutTab | undefined;
   let tab: ScoutTab = SCOUT_TABS.some((t) => t.key === requested) ? requested! : "queue";
   if (tab === "settings" && !perms.configure) tab = "queue";
+  const canOutreach = await can(user, "email", "view");
+  if (tab === "outreach" && !canOutreach) tab = "queue";
 
   const [apify, counts] = await Promise.all([apifyStatus(), candidateCounts(user)]);
   const canCreate = SCOPE_RANK[perms.create] > 0;
@@ -69,9 +75,11 @@ export default async function ScoutPage(props: PageProps<"/scout">) {
         }
       />
       {!apify.connected && tab !== "settings" ? <ConnectApify canConfigure={perms.configure} compact={tab !== "queue" && tab !== "searches"} /> : null}
-      <ScoutTabNav active={tab} showSettings={perms.configure} queueCount={counts.new ?? 0} />
+      <ScoutTabNav active={tab} showSettings={perms.configure} queueCount={counts.new ?? 0} showOutreach={canOutreach} />
       {tab === "queue" ? (
         <QueueTab user={user} perms={perms} filter={{ state: one("state") as CandidateFilter["state"], searchId: one("search"), q: one("q"), minScore: one("min") ? Number(one("min")) : undefined }} apifyConnected={apify.connected} />
+      ) : tab === "outreach" ? (
+        <OutreachTab user={user} />
       ) : tab === "searches" ? (
         <SearchesTab user={user} canCreate={canCreate} />
       ) : tab === "runs" ? (
@@ -149,6 +157,26 @@ async function QueueTab({ user, perms, filter, apifyConnected }: { user: U; perm
       weights={settings.fitWeights}
       canEnrich={SCOPE_RANK[perms.enrichCreate] > 0}
     />
+  );
+}
+
+async function OutreachTab({ user }: { user: U }) {
+  const [batch, sequences, ready] = await Promise.all([listOutreachBatch(user), listEnrollableSequences(user), enrollReadiness(user)]);
+  return (
+    <>
+      <p className="mb-4 max-w-2xl text-sm text-muted">
+        Verified executives from accepted targets, each with a personal opener. Edit, untick anyone, then approve — they become Contacts and enter the sequence. Nothing is emailed without this approval.
+      </p>
+      {/* QA MIN-27: a new batch remounts (fresh default selection) instead of inheriting an empty one */}
+      <OutreachBatch
+        key={batch.rows.map((r) => r.id).join(",")}
+        rows={batch.rows.map((r) => ({ id: r.id, fullName: r.fullName, title: r.title, email: r.email, verification: r.verification, accountId: r.accountId, accountName: r.accountName, fitScore: r.fitScore, estMuu: r.estMuu, opener: r.opener, engine: r.engine }))}
+        more={batch.more}
+        sequences={sequences.filter((q) => q.hasEmail).map((q) => ({ id: q.id, name: q.name, usesOpener: q.usesOpener, stepCount: q.stepCount }))}
+        gmailReady={ready.gmailReady}
+        connectHref={GMAIL_CONNECT_HREF}
+      />
+    </>
   );
 }
 

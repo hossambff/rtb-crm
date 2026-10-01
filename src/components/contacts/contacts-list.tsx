@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { Search, UserX, X } from "lucide-react";
+import { Search, Send, UserX, X } from "lucide-react";
 import { createColumnHelper } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,10 @@ import { EmptyState } from "@/components/ui/misc";
 import { Pager, ServerTable, type ColumnUi, type ListFeatures } from "@/components/accounts/server-table";
 import { useQueryParams } from "@/components/accounts/use-query-params";
 import { RelativeTime } from "@/components/ui/relative-time";
+import { EnrollDialog } from "@/components/sequences/enroll-dialog";
+
+/** Enrollment batch cap (matches the sequences service's MAX_ENROLL_BATCH). */
+const MAX_ENROLL = 100;
 
 export type ContactRowDto = {
   id: string;
@@ -66,8 +70,38 @@ const UI: Record<string, ColumnUi> = {
   lastContactedAt: { sortKey: "lastContacted" },
 };
 
-export function ContactsList({ rows, total, page, pageSize, owners }: { rows: ContactRowDto[]; total: number; page: number; pageSize: number; owners: { id: string; name: string }[] }) {
+export function ContactsList({
+  rows,
+  total,
+  page,
+  pageSize,
+  owners,
+  canEnroll = false,
+  toolbarExtra,
+}: {
+  rows: ContactRowDto[];
+  total: number;
+  page: number;
+  pageSize: number;
+  owners: { id: string; name: string }[];
+  /** Show row selection + "Enroll in sequence" (email module). */
+  canEnroll?: boolean;
+  /** Right side of the filter bar (e.g. the saved views menu). */
+  toolbarExtra?: React.ReactNode;
+}) {
   const { get, set, pending } = useQueryParams();
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [enrollOpen, setEnrollOpen] = React.useState(false);
+  // A new page/filter clears the selection (rows changed under it) — same idiom as the /deals list.
+  const rowKey = rows.map((r) => r.id).join(",");
+  const [seenKey, setSeenKey] = React.useState(rowKey);
+  if (seenKey !== rowKey) {
+    setSeenKey(rowKey);
+    setSelected(new Set());
+  }
+  const names = React.useMemo(() => new Map(rows.map((r) => [r.id, r.fullName])), [rows]);
+  const contactIds = [...selected];
+  const tooMany = contactIds.length > MAX_ENROLL;
   const [q, setQ] = React.useState(get("q"));
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const sort = get("sort") || "name";
@@ -99,6 +133,7 @@ export function ContactsList({ rows, total, page, pageSize, owners }: { rows: Co
         <NativeSelect aria-label="Relationship owner" value={get("owner")} onChange={(e) => set({ owner: e.target.value || null })} className="h-8 w-auto min-w-28 text-xs">
           <option value="">Relationship owner</option>
           <option value="me">Mine</option>
+          <option value="team">My team</option>
           <option value="none">None</option>
           {owners.map((o) => (
             <option key={o.id} value={o.id}>
@@ -115,7 +150,29 @@ export function ContactsList({ rows, total, page, pageSize, owners }: { rows: Co
             <X /> Clear
           </Button>
         ) : null}
+        {toolbarExtra ? <div className="ml-auto flex items-center gap-2">{toolbarExtra}</div> : null}
       </div>
+      {canEnroll && selected.size ? (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-md border border-border-strong bg-surface-2 px-2 py-1" role="toolbar" aria-label="Bulk actions">
+          <span className="px-1 text-xs font-medium text-fg tabular">{selected.size.toLocaleString("en-US")} selected</span>
+          <Button size="sm" variant="ghost" className="h-7" disabled={tooMany} onClick={() => setEnrollOpen(true)}>
+            <Send aria-hidden /> Enroll in sequence
+          </Button>
+          {tooMany ? <span className="text-xs text-muted">Enroll up to {MAX_ENROLL} contacts at a time — narrow the selection.</span> : null}
+          <Button size="icon-sm" variant="ghost" aria-label="Clear selection" onClick={() => setSelected(new Set())}>
+            <X />
+          </Button>
+        </div>
+      ) : null}
+      {canEnroll ? (
+        <EnrollDialog
+          target={{ contactIds: contactIds.slice(0, MAX_ENROLL) }}
+          source="list"
+          open={enrollOpen}
+          onOpenChange={setEnrollOpen}
+          onDone={() => setSelected(new Set())}
+        />
+      ) : null}
       {rows.length === 0 ? (
         <EmptyState title={q || active.length ? "No contacts match" : "No contacts yet"} description={q || active.length ? "Try a different search or clear filters." : "Add contacts manually, from an account, or import them."} />
       ) : (
@@ -128,6 +185,7 @@ export function ContactsList({ rows, total, page, pageSize, owners }: { rows: Co
             dir={dir}
             pending={pending}
             rowHref={(r) => `/contacts/${r.id}`}
+            selection={canEnroll ? { selected, onChange: setSelected, label: (id) => `Select ${names.get(id) ?? "contact"}` } : undefined}
             onSort={(key) => set({ sort: key, dir: sort === key ? (dir === "asc" ? "desc" : "asc") : key === "lastContacted" ? "desc" : "asc" })}
           />
           <Pager page={page} pageSize={pageSize} total={total} onPage={(p) => set({ page: String(p) }, { resetPage: false })} onSize={(n) => set({ size: String(n) })} />

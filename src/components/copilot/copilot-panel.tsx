@@ -41,12 +41,14 @@ export function CopilotPanel({
   context = {},
   contextLabel,
   initialPrompt,
+  promptNonce,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   context?: CopilotContext;
   contextLabel?: string;
   initialPrompt?: string;
+  promptNonce?: string;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
   useEffect(() => {
@@ -91,6 +93,7 @@ export function CopilotPanel({
             contextLabel={contextLabel}
             threadKey={threadKeyFor(context)}
             initialPrompt={initialPrompt}
+            promptNonce={promptNonce}
             starterPrompts={RECORD_PROMPTS[kind]}
           />
         )}
@@ -118,12 +121,28 @@ export function CopilotButton({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [nonce, setNonce] = useState<string>();
   return (
     <>
-      <Button variant={variant} size={size} className={className} onClick={() => setOpen(true)}>
+      <Button
+        variant={variant}
+        size={size}
+        className={className}
+        onClick={() => {
+          setNonce(crypto.randomUUID());
+          setOpen(true);
+        }}
+      >
         <Sparkles /> {label}
       </Button>
-      <CopilotPanel open={open} onOpenChange={setOpen} context={context} contextLabel={contextLabel} initialPrompt={open ? initialPrompt : undefined} />
+      <CopilotPanel
+        open={open}
+        onOpenChange={setOpen}
+        context={context}
+        contextLabel={contextLabel}
+        initialPrompt={open ? initialPrompt : undefined}
+        promptNonce={nonce}
+      />
     </>
   );
 }

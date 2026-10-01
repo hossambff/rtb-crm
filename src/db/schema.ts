@@ -659,6 +659,7 @@ export const tasks = rso.table(
     index("tasks_deal_idx").on(t.dealId),
     index("tasks_account_idx").on(t.accountId),
     index("tasks_contact_idx").on(t.contactId),
+    index("tasks_evidence_source_idx").on(t.evidenceSource).where(sql`${t.evidenceSource} is not null`),
   ],
 );
 
@@ -669,6 +670,10 @@ export const comments = rso.table("comments", {
   authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
   body: text("body").notNull(),
   mentions: text("mentions").array().notNull().default(sql`'{}'::text[]`),
+  parentId: uuid("parent_id"), // V2 deal threads: reply to a top-level comment
+  slackTs: text("slack_ts"), // V2: Slack message ts when mirrored to a channel
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  deletedAt: deletedAt(),
   createdAt: createdAt(),
 },
 (t) => [index("comments_entity_idx").on(t.entity, t.entityId)]);
@@ -764,6 +769,8 @@ export const meetings = rso.table(
   (t) => [
     uniqueIndex("meetings_owner_event").on(t.ownerId, t.calendarEventId),
     index("meetings_deal_idx").on(t.dealId),
+    index("meetings_starts_at_idx").on(t.startsAt),
+    index("meetings_attendees_gin").using("gin", t.attendees),
     index("meetings_account_idx").on(t.accountId),
   ],
 );
@@ -819,6 +826,7 @@ export const documents = rso.table("documents", {
 
 export const proposals = rso.table("proposals", {
   id: id(),
+  kind: text("kind").notNull().default("pro_forma"), // pro_forma | coalition_term_sheet
   title: text("title"),
   dealId: uuid("deal_id")
     .notNull()
@@ -835,7 +843,7 @@ export const proposals = rso.table("proposals", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 },
-(t) => [index("proposals_deal_idx").on(t.dealId)]);
+(t) => [index("proposals_deal_idx").on(t.dealId), uniqueIndex("proposals_deal_kind_version_uq").on(t.dealId, t.kind, t.version)]);
 
 /* ───────────────────────────── Onboarding / migration ───────────────────────────── */
 
@@ -1018,6 +1026,11 @@ export const notifications = rso.table(
     body: text("body"),
     href: text("href"),
     readAt: timestamp("read_at", { withTimezone: true }),
+    // V2 alert budget: rows over the user's daily interruption budget are delivered in the digest only (no bell/Slack ping)
+    severity: text("severity"), // info | warning | serious | critical (alerts only)
+    digestOnly: boolean("digest_only").notNull().default(false),
+    sensitive: boolean("sensitive").notNull().default(false), // MNPI: never relayed to Slack/email, never named in digests
+    deliveredVia: text("delivered_via").array().notNull().default(sql`'{}'::text[]`), // in_app | slack | email
     createdAt: createdAt(),
   },
   (t) => [index("notifications_user_idx").on(t.userId, t.readAt)],
@@ -1035,6 +1048,9 @@ export const approvals = rso.table("approvals", {
   decidedBy: text("decided_by"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   note: text("note"),
+  dueAt: timestamp("due_at", { withTimezone: true }), // V2 approval SLA
+  slackMessages: jsonb("slack_messages").$type<{ channel: string; ts: string }[]>().notNull().default([]), // cards to update on decision
+  escalatedAt: timestamp("escalated_at", { withTimezone: true }),
   createdAt: createdAt(),
 },
 (t) => [index("approvals_entity_idx").on(t.entity, t.entityId, t.status), index("approvals_status_idx").on(t.status, t.approverRole)]);
@@ -1253,7 +1269,10 @@ export const auditLog = rso.table(
     ip: text("ip"),
     createdAt: createdAt(),
   },
-  (t) => [index("audit_entity_idx").on(t.entity, t.entityId), index("audit_actor_idx").on(t.actorId, t.createdAt)],
+  (t) => [
+    index("audit_entity_idx").on(t.entity, t.entityId, t.createdAt),
+    index("audit_actor_idx").on(t.actorId, t.createdAt),
+  ],
 );
 
 export const pipelineSnapshots = rso.table(
@@ -1288,4 +1307,363 @@ export const agentRuns = rso.table(
     createdAt: createdAt(),
   },
   (t) => [index("agent_runs_user_idx").on(t.userId, t.createdAt)],
+);
+
+/* ───────────────────────────── V2: productivity, simplicity, coordination (docs/V2_SPEC.md) ───────────────────────────── */
+
+/** Per-user preferences: role-shaped navigation, alert budget, autopilot switches, Slack identity, first-run checklist. */
+export const userPrefs = rso.table(
+  "user_prefs",
+  {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  navHidden: text("nav_hidden").array().notNull().default(sql`'{}'::text[]`), // hrefs the user chose to hide
+  pipelineKeys: text("pipeline_keys").array().notNull().default(sql`'{}'::text[]`), // motions I sell; empty = all permitted
+  alertBudgetPerDay: integer("alert_budget_per_day").notNull().default(3),
+  autopilot: jsonb("autopilot")
+    .$type<{ postCall?: "off" | "review" | "auto"; meetingBriefs?: boolean; emailSignals?: boolean; forecastSuggest?: boolean }>()
+    .notNull()
+    .default({}),
+  slackUserId: text("slack_user_id"),
+  slackDm: boolean("slack_dm").notNull().default(false),
+  checklist: jsonb("checklist").$type<{ dismissedAt?: string | null; done?: Record<string, string> }>().notNull().default({}),
+  updatedAt: updatedAt(),
+  },
+  // one app user per (verified) Slack member
+  (t) => [uniqueIndex("user_prefs_slack_user_id_uq").on(t.slackUserId).where(sql`${t.slackUserId} is not null`)],
+);
+
+/** Saved list views and remembered defaults ("Mine, this quarter"). page = route key, e.g. "deals", "pipelines:NET". */
+export const savedViews = rso.table(
+  "saved_views",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    page: text("page").notNull(),
+    name: text("name").notNull(),
+    params: jsonb("params").$type<Record<string, string>>().notNull().default({}),
+    isDefault: boolean("is_default").notNull().default(false),
+    isLast: boolean("is_last").notNull().default(false), // auto-remembered last-used view (one per user+page)
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("saved_views_user_page_idx").on(t.userId, t.page),
+    uniqueIndex("saved_views_last_uq").on(t.userId, t.page).where(sql`${t.isLast}`),
+  ],
+);
+
+/** Today queue: snoozed / dismissed derived items (itemKey = "<kind>:<id>", e.g. "thread:<uuid>"). */
+export const queueSnoozes = rso.table(
+  "queue_snoozes",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    itemKey: text("item_key").notNull(),
+    until: timestamp("until", { withTimezone: true }), // null = dismissed for good
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.itemKey] })],
+);
+
+/** 1:1 sequences (PRD ACT-5): steps sent from the rep's own Gmail, auto-exit on reply. */
+export type SequenceStep = {
+  kind: "email" | "task" | "linkedin";
+  delayDays: number; // after the previous step (step 0: after enrollment)
+  subject?: string; // email; supports {{first_name}} {{company}} {{sender_first_name}} {{opener}}
+  body?: string;
+  title?: string; // task / linkedin
+  replyInThread?: boolean; // email follow-ups stay in the first email's thread
+};
+export const sequences = rso.table("sequences", {
+  id: id(),
+  name: text("name").notNull(),
+  description: text("description"),
+  pipelineKeys: text("pipeline_keys").array().notNull().default(sql`'{}'::text[]`),
+  ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
+  shared: boolean("shared").notNull().default(true),
+  steps: jsonb("steps").$type<SequenceStep[]>().notNull().default([]),
+  exitOn: jsonb("exit_on")
+    .$type<{ reply?: boolean; meetingBooked?: boolean; stageChange?: boolean; unsubscribe?: boolean }>()
+    .notNull()
+    .default({ reply: true, meetingBooked: true, stageChange: true, unsubscribe: true }),
+  dailyCap: integer("daily_cap").notNull().default(40), // per mailbox per day
+  version: integer("version").notNull().default(1), // bumped on every step edit; enrollments keep their snapshot
+  active: boolean("active").notNull().default(true),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+  deletedAt: deletedAt(),
+});
+
+export const sequenceEnrollments = rso.table(
+  "sequence_enrollments",
+  {
+    id: id(),
+    sequenceId: uuid("sequence_id")
+      .notNull()
+      .references(() => sequences.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    dealId: uuid("deal_id").references(() => deals.id, { onDelete: "set null" }),
+    accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    senderId: text("sender_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }), // mailbox that sends
+    enrolledBy: text("enrolled_by"),
+    status: text("status").notNull().default("active"), // active | paused | completed | exited | failed
+    currentStep: integer("current_step").notNull().default(0), // index of the NEXT step to run
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    gmailThreadId: text("gmail_thread_id"), // thread of the first email; replies there exit the enrollment
+    lastMessageIdHeader: text("last_message_id_header"),
+    variables: jsonb("variables").$type<Record<string, string>>().notNull().default({}), // e.g. opener
+    // steps as they were when the sender enrolled (H-3): later edits to a shared sequence never change what goes out
+    stepsSnapshot: jsonb("steps_snapshot").$type<SequenceStep[]>(),
+    stepsVersion: integer("steps_version"),
+    exitReason: text("exit_reason"), // replied | meeting_booked | stage_changed | unsubscribed | bounced | manual | error
+    history: jsonb("history").$type<{ step: number; at: string; kind: string; ok: boolean; note?: string }[]>().notNull().default([]),
+    lastError: text("last_error"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("seq_enroll_due_idx").on(t.status, t.nextRunAt),
+    index("seq_enroll_contact_idx").on(t.contactId),
+    index("seq_enroll_sender_idx").on(t.senderId),
+    uniqueIndex("seq_enroll_active_uq").on(t.sequenceId, t.contactId).where(sql`${t.status} in ('active','paused')`),
+  ],
+);
+
+/** Stage playbooks: entering a stage creates this checklist (idempotent per deal+stage). */
+export const stagePlaybooks = rso.table(
+  "stage_playbooks",
+  {
+    id: id(),
+    stageId: uuid("stage_id")
+      .notNull()
+      .references(() => stages.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    guidance: text("guidance"), // short "how to win this stage" note shown on the deal
+    tasks: jsonb("tasks")
+      .$type<{ title: string; description?: string; dueInDays: number; assignTo: "owner" | "manager" | "onboarding"; priority?: "high" | "medium" | "low" }[]>()
+      .notNull()
+      .default([]),
+    emailTemplates: jsonb("email_templates").$type<{ name: string; subject: string; body: string }[]>().notNull().default([]),
+    active: boolean("active").notNull().default(true),
+    updatedBy: text("updated_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("stage_playbooks_stage_uq").on(t.stageId)],
+);
+
+/** Deal signals detected in email / transcripts ("send the contract" → suggest stage advance). One click to apply. */
+export const dealSignals = rso.table(
+  "deal_signals",
+  {
+    id: id(),
+    dealId: uuid("deal_id")
+      .notNull()
+      .references(() => deals.id, { onDelete: "cascade" }),
+    source: text("source").notNull(), // email | transcript
+    sourceId: text("source_id").notNull(), // email_messages.id | transcripts.id
+    kind: text("kind").notNull(), // advance | close_date | stall | risk | won | lost
+    suggestedStageId: uuid("suggested_stage_id"),
+    suggestedCloseDate: timestamp("suggested_close_date", { withTimezone: true }),
+    quote: text("quote"),
+    rationale: text("rationale"),
+    confidence: doublePrecision("confidence"),
+    engine: text("engine"),
+    status: text("status").notNull().default("pending"), // pending | applied | dismissed | expired
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("deal_signals_deal_idx").on(t.dealId, t.status),
+    uniqueIndex("deal_signals_source_uq").on(t.source, t.sourceId, t.dealId, t.kind),
+  ],
+);
+
+/** Weekly forecast: system-suggested category per open deal, rep confirms/overrides; roll-up by manager. */
+export const forecastEntries = rso.table(
+  "forecast_entries",
+  {
+    id: id(),
+    dealId: uuid("deal_id")
+      .notNull()
+      .references(() => deals.id, { onDelete: "cascade" }),
+    weekOf: text("week_of").notNull(), // ISO date of the Monday (YYYY-MM-DD)
+    period: text("period").notNull(), // close quarter, e.g. 2026-Q4
+    ownerId: text("owner_id"),
+    suggestedCategory: text("suggested_category").notNull(), // commit | best | pipeline | omitted
+    suggestedReason: text("suggested_reason"),
+    category: text("category"), // rep decision; null = not yet confirmed
+    weightedCents: bigint("weighted_cents", { mode: "number" }).notNull().default(0),
+    grossCents: bigint("gross_cents", { mode: "number" }).notNull().default(0),
+    note: text("note"),
+    confirmedBy: text("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("forecast_deal_week_uq").on(t.dealId, t.weekOf), index("forecast_week_owner_idx").on(t.weekOf, t.ownerId)],
+);
+
+/** Structured handoffs (SDR → AE → Onboarding): a brief the receiver must acknowledge. */
+export const handoffs = rso.table(
+  "handoffs",
+  {
+    id: id(),
+    dealId: uuid("deal_id")
+      .notNull()
+      .references(() => deals.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // sdr_to_ae | ae_to_onboarding | reassign
+    fromUserId: text("from_user_id"),
+    toUserId: text("to_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    brief: jsonb("brief")
+      .$type<{ context: string; stakeholders?: string; commitments?: string; risks?: string; nextStep?: string }>()
+      .notNull(),
+    status: text("status").notNull().default("pending"), // pending | accepted | declined | cancelled
+    responseNote: text("response_note"),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("handoffs_to_idx").on(t.toUserId, t.status),
+    index("handoffs_deal_idx").on(t.dealId),
+    uniqueIndex("handoffs_one_pending_uq").on(t.dealId).where(sql`${t.status} = 'pending'`),
+  ],
+);
+
+/** "Need Hossam on the TheStreet call Thursday" — tracked asks for exec/leader help. */
+export const helpRequests = rso.table(
+  "help_requests",
+  {
+    id: id(),
+    dealId: uuid("deal_id").references(() => deals.id, { onDelete: "cascade" }),
+    meetingId: uuid("meeting_id"),
+    requesterId: text("requester_id").notNull(),
+    targetUserId: text("target_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    ask: text("ask").notNull(),
+    context: text("context"),
+    neededBy: timestamp("needed_by", { withTimezone: true }),
+    status: text("status").notNull().default("open"), // open | accepted | declined | done | cancelled
+    response: text("response"),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("help_requests_target_idx").on(t.targetUserId, t.status),
+    index("help_requests_requester_idx").on(t.requesterId, t.status),
+    index("help_requests_deal_idx").on(t.dealId),
+  ],
+);
+
+/** Read-only partner links (Arena, TheStreet): token hash only, expiring, revocable, MNPI never shown. */
+export const shareLinks = rso.table(
+  "share_links",
+  {
+    id: id(),
+    tokenHash: text("token_hash").notNull().unique(), // sha256(token); the token itself is shown once
+    label: text("label").notNull(), // e.g. "Arena — NET status"
+    partnerName: text("partner_name"),
+    dealIds: uuid("deal_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    fields: text("fields").array().notNull().default(sql`'{}'::text[]`), // allow-listed fields: stage, nextStep, closeDate, muu, owner
+    createdBy: text("created_by").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
+    viewCount: integer("view_count").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index("share_links_created_by_idx").on(t.createdBy)],
+);
+
+/** Team feed: win/loss stories, announcements, playbook clips from calls. */
+export const teamPosts = rso.table(
+  "team_posts",
+  {
+    id: id(),
+    kind: text("kind").notNull(), // win | loss | announcement | clip
+    dealId: uuid("deal_id").references(() => deals.id, { onDelete: "set null" }),
+    authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    body: text("body"),
+    clip: jsonb("clip").$type<{ transcriptId: string; quote: string; at?: string | null; speaker?: string | null }>(),
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`), // objection | pitch | pricing | coalition | …
+    inPlaybook: boolean("in_playbook").notNull().default(false),
+    reactions: jsonb("reactions").$type<Record<string, string[]>>().notNull().default({}), // emoji → userIds
+    restricted: boolean("restricted").notNull().default(false), // inherits deal MNPI flag
+    createdAt: createdAt(),
+    deletedAt: deletedAt(),
+  },
+  (t) => [
+    index("team_posts_created_idx").on(t.createdAt),
+    index("team_posts_playbook_idx").on(t.inPlaybook),
+    // one live win/loss story per deal (C9)
+    uniqueIndex("team_posts_story_uq").on(t.dealId).where(sql`${t.kind} in ('win','loss') and ${t.deletedAt} is null`),
+  ],
+);
+
+/** Pipeline review meetings: walk exceptions, record decisions as owned tasks. */
+export const reviewSessions = rso.table("review_sessions", {
+  id: id(),
+  title: text("title").notNull(),
+  facilitatorId: text("facilitator_id").notNull(),
+  scope: jsonb("scope").$type<{ pipelineKeys?: string[]; teamId?: string | null; ownerIds?: string[] }>().notNull().default({}),
+  dealIds: uuid("deal_ids").array().notNull().default(sql`'{}'::uuid[]`), // snapshot of the exception list at start
+  decisions: jsonb("decisions")
+    .$type<{ dealId: string; outcome: "keep" | "push" | "escalate" | "close_lost" | "update"; note?: string; taskId?: string | null; at: string }[]>()
+    .notNull()
+    .default([]),
+  startedAt: createdAt(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+});
+
+/** Generated briefs: meeting prep (auto, before calls), manager 1:1 prep, outreach openers. */
+export const briefs = rso.table(
+  "briefs",
+  {
+    id: id(),
+    kind: text("kind").notNull(), // meeting | one_on_one | opener
+    subjectId: text("subject_id").notNull(), // meetings.id | rep user id | contacts.id/enriched_contacts.id
+    userId: text("user_id").notNull().default(""), // audience (who it's for); "" = shared
+    periodKey: text("period_key").notNull().default(""), // e.g. ISO week for 1:1s; "" = none
+    content: jsonb("content").$type<Record<string, unknown>>().notNull(),
+    engine: text("engine"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("briefs_uq").on(t.kind, t.subjectId, t.userId, t.periodKey), index("briefs_user_idx").on(t.userId, t.kind)],
+);
+
+/** Admin-uploaded document templates (e.g. the Coalition term sheet .docx). Stored in the DB, never in the repo. */
+export const proposalTemplates = rso.table(
+  "proposal_templates",
+  {
+    id: id(),
+    kind: text("kind").notNull(), // coalition_term_sheet | …
+    name: text("name").notNull(),
+    version: integer("version").notNull().default(1),
+    fileName: text("file_name").notNull(),
+    fileB64: text("file_b64").notNull(), // base64 .docx (≤ 2 MB)
+    sha256: text("sha256").notNull(),
+    // detected placeholders + admin field map: token in the document → proposal input key
+    fieldMap: jsonb("field_map").$type<{ token: string; input: string; occurrences: number }[]>().notNull().default([]),
+    parsed: jsonb("parsed").$type<Record<string, unknown>>().notNull().default({}), // e.g. revenue-share tiers read from the doc
+    active: boolean("active").notNull().default(true),
+    uploadedBy: text("uploaded_by"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("proposal_templates_kind_idx").on(t.kind, t.active)],
 );

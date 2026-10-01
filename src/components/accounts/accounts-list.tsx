@@ -143,7 +143,7 @@ export function AccountsList({
         {select("category", "Category", categories.map((c) => ({ value: c, label: c })))}
         {select("lifecycle", "Lifecycle", LIFECYCLES.map((t) => ({ value: t.key, label: t.label })))}
         {select("priority", "Priority", PRIORITIES.map((t) => ({ value: t.key, label: t.label })))}
-        {select("owner", "Owner", [{ value: "me", label: "Me" }, { value: "none", label: "Unassigned" }, ...owners.map((o) => ({ value: o.id, label: o.name }))])}
+        {select("owner", "Owner", [{ value: "me", label: "Me" }, { value: "team", label: "My team" }, { value: "none", label: "Unassigned" }, ...owners.map((o) => ({ value: o.id, label: o.name }))])}
         {select("openDeal", "Open deal", [
           { value: "yes", label: "Has open deal" },
           { value: "no", label: "No open deal" },

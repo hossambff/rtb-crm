@@ -1,9 +1,10 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronRight, ExternalLink, Lock, Mail, Phone, UserX } from "lucide-react";
 import { Badge, ColorTick } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, EmptyState } from "@/components/ui/misc";
+import { Avatar, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AccountActionsSlot } from "@/components/accounts/account-actions-slot";
 import { ActivityTimeline } from "@/components/accounts/activity-timeline";
@@ -13,6 +14,9 @@ import { EditAccountDialog } from "@/components/accounts/edit-account-dialog";
 import { MergeAccountDialog } from "@/components/accounts/merge-account-dialog";
 import { ConfidenceBadge, MuuValue } from "@/components/accounts/muu-value";
 import { ContactFormDialog } from "@/components/contacts/contact-form-dialog";
+import { AccountCollisionNotice } from "@/components/deals/touches/collision-notice";
+import { WhoIsTalking } from "@/components/deals/touches/who-is-talking";
+import { AccountEnrollButton } from "@/components/sequences/deal-sequences";
 import { accountFilterOptions, getAccount360, getVisibleAccount, type Account360 } from "@/lib/accounts/queries";
 import { ownerFilterOptions } from "@/lib/users";
 import { ACCOUNT_TYPES, LIFECYCLES, PRIORITIES, R100_TYPES, labelOf } from "@/lib/accounts/constants";
@@ -111,6 +115,11 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
               </span>
             ) : null}
           </div>
+          <div className="mt-2 empty:hidden">
+            <Suspense fallback={null}>
+              <AccountCollisionNotice user={user} accountId={a.id} />
+            </Suspense>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AccountActionsSlot
@@ -118,6 +127,9 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
             canEdit={data.canEdit}
             openPipelineKeys={open.map((d) => d.pipelineKey)}
           />
+          <Suspense fallback={null}>
+            <AccountEnrollButton accountId={a.id} />
+          </Suspense>
           {data.canEdit ? <MergeAccountDialog account={{ id: a.id, name: a.name }} /> : null}
           {data.canEdit ? (
             <EditAccountDialog
@@ -250,6 +262,9 @@ export default async function AccountPage(props: PageProps<"/accounts/[id]">) {
                 <ActivityTimeline items={data.activities.slice(0, 5)} />
               </CardContent>
             </Card>
+            <Suspense fallback={<Skeleton className="h-32" />}>
+              <WhoIsTalking user={user} accountId={a.id} />
+            </Suspense>
             {data.migrations.length ? (
               <Card>
                 <CardHeader>

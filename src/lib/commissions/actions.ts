@@ -7,6 +7,8 @@ import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications/notify";
+import { isSensitive } from "@/lib/notifications/sensitive";
+import { approvalSlaFields } from "@/lib/approvals/sla";
 import { normalizeDomain } from "@/lib/domain";
 import { assertCan, can, canSeeRestricted, dealModule, ForbiddenError, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { normalizeRules, RATE_TYPES, ruleContentId, TRIGGERS, type PlanRule } from "./calc";
@@ -248,11 +250,12 @@ export const registerLead = action(
       requestedBy: user.id,
       approverRole: "sales_leader",
       payload: { accountId, accountName: account.name, conflicts: conflicts.map((c) => c.message) },
+      ...(await approvalSlaFields("lead_registration")),
     });
     const approvers = await db.select({ id: s.user.id }).from(s.user).where(inArray(s.user.role, ["sales_leader", "admin"]));
     await notifyMany(
       approvers.map((a) => a.id),
-      { kind: "approval", title: `Lead registration: ${account.name}`, body: `${user.name} registered ${account.name}${conflicts.length ? ` (${conflicts.length} conflict${conflicts.length > 1 ? "s" : ""})` : ""}.`, href: "/commissions?tab=registrations" },
+      { kind: "approval", title: `Lead registration: ${account.name}`, body: `${user.name} registered ${account.name}${conflicts.length ? ` (${conflicts.length} conflict${conflicts.length > 1 ? "s" : ""})` : ""}.`, href: "/commissions?tab=registrations", sensitive: await isSensitive({ accountId }) },
     );
     await audit({ actorId: user.id, action: "lead_registration.create", entity: "lead_registration", entityId: reg!.id, after: { ...reg, conflicts } });
     revalidatePath("/commissions");

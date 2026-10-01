@@ -11,6 +11,7 @@ import { validateSplits } from "@/lib/deals/rules";
 import { fmtDate } from "@/lib/format";
 import { PRIORITY_LABELS, type Priority, type UserLite } from "@/lib/deals/types";
 import { useRun } from "./use-run";
+import { defaultNextStepDue } from "@/lib/deals/create-core";
 
 /* ───────────── Next step (DEAL-3) ───────────── */
 
@@ -37,12 +38,32 @@ export function NextStepEditor({
   const [waiting, setWaiting] = React.useState(waitingReason ?? "");
   const [run, pending] = useRun();
 
+  const open = () => {
+    setStep(nextStep ?? "");
+    setDue(dueAt?.slice(0, 10) ?? defaultNextStepDue(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone));
+    setWaiting(waitingReason ?? "");
+    setEditing(true);
+  };
+  if (!editing && !nextStep && !waitingReason && isOpen) {
+    // V2 §B5: an open deal without a next step — a calm but unmissable prompt (non-blocking).
+    return (
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+        <StatusBadge status="warning" label="No next step" />
+        <p className="min-w-0 flex-1 text-[13px] text-secondary">Every open deal needs one, with a date — so nothing slips.</p>
+        {canEdit ? (
+          <Button size="sm" variant="primary" onClick={open}>
+            Add next step
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
   if (!editing) {
     return (
       <div className="flex min-w-0 items-start gap-2">
         <div className="min-w-0 flex-1">
           {nextStep ? (
-            <p className="text-sm text-fg">{nextStep}</p>
+            <p className="text-[15px] leading-6 text-fg">{nextStep}</p>
           ) : waitingReason ? (
             <p className="text-sm text-secondary">Waiting — {waitingReason}</p>
           ) : isOpen ? (
@@ -60,12 +81,7 @@ export function NextStepEditor({
             variant="ghost"
             size="icon-sm"
             aria-label="Edit next step"
-            onClick={() => {
-              setStep(nextStep ?? "");
-              setDue(dueAt?.slice(0, 10) ?? "");
-              setWaiting(waitingReason ?? "");
-              setEditing(true);
-            }}
+            onClick={open}
           >
             <Pencil />
           </Button>
@@ -86,7 +102,7 @@ export function NextStepEditor({
     >
       <div className="grid gap-2 sm:grid-cols-[1fr_150px]">
         <Input aria-label="Next step" value={step} onChange={(e) => setStep(e.target.value)} placeholder="What happens next?" autoFocus />
-        <Input aria-label="Due date" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+        <Input aria-label="Due date" type="date" value={due} onChange={(e) => setDue(e.target.value)} className="[color-scheme:dark]" />
       </div>
       <Input aria-label="Waiting reason" value={waiting} onChange={(e) => setWaiting(e.target.value)} placeholder="Or a waiting reason, e.g. “Waiting on client until 15 Oct”" />
       <div className="flex justify-end gap-2">

@@ -12,6 +12,7 @@ import { encryptSecret, maskSecret } from "@/lib/crypto";
 import { assertCan, canSeeRestricted, ForbiddenError, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { SCOPE_RANK } from "@/lib/rbac/model";
 import { setSetting } from "@/lib/settings";
+import { approvalSlaFields } from "@/lib/approvals/sla";
 import { checkRunBudget, notifyApprovers, pendingBudgetRequest, reserveRun } from "./budget";
 import { addMonths, REJECT_SUPPRESS_MONTHS, SNOOZE_DAYS } from "./core";
 import { coerceAiCriteria, criteriaSchema, describeCriteria, heuristicCriteria, nlCriteriaSchema, type Criteria } from "./criteria";
@@ -157,7 +158,7 @@ export const requestMoreBudget = action(
     if (pending) return { id: pending.id, duplicate: true };
     const [row] = await db
       .insert(s.approvals)
-      .values({ kind: "scout_budget", entity: input.entity, entityId: input.entityId, requestedBy: user.id, approverRole: "sales_leader", payload: { amountCents: input.amountCents, reason: input.reason ?? null, requesterName: user.name } })
+      .values({ kind: "scout_budget", entity: input.entity, entityId: input.entityId, requestedBy: user.id, approverRole: "sales_leader", payload: { amountCents: input.amountCents, reason: input.reason ?? null, requesterName: user.name }, ...(await approvalSlaFields("scout_budget")) })
       .returning({ id: s.approvals.id });
     await notifyApprovers(["sales_leader"], "Lead Scout budget request", `${user.name} requests $${(input.amountCents / 100).toFixed(2)} of Apify budget${input.reason ? `: ${input.reason}` : ""}`, "/scout?tab=budget");
     await audit({ actorId: user.id, action: "scout_budget.request", entity: "approval", entityId: row!.id, after: input });
@@ -237,7 +238,7 @@ export const acceptCandidates = action(acceptInput, async (input, user) => {
     if (!mine.length) throw new ForbiddenError();
     const [row] = await db
       .insert(s.approvals)
-      .values({ kind: "scout_accept", entity: "scout_candidate", entityId: mine[0]!.c.id, requestedBy: user.id, approverRole: "sales_leader", payload: { candidateIds: mine.map((r) => r.c.id), domains: mine.map((r) => r.c.domain), pipelineKey: input.pipelineKey ?? null } })
+      .values({ kind: "scout_accept", entity: "scout_candidate", entityId: mine[0]!.c.id, requestedBy: user.id, approverRole: "sales_leader", payload: { candidateIds: mine.map((r) => r.c.id), domains: mine.map((r) => r.c.domain), pipelineKey: input.pipelineKey ?? null }, ...(await approvalSlaFields("scout_accept")) })
       .returning({ id: s.approvals.id });
     await notifyApprovers(["sales_leader"], "Lead Scout targets suggested", `${user.name} suggests ${mine.length} target${mine.length > 1 ? "s" : ""}: ${mine.map((r) => r.c.domain).slice(0, 3).join(", ")}`, "/scout");
     await audit({ actorId: user.id, action: "scout_candidate.suggest", entity: "approval", entityId: row!.id, after: { domains: mine.map((r) => r.c.domain) } });

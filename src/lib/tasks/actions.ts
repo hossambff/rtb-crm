@@ -8,7 +8,9 @@ import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
 import { assertCan, dealAccessWhere, ForbiddenError, inScope, ownedEntityWhere, scopeFor, type AppUser } from "@/lib/rbac/server";
 import { notify } from "@/lib/notifications/notify";
+import { isSensitive } from "@/lib/notifications/sensitive";
 import { raiseSnoozeAlert } from "@/lib/alerts/engine";
+import { assertReceiverCanSee, loadReceiver } from "@/lib/rbac/receiver";
 import { canEditTaskSync } from "./queries";
 import { PRIORITIES } from "./core";
 import { recomputeDealHealth } from "@/lib/deals/service";
@@ -74,12 +76,17 @@ async function assertRelatedVisible(user: AppUser, r: { dealId?: string | null; 
   if (ok.includes(false)) throw new ForbiddenError("You can't link a task to that record.");
 }
 
-async function assertCanAssign(user: AppUser, assigneeId: string) {
+/**
+ * Assigning to someone else needs tasks.assign scope over them, a session-equivalent receiver (not banned / expired /
+ * pending), and (SEC M-2) that the receiver can see the task's deal and account — titles and descriptions are free text
+ * that usually name the deal, so a restricted deal's task never lands with someone off its access list.
+ */
+async function assertCanAssign(user: AppUser, assigneeId: string, related: { dealId?: string | null; accountId?: string | null }) {
   if (assigneeId === user.id) return;
   const scope = await assertCan(user, "tasks", "assign");
   if (!inScope(user, scope, { ownerId: assigneeId }) && scope !== "pipeline") throw new ForbiddenError("You can't assign tasks to that person.");
-  const [u] = await db.select({ id: s.user.id, role: s.user.role, banned: s.user.banned }).from(s.user).where(eq(s.user.id, assigneeId));
-  if (!u || u.role === "pending" || u.banned) throw new UserError("That user can't receive tasks.");
+  const receiver = await loadReceiver(assigneeId, "tasks");
+  await assertReceiverCanSee(receiver, related, "this task");
 }
 
 async function loadEditable(user: AppUser, id: string) {
@@ -92,8 +99,9 @@ async function loadEditable(user: AppUser, id: string) {
 
 export const saveTask = action(TaskInput, async (input, user) => {
   const assigneeId = input.assigneeId ?? user.id;
-  await assertCanAssign(user, assigneeId);
   await assertRelatedVisible(user, input);
+  // Create and update (assignee change or a deal/account added later) both re-check the receiver.
+  await assertCanAssign(user, assigneeId, { dealId: input.dealId ?? null, accountId: input.accountId ?? null });
   const values = {
     title: input.title,
     description: input.description || null,
@@ -110,7 +118,7 @@ export const saveTask = action(TaskInput, async (input, user) => {
     await audit({ actorId: user.id, action: "task.update", entity: "task", entityId: input.id, before, after });
     await refreshHealth(before.dealId, after?.dealId);
     if (assigneeId !== before.assigneeId && assigneeId !== user.id)
-      await notify(assigneeId, { kind: "task", title: `${user.name} assigned you: ${input.title}`, href: `/tasks?task=${input.id}` });
+      await notify(assigneeId, { kind: "task", title: `${user.name} assigned you: ${input.title}`, href: `/tasks?task=${input.id}`, sensitive: await isSensitive(values) });
     revalidate();
     return { id: input.id };
   }
@@ -121,7 +129,7 @@ export const saveTask = action(TaskInput, async (input, user) => {
     .returning();
   await audit({ actorId: user.id, action: "task.create", entity: "task", entityId: row!.id, after: row });
   await refreshHealth(row!.dealId);
-  if (assigneeId !== user.id) await notify(assigneeId, { kind: "task", title: `${user.name} assigned you: ${input.title}`, href: `/tasks?task=${row!.id}` });
+  if (assigneeId !== user.id) await notify(assigneeId, { kind: "task", title: `${user.name} assigned you: ${input.title}`, href: `/tasks?task=${row!.id}`, sensitive: await isSensitive(values) });
   revalidate();
   return { id: row!.id };
 });
@@ -144,7 +152,7 @@ export const setTaskStatus = action(z.object({ id: uuid, status: z.enum(["open",
       .where(and(eq(s.alerts.entity, "task"), eq(s.alerts.entityId, id), inArray(s.alerts.state, ["open", "acknowledged", "snoozed", "escalated"])));
   }
   if (status === "done" && before.createdBy && before.createdBy !== user.id && before.assigneeId !== before.createdBy)
-    await notify(before.createdBy, { kind: "task", title: `${user.name} completed: ${before.title}`, href: `/tasks?task=${id}` });
+    await notify(before.createdBy, { kind: "task", title: `${user.name} completed: ${before.title}`, href: `/tasks?task=${id}`, sensitive: await isSensitive(before) });
   revalidate();
   return { id };
 });

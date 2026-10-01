@@ -9,6 +9,9 @@ import { getTranscriptForUser } from "./queries";
 import { analyzeTranscript } from "./analyze";
 import { applyTranscriptReview } from "./apply";
 import { setTranscriptDeal } from "./ingest";
+import { detectTranscriptSignals, expireSignalsForSources } from "@/lib/signals/service";
+import { runPostCallAutopilot, undoPostCallAutopilot } from "./autopilot";
+import { followUpRecipients, saveFollowUpDraft } from "./drafts";
 
 async function editable(user: AppUser, id: string) {
   await assertCan(user, "calls", "view");
@@ -33,6 +36,12 @@ export const attachTranscriptDeal = action(z.object({ id: z.uuid(), dealId: z.uu
   if (dealId && !(await getAccessibleDeal(user, dealId, "view"))) throw new ForbiddenError("You can't attach transcripts to that deal.");
   await setTranscriptDeal(id, dealId);
   await audit({ actorId: user.id, action: dealId ? "transcript.attach_deal" : "transcript.detach_deal", entity: "transcript", entityId: id, before: { dealId: t.transcript.dealId }, after: { dealId } });
+  // Signals belong to the deal they were detected for; a newly attached deal gets its own (and the autopilot, if on).
+  await expireSignalsForSources("transcript", [id], { dealId });
+  if (dealId && t.transcript.status === "ready" && t.analysis) {
+    await detectTranscriptSignals(id, t.analysis);
+    await runPostCallAutopilot(id);
+  }
   revalidatePath(`/calls/${id}`);
   revalidatePath("/calls");
   return true;
@@ -66,5 +75,37 @@ export const applyCallReview = action(
     revalidatePath(`/calls/${input.id}`);
     revalidatePath("/calls");
     return r;
+  },
+);
+
+/** V2 A1: undo the post-call autopilot (24 h window; owner only). */
+export const undoCallAutopilot = action(z.object({ id: z.uuid() }), async ({ id }, user) => {
+  await editable(user, id);
+  const r = await undoPostCallAutopilot(user, id);
+  revalidatePath(`/calls/${id}`);
+  revalidatePath("/calls");
+  return r;
+});
+
+/**
+ * V2 A1 "Apply all + draft" / "Save draft": write the follow-up as a Gmail draft (or keep it in-app when Gmail compose
+ * isn't granted or the claims/MNPI guardrail flagged it). Never sends.
+ */
+export const saveCallDraft = action(
+  z.object({
+    id: z.uuid(),
+    to: z.array(z.email("Invalid email address").max(254)).max(10).default([]),
+    subject: z.string().trim().max(300).default(""),
+    body: z.string().trim().min(1, "The draft is empty").max(50_000),
+  }),
+  async (input, user) => {
+    await assertCan(user, "email", "view");
+    const t = await editable(user, input.id);
+    if (t.transcript.uploadedBy !== user.id) throw new ForbiddenError("Drafts go to the call owner's mailbox — only they can save one.");
+    const auto = input.to.length ? null : await followUpRecipients(t.transcript, user);
+    const to = input.to.length ? input.to : auto!.to;
+    const d = await saveFollowUpDraft(user, input.id, { to, subject: input.subject, body: input.body, unverified: auto?.unverified }, { auto: false });
+    revalidatePath(`/calls/${input.id}`);
+    return { location: d.location, status: d.status, needsReconnect: d.needsReconnect, warnings: d.warnings };
   },
 );

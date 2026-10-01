@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "proposals_deal_kind_version_uq" ON "rso"."proposals" USING btree ("deal_id","kind","version");

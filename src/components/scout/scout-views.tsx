@@ -8,6 +8,7 @@ import { RunStatusBadge, usd } from "./bits";
 
 export const SCOUT_TABS = [
   { key: "queue", label: "Review queue" },
+  { key: "outreach", label: "Outreach" },
   { key: "searches", label: "Searches" },
   { key: "runs", label: "Enrichment runs" },
   { key: "budget", label: "Budget" },
@@ -16,10 +17,10 @@ export const SCOUT_TABS = [
 export type ScoutTab = (typeof SCOUT_TABS)[number]["key"];
 
 /** Link-based tabs (server-rendered; only the active tab's data is loaded). */
-export function ScoutTabNav({ active, showSettings, queueCount }: { active: ScoutTab; showSettings: boolean; queueCount: number }) {
+export function ScoutTabNav({ active, showSettings, queueCount, showOutreach = true }: { active: ScoutTab; showSettings: boolean; queueCount: number; showOutreach?: boolean }) {
   return (
     <nav aria-label="Lead Scout sections" className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
-      {SCOUT_TABS.filter((t) => t.key !== "settings" || showSettings).map((t) => (
+      {SCOUT_TABS.filter((t) => (t.key !== "settings" || showSettings) && (t.key !== "outreach" || showOutreach)).map((t) => (
         <Link
           key={t.key}
           href={`/scout?tab=${t.key}`}

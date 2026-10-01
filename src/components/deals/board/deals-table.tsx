@@ -18,12 +18,14 @@ import {
   type RowSelectionState,
   type SortingState,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, Download, Loader2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, EmptyState } from "@/components/ui/misc";
-import { bulkMoveStage, bulkReassign, updateDealQuick } from "@/lib/deals/actions";
-import { needsReason, reasonPicklist } from "@/lib/deals/gates";
+import { updateDealQuick } from "@/lib/deals/actions";
+import { previewCommand } from "@/lib/commands/actions";
+import type { Command, DealFilter, Preview } from "@/lib/commands/types";
+import { CommandPreviewDialog } from "@/components/deals/list/command-preview";
 import { fmtDate, fmtNumber, fmtUsd } from "@/lib/format";
 import { PRIORITY_LABELS, PRIORITY_ORDER, type BoardDeal, type Picklist, type PipelineDTO, type Priority, type StageDTO, type UserLite } from "@/lib/deals/types";
 import { cn } from "@/lib/utils";
@@ -61,7 +63,7 @@ const COLUMN_LABELS: Record<string, string> = {
 /** Server-side page of the list view (M-20): rows arrive sorted + paged; sort / page changes go through the URL. */
 export type ServerListPage = { page: number; pageSize: number; total: number; sort: string; dir: "asc" | "desc" };
 
-/** Spreadsheet-style deal grid (LIST-1/2): sort, column chooser, inline edit, bulk reassign / stage change / export. */
+/** Spreadsheet-style deal grid (LIST-1/2): sort, column chooser, inline edit, previewed bulk reassign / stage change, export. */
 export function DealsTable({
   pipeline,
   stages,
@@ -70,7 +72,6 @@ export function DealsTable({
   assignable,
   canAssign,
   canExport,
-  picklists,
   onExportSelected,
 }: {
   pipeline: PipelineDTO;
@@ -80,7 +81,8 @@ export function DealsTable({
   assignable: UserLite[];
   canAssign: boolean;
   canExport: boolean;
-  picklists: { lost_reason: Picklist; hold_reason: Picklist };
+  /** Unused since bulk moves go through the command preview (which loads reason picklists itself); kept for callers. */
+  picklists?: { lost_reason: Picklist; hold_reason: Picklist };
   onExportSelected: (ids: string[]) => void;
 }) {
   const stageById = React.useMemo(() => new Map(stages.map((s) => [s.id, s])), [stages]);
@@ -267,6 +269,22 @@ export function DealsTable({
 
   const selectedIds = Object.keys(rowSelection).filter((k) => rowSelection[k]);
 
+  // Bulk changes are previewed + confirmed through WS-F's command pipeline (gates, reasons, undo).
+  const [preview, setPreview] = React.useState<Preview | null>(null);
+  const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [previewLoading, setPreviewLoading] = React.useState(false);
+  const [previewError, setPreviewError] = React.useState<string | null>(null);
+  const openPreview = async (command: Command, label: string) => {
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewLoading(true);
+    setPreviewOpen(true);
+    const r = await previewCommand({ command, label });
+    setPreviewLoading(false);
+    if (!r.ok) return setPreviewError(r.error);
+    setPreview(r.data);
+  };
+
   if (!deals.length) return <EmptyState title="No deals match" description="Try clearing filters or create a new deal." />;
 
   return (
@@ -275,13 +293,14 @@ export function DealsTable({
         {selectedIds.length ? (
           <BulkBar
             ids={selectedIds}
+            pipelineKey={pipeline.key}
             stages={stages}
             assignable={assignable}
             canAssign={canAssign}
             canExport={canExport}
-            picklists={picklists}
             onClear={() => setRowSelection({})}
             onExport={() => onExportSelected(selectedIds)}
+            onPreview={(command, label) => void openPreview(command, label)}
           />
         ) : (
           <p className="text-xs text-muted tabular">
@@ -378,6 +397,7 @@ export function DealsTable({
         </div>
       ) : null}
       <p className="text-[11px] text-muted">* probability override applied. Weighted = {pipeline.unit === "muu" ? "gross" : "value"} × probability.</p>
+      <CommandPreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} preview={preview} loading={previewLoading} error={previewError} onDone={() => setRowSelection({})} />
     </div>
   );
 }
@@ -464,62 +484,43 @@ function InlineSelect({ value, label, options, onSave }: { value: string; label:
   );
 }
 
+/**
+ * Bulk bar for the pipeline list (V2 A8): every change is turned into a structured command and previewed
+ * (permission-filtered rows, gates, won/lost/hold reasons, undo where feasible) before anything runs.
+ */
 function BulkBar({
   ids,
+  pipelineKey,
   stages,
   assignable,
   canAssign,
   canExport,
-  picklists,
   onClear,
   onExport,
+  onPreview,
 }: {
   ids: string[];
+  pipelineKey: string;
   stages: StageDTO[];
   assignable: UserLite[];
   canAssign: boolean;
   canExport: boolean;
-  picklists: { lost_reason: Picklist; hold_reason: Picklist };
   onClear: () => void;
   onExport: () => void;
+  onPreview: (command: Command, label: string) => void;
 }) {
-  const [pending, startTransition] = React.useTransition();
-  const [stageId, setStageId] = React.useState("");
-  const [reasonCode, setReasonCode] = React.useState("");
-  const [reasonText, setReasonText] = React.useState("");
-  const stage = stages.find((s) => s.id === stageId);
-  const list = stage ? reasonPicklist(stage.category) : null;
-
-  const runMove = () =>
-    startTransition(async () => {
-      if (!stage) return;
-      const r = await bulkMoveStage({ dealIds: ids, toStageId: stage.id, reasonCode: reasonCode || undefined, reasonText: reasonText || undefined });
-      if (!r.ok) return void toast.error(r.error);
-      const { moved, skipped } = r.data;
-      if (skipped.length) toast.warning(`${moved.length} moved · ${skipped.length} skipped`, { description: skipped.slice(0, 4).map((s) => `${s.name}: ${s.reason}`).join("\n") });
-      else toast.success(`${moved.length} deal${moved.length === 1 ? "" : "s"} moved to ${stage.name}`);
-      setStageId("");
-      onClear();
-    });
-
+  const filter: DealFilter = { ids, pipelineKeys: [pipelineKey], status: "any" };
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border-strong bg-surface-2 px-2 py-1">
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border-strong bg-surface-2 px-2 py-1" role="toolbar" aria-label="Bulk actions">
       <span className="px-1 text-xs font-medium text-fg tabular">{ids.length} selected</span>
       {canAssign ? (
         <NativeSelect
           aria-label="Reassign selected"
           className="h-7 w-auto text-xs"
           value=""
-          disabled={pending}
           onChange={(e) => {
-            const ownerId = e.target.value;
-            if (!ownerId) return;
-            startTransition(async () => {
-              const r = await bulkReassign({ dealIds: ids, ownerId });
-              if (!r.ok) return void toast.error(r.error);
-              toast.success(`${r.data.moved.length} reassigned${r.data.skipped.length ? ` · ${r.data.skipped.length} skipped` : ""}`);
-              onClear();
-            });
+            const u = assignable.find((x) => x.id === e.target.value);
+            if (u) onPreview({ verb: "assign", filter, toUser: u.id }, `bulk: assign to ${u.name}`);
           }}
         >
           <option value="">Reassign to…</option>
@@ -530,40 +531,22 @@ function BulkBar({
           ))}
         </NativeSelect>
       ) : null}
-      <NativeSelect aria-label="Move selected to stage" className="h-7 w-auto text-xs" value={stageId} onChange={(e) => setStageId(e.target.value)} disabled={pending}>
+      <NativeSelect
+        aria-label="Move selected to stage"
+        className="h-7 w-auto text-xs"
+        value=""
+        onChange={(e) => {
+          const st = stages.find((x) => x.id === e.target.value);
+          if (st) onPreview({ verb: "move", filter, toStage: st.name }, `bulk: move to ${st.name}`);
+        }}
+      >
         <option value="">Move to stage…</option>
-        {stages.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name}
+        {stages.map((st) => (
+          <option key={st.id} value={st.id}>
+            {st.name}
           </option>
         ))}
       </NativeSelect>
-      {stage && needsReason(stage.category) ? (
-        <>
-          {list ? (
-            <NativeSelect aria-label="Reason" className="h-7 w-auto text-xs" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)}>
-              <option value="">Reason…</option>
-              {picklists[list].map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </NativeSelect>
-          ) : null}
-          <Input aria-label="Reason details" className="h-7 w-44 text-xs" placeholder={stage.category === "won" ? "Win note (required)" : "Details"} value={reasonText} onChange={(e) => setReasonText(e.target.value)} />
-        </>
-      ) : null}
-      {stage ? (
-        <Button
-          size="sm"
-          variant="primary"
-          className="h-7"
-          disabled={pending || (!!stage && needsReason(stage.category) && (list ? !reasonCode : reasonText.trim().length < 3))}
-          onClick={runMove}
-        >
-          {pending ? <Loader2 className="animate-spin" /> : null} Apply
-        </Button>
-      ) : null}
       {canExport ? (
         <Button size="sm" variant="ghost" className="h-7" onClick={onExport}>
           <Download /> Export

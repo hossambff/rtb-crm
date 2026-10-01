@@ -59,8 +59,8 @@ export default async function NewProposalPage({ searchParams }: PageProps<"/prop
     );
   }
 
-  const [prefill, rules] = await Promise.all([prefillFromDeal(deal.id), approvalRules()]);
-  const initial = normalizeInputs({ ...emptyInputs(), ...prefill });
+  const [prefill, rules] = await Promise.all([prefillFromDeal(user, deal.id), approvalRules()]);
+  const initial = normalizeInputs({ ...emptyInputs(), ...prefill.inputs });
   return (
     <div>
       <PageHeader
@@ -72,7 +72,7 @@ export default async function NewProposalPage({ searchParams }: PageProps<"/prop
           </Button>
         }
       />
-      <ProFormaBuilder mode="create" dealId={deal.id} initial={initial} rules={rules} />
+      <ProFormaBuilder mode="create" dealId={deal.id} initial={initial} rules={rules} prefilled={prefill.filled} />
     </div>
   );
 }

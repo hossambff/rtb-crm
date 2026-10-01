@@ -1,6 +1,7 @@
-import { and, count, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { notifications, user as userTable } from "@/db/schema";
+import { user as userTable } from "@/db/schema";
+import { unreadCount } from "@/lib/notifications/queries";
 import { requireUser } from "@/lib/rbac/server";
 import { visibleNav } from "@/lib/rbac/nav-server";
 import { ROLE_LABELS } from "@/lib/rbac/model";
@@ -9,13 +10,8 @@ import { Topbar } from "@/components/shell/topbar";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
-  const [nav, [{ n }]] = await Promise.all([
-    visibleNav(user),
-    db
-      .select({ n: count() })
-      .from(notifications)
-      .where(and(eq(notifications.userId, user.id), isNull(notifications.readAt))),
-  ]);
+  // bell count excludes digest-only rows (V2 alert budget)
+  const [nav, n] = await Promise.all([visibleNav(user), unreadCount(user)]);
   // best-effort activity stamp (no await on the render path's critical data)
   void db.update(userTable).set({ lastActiveAt: new Date() }).where(eq(userTable.id, user.id)).catch(() => {});
   return (

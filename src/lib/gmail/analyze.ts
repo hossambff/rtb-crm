@@ -3,7 +3,9 @@ import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { notify } from "@/lib/notifications/notify";
-import { aiAvailable, aiObject, modelFor, untrusted } from "@/lib/ai";
+import { isSensitive } from "@/lib/notifications/sensitive";
+import { aiObject, modelFor, untrusted } from "@/lib/ai";
+import { aiAllowedFor } from "./ai-gate";
 import { audit } from "@/lib/audit";
 import { getSetting } from "@/lib/settings";
 import { autonomyLevel } from "@/lib/integrations/core";
@@ -21,6 +23,7 @@ import {
 import { stripQuoted } from "./parse";
 import { refreshThreadState } from "./ingest";
 import { recomputeDealHealth } from "@/lib/deals/service";
+import { detectEmailSignals } from "@/lib/signals/service";
 
 export type StoredEmailAnalysis = EmailAnalysis & {
   suggestedDealId?: string | null;
@@ -34,7 +37,7 @@ export type StoredEmailAnalysis = EmailAnalysis & {
 /** Run AI (fast tier) with heuristic fallback. Email text is always wrapped as untrusted. */
 export async function runEmailAnalysis(input: EmailAnalysisInput, owner: { id: string; name: string }): Promise<EmailAnalysis> {
   if (!input.text.trim()) return heuristicEmailAnalysis(input);
-  if (aiAvailable()) {
+  if (await aiAllowedFor(owner.id)) {
     try {
       const model = await modelFor("fast");
       const ai = await aiObject({
@@ -143,6 +146,7 @@ export async function analyzeStoredMessage(messageRowId: string): Promise<Stored
         title: `${analysis.commitments.length} task${analysis.commitments.length === 1 ? "" : "s"} created from email`,
         body: `From “${(row.t.subject ?? "(no subject)").slice(0, 120)}”. Review or undo in the Inbox.`,
         href: `/inbox?thread=${row.t.id}`,
+        sensitive: await isSensitive({ dealId: row.t.dealId, accountId: row.t.accountId }),
       });
     }
   }
@@ -168,6 +172,8 @@ export async function analyzeStoredMessage(messageRowId: string): Promise<Stored
 
   await db.update(s.emailMessages).set({ analysis: stored as unknown as Record<string, unknown>, analyzedAt: new Date() }).where(eq(s.emailMessages.id, messageRowId));
   await refreshThreadState(row.t.id);
+  // V2 A4: deal signals from inbound mail on a deal-linked thread (suggestions only; never throws).
+  if (row.t.dealId && row.m.direction !== "outbound") await detectEmailSignals(messageRowId, analysis);
   return stored;
 }
 

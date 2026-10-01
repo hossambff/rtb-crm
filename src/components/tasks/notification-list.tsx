@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AtSign, Bell, CheckCheck, ClipboardCheck, ListChecks, Newspaper, Siren } from "lucide-react";
+import { ArrowRightLeft, AtSign, Bell, CheckCheck, ClipboardCheck, HandHelping, ListChecks, Lock, Newspaper, Siren, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/misc";
 import { markAllNotificationsRead, markNotificationRead } from "@/lib/notifications/actions";
@@ -11,7 +11,7 @@ import type { NotificationView } from "@/lib/notifications/queries";
 import { fmtRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const ICONS: Record<string, typeof Bell> = { alert: Siren, mention: AtSign, approval: ClipboardCheck, digest: Newspaper, task: ListChecks };
+const ICONS: Record<string, typeof Bell> = { alert: Siren, mention: AtSign, approval: ClipboardCheck, digest: Newspaper, task: ListChecks, handoff: ArrowRightLeft, help: HandHelping, assignment: UserCheck };
 
 export function NotificationList({ items }: { items: NotificationView[] }) {
   const router = useRouter();
@@ -69,6 +69,13 @@ export function NotificationList({ items }: { items: NotificationView[] }) {
                   {n.body ? <p className="mt-0.5 whitespace-pre-line text-xs text-secondary">{n.body}</p> : null}
                   <p className="mt-1 text-[11px] text-muted" suppressHydrationWarning>
                     {fmtRelative(n.createdAt)}
+                    {n.digestOnly ? <span> · Quiet — {n.inDigest ? "included in your daily digest" : "will be in your next daily digest"} (over your alert budget)</span> : null}
+                    {n.sensitive ? (
+                      <span className="inline-flex items-center gap-0.5">
+                        {" · "}
+                        <Lock className="size-3" aria-hidden /> Restricted — stays in Roundtable
+                      </span>
+                    ) : null}
                   </p>
                 </div>
                 <Button size="sm" variant="ghost" disabled={pending} onClick={() => mark(n, !n.read)} aria-label={n.read ? `Mark unread: ${n.title}` : `Mark read: ${n.title}`}>

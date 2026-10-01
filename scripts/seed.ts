@@ -205,7 +205,7 @@ const SETTINGS: Record<string, unknown> = {
   "scout.fit_weights": { audience: 25, vertical: 15, ownership: 15, pain: 15, stack: 10, lookalike: 10, geo: 5, relationship: 5 },
   "scout.core_verticals": ["Finance", "Crypto", "Politics", "News", "Sports", "AI", "Emerging Tech", "Military/Defense"],
   "scout.supported_countries": ["US", "GB", "IE", "CA", "AU", "ES", "MX", "AR", "CO", "IN", "PL"],
-  "scout.budget": { orgMonthlyCents: 1000, userMonthlyCents: 200, execMonthlyCents: 500, perRunMaxCents: 50, maxDomainsPerRun: 50 },
+  "scout.budget": { orgMonthlyCents: 500, userMonthlyCents: 200, execMonthlyCents: 500, perRunMaxCents: 50, maxDomainsPerRun: 50 },
   "scout.target_roles": {
     NET: ["Founder", "Publisher", "Editor-in-Chief", "CEO", "GM"],
     SPT: ["Founder", "Publisher", "Editor-in-Chief", "CEO", "GM"],

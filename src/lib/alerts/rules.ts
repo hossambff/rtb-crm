@@ -345,7 +345,7 @@ export const NOOP_RULES: Record<string, string> = {
   "NS-13": "Needs per-contact touch/reply tracking from Gmail (email module): last 2 outbound touches without inbound reply.",
   "NS-14": "Needs bounce / 'left company' signals from Gmail bounces or enrichment (contacts.status = left_company changes).",
   "NS-17": "Duplicate detection needs fuzzy name/alt-domain matching (import/accounts module); exact domain dupes are blocked by a unique index.",
-  "NS-28": "Sequences (ACT-5, P1) are not built yet — no enrollment table.",
+  "NS-28": "Handled outside the sweep: the sequence runner notifies on failed/paused enrollments and the Today queue (providers/sequences.ts) surfaces them.",
   "NS-34": "Needs email bounce events mapped to enriched_contacts (email + enrichment modules).",
   "NS-35": "Needs weekly re-scan trigger events from Lead Scout (leadership change, traffic drop, CMS migration, ownership change).",
 };

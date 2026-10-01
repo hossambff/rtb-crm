@@ -1,0 +1,1 @@
+CREATE INDEX "help_requests_requester_idx" ON "rso"."help_requests" USING btree ("requester_id","status");

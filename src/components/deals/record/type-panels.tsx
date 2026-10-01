@@ -7,7 +7,7 @@ import { Input, Label, Textarea } from "@/components/ui/input";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { clearProbabilityOverride, decideProbabilityOverride, requestProbabilityOverride, updateDealValues, updateR100 } from "@/lib/deals/actions";
 import { fmtDate, fmtNumber, fmtPct, fmtUsd } from "@/lib/format";
-import { SEQ_BLUE } from "@/lib/palette";
+import { CHART_AXIS, SEQ_BLUE } from "@/lib/palette";
 import { Panel } from "./side-panels";
 import { useRun } from "./use-run";
 
@@ -215,10 +215,10 @@ function Sparkline({ points }: { points: { label: string; v: number }[] }) {
   return (
     <figure aria-label={`MUU trend from ${fmtNumber(points[0]!.v, { compact: true })} to ${fmtNumber(points.at(-1)!.v, { compact: true })}`}>
       <svg viewBox={`0 0 ${w} ${h}`} className="h-12 w-full" role="img">
-        <line x1="0" x2={w} y1={h - 6} y2={h - 6} stroke="#1A1A1A" />
+        <line x1="0" x2={w} y1={h - 6} y2={h - 6} stroke={CHART_AXIS.grid} />
         <polyline fill="none" stroke={SEQ_BLUE[6]} strokeWidth="2" strokeLinejoin="round" points={xy.map((p) => p.join(",")).join(" ")} />
         {xy.map(([x, y], i) => (
-          <circle key={i} cx={x} cy={y} r="3" fill={SEQ_BLUE[6]} stroke="#0B0B0B" strokeWidth="1.5">
+          <circle key={i} cx={x} cy={y} r="3" fill={SEQ_BLUE[6]} stroke={CHART_AXIS.surface} strokeWidth="1.5">
             <title>{`${points[i]!.label}: ${fmtNumber(points[i]!.v)}`}</title>
           </circle>
         ))}

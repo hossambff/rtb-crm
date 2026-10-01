@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, lt, lte, max, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { dayBounds } from "@/lib/alerts/time";
@@ -7,14 +7,23 @@ import { getMatrix } from "@/lib/rbac/server";
 import { ROLES, type Role } from "@/lib/rbac/model";
 import { notifyMany } from "./notify";
 import { snapshotDelta, type SnapshotRow } from "./snapshot-core";
-import { myDayDigestText, type DigestCounts } from "./digest-core";
+import { composeDailyDigest, myDayDigestText, type DigestCounts } from "./digest-core";
+import { bundledSection } from "./budget-core";
 
 const DEFAULT_TZ = "America/New_York";
 const OPEN_ALERT_STATES = ["open", "acknowledged", "escalated"] as const;
 
+/** Daily digest titles start with this (older rows used "My Day"; the once-a-day dedupe matches both). */
+const DIGEST_TITLE_SQL = sql`(${s.notifications.title} like 'Today%' or ${s.notifications.title} like 'My Day%')`;
+
 /**
- * Daily "My Day" digest (NOT-2) — one digest notification per active user per day (skipped when there's nothing).
- * Cron 12:00 UTC ≈ 08:00 America/New_York. Email delivery hooks in later.
+ * Daily "Today" digest (NOT-2) — one digest notification per active user per day (skipped when there's nothing).
+ * Cron 12:00 UTC ≈ 08:00 America/New_York. Email delivery hooks in later (it must apply the same MNPI rule as Slack).
+ *
+ * "Bundled for you" = unread digest-only rows (alert budget overflow) since the user's previous daily digest (at most
+ * 48 h back; 24 h when there was none), so items near the cron boundary are neither repeated nor missed (CR L11).
+ * MNPI (SEC H-1): rows flagged `sensitive` are counted, never named, so the digest itself is never sensitive.
+ * Bundled rows record `deliveredVia: digest`.
  */
 export async function sendDailyDigests(now = new Date()): Promise<{ users: number; sent: number }> {
   const users = (await db.select().from(s.user)).filter(
@@ -25,7 +34,7 @@ export async function sendDailyDigests(now = new Date()): Promise<{ users: numbe
   const horizon = new Date(now.getTime() + 2 * 86_400_000);
   const since = new Date(now.getTime() - 20 * 3_600_000);
 
-  const [tasks, meetings, alertCounts, threads, risky, already] = await Promise.all([
+  const [tasks, meetings, alertCounts, threads, risky, already, bundled, lastDigests] = await Promise.all([
     db
       .select({ assigneeId: s.tasks.assigneeId, dueAt: s.tasks.dueAt, owedBy: s.tasks.owedBy, snoozedUntil: s.tasks.snoozedUntil })
       .from(s.tasks)
@@ -59,8 +68,28 @@ export async function sendDailyDigests(now = new Date()): Promise<{ users: numbe
     db
       .select({ userId: s.notifications.userId })
       .from(s.notifications)
-      .where(and(eq(s.notifications.kind, "digest"), sql`${s.notifications.title} like 'My Day%'`, gte(s.notifications.createdAt, since))),
+      .where(and(eq(s.notifications.kind, "digest"), DIGEST_TITLE_SQL, gte(s.notifications.createdAt, since))),
+    // V2 alert budget: unread digest-only rows since the previous digest → "Bundled for you"
+    db
+      .select({ id: s.notifications.id, userId: s.notifications.userId, title: s.notifications.title, sensitive: s.notifications.sensitive, createdAt: s.notifications.createdAt })
+      .from(s.notifications)
+      .where(
+        and(
+          inArray(s.notifications.userId, ids),
+          eq(s.notifications.digestOnly, true),
+          isNull(s.notifications.readAt),
+          gte(s.notifications.createdAt, new Date(now.getTime() - 48 * 3_600_000)),
+        ),
+      )
+      .orderBy(desc(s.notifications.createdAt))
+      .limit(5000),
+    db
+      .select({ userId: s.notifications.userId, at: max(s.notifications.createdAt) })
+      .from(s.notifications)
+      .where(and(inArray(s.notifications.userId, ids), eq(s.notifications.kind, "digest"), DIGEST_TITLE_SQL, gte(s.notifications.createdAt, new Date(now.getTime() - 48 * 3_600_000))))
+      .groupBy(s.notifications.userId),
   ]);
+  const lastDigestAt = new Map(lastDigests.map((r) => [r.userId, r.at ? new Date(r.at) : null]));
   const done = new Set(already.map((r) => r.userId));
   let sent = 0;
   for (const u of users) {
@@ -79,9 +108,18 @@ export async function sendDailyDigests(now = new Date()): Promise<{ users: numbe
       dealsAtRisk: risky.find((r) => r.ownerId === u.id)?.n ?? 0,
       alerts,
     };
-    const text = myDayDigestText(counts);
+    const from = lastDigestAt.get(u.id) ?? new Date(now.getTime() - 24 * 3_600_000);
+    const mineBundled = bundled.filter((b) => b.userId === u.id && b.createdAt > from);
+    const text = composeDailyDigest(myDayDigestText(counts), bundledSection(mineBundled));
     if (!text) continue;
+    // The digest text never names a sensitive row (bundledSection), so it is safe to relay like any other digest.
     await notifyMany([u.id], { kind: "digest", title: text.title, body: text.body, href: "/home" });
+    if (mineBundled.length)
+      await db
+        .update(s.notifications)
+        .set({ deliveredVia: sql`array_append(${s.notifications.deliveredVia}, 'digest')` })
+        .where(and(inArray(s.notifications.id, mineBundled.map((b) => b.id)), sql`not ('digest' = any(${s.notifications.deliveredVia}))`))
+        .catch(() => undefined);
     sent++;
   }
   return { users: users.length, sent };

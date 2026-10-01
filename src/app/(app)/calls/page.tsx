@@ -11,6 +11,10 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { SOURCE_LABELS, TranscriptStatus } from "@/components/calls/transcript-status";
 import { AutoRefresh, GranolaSyncButton } from "@/components/calls/call-controls";
+import { upcomingMeetingsWithBriefs } from "@/lib/briefs/meeting";
+import { briefHref } from "@/lib/briefs/meeting-core";
+import { formatInTz } from "@/lib/time";
+import { RequestHelpButton } from "@/components/help/request-help";
 
 export const metadata = { title: "Calls" };
 
@@ -25,11 +29,12 @@ export default async function CallsPage({ searchParams }: PageProps<"/calls">) {
     if (target) redirect(target);
   }
   const f = { q: one(sp.q)?.slice(0, 100), source: one(sp.source), status: one(sp.status) };
-  const [rows, missing, granola, createScope] = await Promise.all([
+  const [rows, missing, granola, createScope, upcoming] = await Promise.all([
     listTranscripts(user, f),
     meetingsMissingNotes(user),
     getConnection(user.id, "granola"),
     scopeFor(user, "calls", "create"),
+    upcomingMeetingsWithBriefs(user, 4),
   ]);
   if (!rows) {
     return (
@@ -63,6 +68,29 @@ export default async function CallsPage({ searchParams }: PageProps<"/calls">) {
           </>
         }
       />
+
+      {upcoming.length && !filtered ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <div>
+              <CardTitle className="text-base">Coming up</CardTitle>
+              <CardDescription>Your next external meetings. Briefs are prepared automatically ~45 minutes before.</CardDescription>
+            </div>
+          </CardHeader>
+          <ul className="divide-y divide-border">
+            {upcoming.map((m) => (
+              <li key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-sm">
+                <span className="min-w-0 flex-1 truncate text-body">{m.title ?? "Untitled meeting"}</span>
+                <span className="text-xs text-muted tabular">{m.startsAt ? `${formatInTz(m.startsAt, user.timezone, "short")}, ${formatInTz(m.startsAt, user.timezone, "time")}` : ""}</span>
+                <Button asChild size="sm" variant={m.briefId ? "secondary" : "ghost"} className="h-7">
+                  <Link href={briefHref(m.id)}>{m.briefId ? "Open brief" : "Brief"}</Link>
+                </Button>
+                <RequestHelpButton meetingId={m.id} dealId={m.dealId ?? undefined} />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       {missing.length && canCreate ? (
         <Card className="mb-6">

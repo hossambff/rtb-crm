@@ -32,7 +32,7 @@ function Chip({ href, active, children }: { href: string; active: boolean; child
       aria-current={active ? "true" : undefined}
       className={cn(
         "inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs transition-colors",
-        active ? "border-white bg-white text-black" : "border-border-strong text-secondary hover:bg-surface-2 hover:text-fg",
+        active ? "border-fg bg-fg text-accent-inverse" : "border-border-strong text-secondary hover:bg-surface-2 hover:text-fg",
       )}
     >
       {children}

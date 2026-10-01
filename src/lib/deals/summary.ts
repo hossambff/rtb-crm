@@ -59,7 +59,7 @@ export async function buildDealSummary(opts: { dealId: string; userId: string; a
   }
 }
 
-async function loadSummaryContext(dealId: string, hidden: Set<string>): Promise<{ restricted: boolean; summary: SummaryContext }> {
+export async function loadSummaryContext(dealId: string, hidden: Set<string>): Promise<{ restricted: boolean; summary: SummaryContext }> {
   const owner = alias(s.user, "owner");
   const actor = alias(s.user, "actor");
   const [row] = await db

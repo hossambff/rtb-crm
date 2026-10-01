@@ -1,3 +1,6 @@
+import { Suspense } from "react";
+import { ContactSequencesPanel } from "@/components/sequences/deal-sequences";
+import { AccountCollisionNotice } from "@/components/deals/touches/collision-notice";
 import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -69,6 +72,13 @@ export default async function ContactPage(props: PageProps<"/contacts/[id]">) {
               ) : null}
               {c.origin ? <Badge>{c.origin}</Badge> : null}
             </div>
+            {data.account ? (
+              <div className="mt-2 empty:hidden">
+                <Suspense fallback={null}>
+                  <AccountCollisionNotice user={user} accountId={data.account.id} />
+                </Suspense>
+              </div>
+            ) : null}
           </div>
         </div>
         {data.canEdit ? (
@@ -154,6 +164,9 @@ export default async function ContactPage(props: PageProps<"/contacts/[id]">) {
               <DealLinks contactId={c.id} deals={data.deals} accountDeals={data.accountDeals} canEdit={data.canEdit} />
             </CardContent>
           </Card>
+          <Suspense fallback={null}>
+            <ContactSequencesPanel contactId={c.id} />
+          </Suspense>
           <Card>
             <CardHeader>
               <CardTitle>Activity</CardTitle>

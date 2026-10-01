@@ -32,8 +32,11 @@ async function guarded<T>(conn: Connection | null, respectBackoff: boolean, fn: 
   }
 }
 
-/** Gmail + Calendar + Granola for one user. Errors are recorded per provider (status error → NS-30). */
-export async function runUserSync(userId: string, opts: { respectBackoff?: boolean; analyzeLimit?: number } = {}): Promise<UserSyncReport> {
+/**
+ * Gmail + Calendar + Granola for one user. Errors are recorded per provider (status error → NS-30). `deadlineMs` (cron)
+ * bounds the calendar step's brief preparation so later mailboxes still get synced inside the cron window.
+ */
+export async function runUserSync(userId: string, opts: { respectBackoff?: boolean; analyzeLimit?: number; deadlineMs?: number } = {}): Promise<UserSyncReport> {
   const respect = opts.respectBackoff ?? false;
   const report: UserSyncReport = { userId };
   const acct = await getGoogleAccount(userId);
@@ -54,7 +57,7 @@ export async function runUserSync(userId: string, opts: { respectBackoff?: boole
       }
       if (wantsCal) {
         const conn = await ensureConnection(userId, "calendar");
-        report.calendar = await guarded(conn, respect, () => syncCalendar(userId, { ctx }));
+        report.calendar = await guarded(conn, respect, () => syncCalendar(userId, { ctx, deadlineMs: opts.deadlineMs }));
       }
     }
   } else {
@@ -115,7 +118,7 @@ export async function runScheduledSync(deadlineMs: number): Promise<{ users: num
   const reports: UserSyncReport[] = [];
   for (const id of ids) {
     if (Date.now() > deadlineMs) break;
-    reports.push(await runUserSync(id, { respectBackoff: true }));
+    reports.push(await runUserSync(id, { respectBackoff: true, deadlineMs }));
   }
   return { users: ids.length, processed: reports.length, reports };
 }

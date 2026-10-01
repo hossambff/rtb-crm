@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import Link from "next/link";
-import { notFound, forbidden } from "next/navigation";
+import { notFound, forbidden, redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { can, requireUser } from "@/lib/rbac/server";
+import { can, requireUser, type AppUser } from "@/lib/rbac/server";
+import { BoardSkeleton } from "@/components/deals/board/board-skeleton";
 import {
   assignableUsers,
   boardCategories,
@@ -24,6 +26,9 @@ import { ColorTick } from "@/components/ui/badge";
 import { PipelineBoard } from "@/components/deals/board/pipeline-board";
 import { CreateDealButton } from "@/components/deals/create-deal-dialog";
 import { fmtNumber, fmtUsd } from "@/lib/format";
+import { playbookHints } from "@/lib/playbooks/service";
+import { resolveListView } from "@/lib/views/queries";
+import { SavedViewsMenu } from "@/components/views/saved-views-menu";
 
 export async function generateMetadata({ params }: PageProps<"/pipelines/[key]">) {
   const { key } = await params;
@@ -43,11 +48,39 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
   const canExport = perms.canExport || (await can(user, "export", "export"));
 
   const sp = await searchParams;
+  // V2 §B8: opened without params → default view / last-used filters / "Mine" ("My team" for leaders). Only fires on an
+  // empty query and always redirects to a non-empty one, so it can't loop.
+  const viewQs = await resolveListView(user, `pipelines:${key}`, sp, { teamValue: "team" });
+  // QA B8: this redirect runs BEFORE anything streams (no route-level loading.tsx; the board is in a Suspense below),
+  // so it is a real 307 instead of a client-side soft redirect that loads the page twice.
+  if (viewQs) redirect(`/pipelines/${rawKey}${viewQs}`);
+  return (
+    <Suspense fallback={<BoardSkeleton />}>
+      <BoardData user={user} pipeline={pipeline} perms={perms} canExport={canExport} sp={sp} rawKey={rawKey} />
+    </Suspense>
+  );
+}
+
+async function BoardData({
+  user,
+  pipeline,
+  perms,
+  canExport,
+  sp,
+}: {
+  user: AppUser;
+  pipeline: NonNullable<Awaited<ReturnType<typeof getPipelineByKey>>>;
+  perms: Awaited<ReturnType<typeof pipelinePerms>>;
+  canExport: boolean;
+  sp: Awaited<PageProps<"/pipelines/[key]">["searchParams"]>;
+  rawKey: string;
+}) {
+  const key = pipeline.key;
   const { filters, lane, view } = parseBoardParams(sp);
   const one = (k: string) => (Array.isArray(sp[k]) ? sp[k]![0] : (sp[k] as string | undefined));
   // List view: one server-sorted page of 100 rows + SQL totals (M-20). Board: all cards, trimmed per column below.
   const listOpts = { page: Number(one("page") ?? 1), sort: one("sort") as ListSort | undefined, dir: one("dir") === "asc" ? ("asc" as const) : ("desc" as const) };
-  const [stagesBy, loaded, users, assignable, categories, lost, hold, hidden, createProps, canCreateContact] = await allLimited([
+  const [stagesBy, loaded, users, assignable, categories, lost, hold, hidden, createProps, canCreateContact, hints] = await allLimited([
     () => getStagesByPipeline(),
     () => (view === "list" ? listDealsPage(user, key, filters, listOpts) : listDealsForBoard(user, key, filters)),
     () => listActiveUsers(),
@@ -58,6 +91,7 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
     () => hiddenDealFields(user.role),
     () => createDealProps(user),
     () => can(user, "contacts", "create"),
+    () => playbookHints(pipeline.id),
   ], 2);
   const stages = stagesBy[pipeline.id] ?? [];
   const listPage: DealListPage | null = Array.isArray(loaded) ? null : loaded;
@@ -114,7 +148,15 @@ export default async function PipelineBoardPage({ params, searchParams }: PagePr
         picklists={{ lost_reason: lost, hold_reason: hold }}
         hiddenFields={[...hidden]}
         canCreateContact={canCreateContact}
-        createButton={<CreateDealButton {...createProps} defaultPipelineKey={key} size="sm" />}
+        playbookHints={hints}
+        createButton={
+          <>
+            <Suspense fallback={null}>
+              <SavedViewsMenu page={`pipelines:${key}`} />
+            </Suspense>
+            <CreateDealButton {...createProps} defaultPipelineKey={key} size="sm" />
+          </>
+        }
       />
     </>
   );

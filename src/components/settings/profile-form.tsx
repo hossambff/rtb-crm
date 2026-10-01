@@ -1,9 +1,13 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label, NativeSelect } from "@/components/ui/input";
 import { updateProfile } from "@/lib/integrations/actions";
+
+/** Zones RTB people actually use — listed first so nobody scrolls past Africa/Abidjan (QA MIN-08). */
+const COMMON_ZONES = ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Europe/London", "Europe/Lisbon", "Europe/Paris", "Asia/Dubai", "Africa/Cairo", "Asia/Singapore", "UTC"];
+const zoneLabel = (z: string) => z.replace(/_/g, " ");
 
 const HOURS = Array.from({ length: 25 }, (_, h) => h);
 const fmtHour = (h: number) => (h === 24 ? "24:00" : `${String(h).padStart(2, "0")}:00`);
@@ -22,6 +26,18 @@ export function ProfileForm({
   const [end, setEnd] = useState(profile.workEndHour ?? 18);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [pending, startTransition] = useTransition();
+  // Detected after mount (server and client must render the same options first).
+  const [detected, setDetected] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const z = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only value, read once after hydration
+      if (z && zones.includes(z)) setDetected(z);
+    } catch {
+      /* no Intl zone */
+    }
+  }, [zones]);
+  const common = COMMON_ZONES.filter((z) => zones.includes(z));
 
   return (
     <form
@@ -55,13 +71,35 @@ export function ProfileForm({
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="p-tz">Timezone</Label>
-        <NativeSelect id="p-tz" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-          {zones.map((z) => (
-            <option key={z} value={z}>
-              {z.replace(/_/g, " ")}
-            </option>
-          ))}
+        <NativeSelect id="p-tz" value={timezone} onChange={(e) => setTimezone(e.target.value)} aria-describedby="p-tz-hint">
+          <optgroup label="Common">
+            {common.map((z) => (
+              <option key={`c-${z}`} value={z}>
+                {zoneLabel(z)}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="All time zones">
+            {zones
+              .filter((z) => !common.includes(z))
+              .map((z) => (
+                <option key={z} value={z}>
+                  {zoneLabel(z)}
+                </option>
+              ))}
+          </optgroup>
         </NativeSelect>
+        <p id="p-tz-hint" className="text-xs text-muted">
+          Type to jump to a zone.
+          {detected && detected !== timezone ? (
+            <>
+              {" "}
+              <button type="button" className="text-fg underline underline-offset-2" onClick={() => setTimezone(detected)}>
+                Use this device&apos;s zone ({zoneLabel(detected)})
+              </button>
+            </>
+          ) : null}
+        </p>
         {errors.timezone ? <p className="text-xs text-critical">{errors.timezone[0]}</p> : null}
       </div>
       <fieldset className="space-y-1.5 sm:col-span-2">

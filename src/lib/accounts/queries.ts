@@ -100,6 +100,7 @@ export async function listAccounts(user: AppUser, p: AccountListParams) {
   if (p.priority) conds.push(eq(s.accounts.priority, p.priority as never));
   if (p.owner === "none") conds.push(isNull(s.accounts.ownerId));
   else if (p.owner === "me") conds.push(eq(s.accounts.ownerId, user.id));
+  else if (p.owner === "team") conds.push(inArray(s.accounts.ownerId, user.teamMemberIds.length ? user.teamMemberIds : [user.id]));
   else if (p.owner) conds.push(eq(s.accounts.ownerId, p.owner));
   if (p.openDeal === "yes") conds.push(openDealExists);
   if (p.openDeal === "no") conds.push(sql`not ${openDealExists}`);

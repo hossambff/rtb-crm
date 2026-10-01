@@ -85,7 +85,7 @@ describe("My Day digest text", () => {
   });
   it("summarizes counts", () => {
     const t = myDayDigestText({ ...zero, overdueTasks: 2, meetingsToday: 1, alerts: { critical: 1, serious: 0, warning: 2, info: 0 } })!;
-    expect(t.title).toBe("My Day: 3 items need attention");
+    expect(t.title).toBe("Today: 3 items need attention");
     expect(t.body).toContain("2 overdue tasks");
     expect(t.body).toContain("1 meeting today");
     expect(t.body).toContain("3 open alerts (1 critical, 2 warning)");

@@ -7,7 +7,7 @@ import { addBusinessDays, crmStatusLabel, emailMatchesName, isGenericEmail, isSe
 describe("budget", () => {
   const s = DEFAULT_BUDGET;
   it("pilot defaults (D8)", () => {
-    expect(normalizeBudget(undefined)).toEqual({ orgMonthlyCents: 1000, userMonthlyCents: 200, execMonthlyCents: 500, perRunMaxCents: 50, maxDomainsPerRun: 50 });
+    expect(normalizeBudget(undefined)).toEqual({ orgMonthlyCents: 500, userMonthlyCents: 200, execMonthlyCents: 500, perRunMaxCents: 50, maxDomainsPerRun: 50 });
     expect(normalizeBudget({ orgMonthlyCents: 2000, maxDomainsPerRun: -1 }).orgMonthlyCents).toBe(2000);
     expect(normalizeBudget({ maxDomainsPerRun: -1 }).maxDomainsPerRun).toBe(50);
   });
@@ -31,7 +31,7 @@ describe("budget", () => {
     expect(d).toMatchObject({ allowed: false, blockedBy: "user_cap", canRequestMore: true, userRemainingCents: 20 });
   });
   it("org cap is a hard stop even with an approved override", () => {
-    const d = checkBudget({ estimateCents: 40, orgSpentCents: 980, userSpentCents: 0, userCapCents: 200, settings: s, approvedOverrideCents: 100 });
+    const d = checkBudget({ estimateCents: 40, orgSpentCents: 480, userSpentCents: 0, userCapCents: 200, settings: s, approvedOverrideCents: 100 });
     expect(d).toMatchObject({ allowed: false, blockedBy: "org_cap", canRequestMore: false });
     expect(d.message).toContain("$0.20");
   });

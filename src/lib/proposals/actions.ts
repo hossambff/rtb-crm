@@ -1,17 +1,22 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, max } from "drizzle-orm";
+import { and, eq, max } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import { action, UserError } from "@/lib/actions";
 import { audit } from "@/lib/audit";
-import { notifyMany } from "@/lib/notifications/notify";
+import { notify } from "@/lib/notifications/notify";
+import { isSensitiveEntity } from "@/lib/notifications/sensitive";
+import { syncProposalApproval } from "./approval-state";
+import { withVersionRetry } from "./versioning";
 import { assertCan, type AppUser } from "@/lib/rbac/server";
 import { approvalRules, assertProposalDeal, proposalWhere } from "./access";
 import { assertNotSelfDecision } from "@/lib/approvals/sod";
 import { approvalTriggers, canExport, computeProForma, COST_FUNCTIONS, isLocked, normalizeInputs, REVENUE_LINES, type ProFormaInputs } from "./calc";
+import { scheduleApprovalCardRefresh } from "@/lib/slack/card-refresh";
 
+const PRO_FORMA = "pro_forma";
 const usd = z.number().min(0).max(1e12);
 const pct = z.number().min(0).max(1);
 const inputsSchema = z.object({
@@ -34,59 +39,44 @@ const inputsSchema = z.object({
   notes: z.string().max(4000).optional(),
 });
 
-/** Evaluate PRO-3 triggers and write the resulting status (+ approvals row / executive notifications). */
+/**
+ * Evaluate PRO-3 triggers and write the resulting status through the shared proposal approval path
+ * (syncProposalApproval → requestApproval): one approvals row, SLA due date, approval-link notifications (Slack
+ * Approve/Reject buttons — QA MAJ-15) and neutral text for restricted deals.
+ */
 async function applyApprovalState(user: AppUser, proposalId: string, inputs: ProFormaInputs, deal: { name: string; restricted: boolean }, version: number) {
-  const dealName = deal.name;
-  // SEC M-5: executives are not necessarily on a restricted deal's access list — neutral notification text.
-  const notifyLabel = deal.restricted ? "restricted deal" : dealName;
   const reasons = approvalTriggers(inputs, await approvalRules());
-  const pending = await db
-    .select({ id: s.approvals.id })
-    .from(s.approvals)
-    .where(and(eq(s.approvals.kind, "proposal"), eq(s.approvals.entityId, proposalId), eq(s.approvals.status, "pending")));
-  if (reasons.length) {
-    await db.update(s.proposals).set({ status: "pending_approval", approvalReason: reasons.join("; ") }).where(eq(s.proposals.id, proposalId));
-    if (pending.length) {
-      await db.update(s.approvals).set({ payload: { reasons, version, dealName } }).where(inArray(s.approvals.id, pending.map((p) => p.id)));
-    } else {
-      await db.insert(s.approvals).values({ kind: "proposal", entity: "proposal", entityId: proposalId, requestedBy: user.id, approverRole: "executive", payload: { reasons, version, dealName } });
-      const execs = await db.select({ id: s.user.id }).from(s.user).where(eq(s.user.role, "executive"));
-      await notifyMany(
-        execs.map((e) => e.id),
-        { kind: "approval", title: `Proposal approval: ${notifyLabel} v${version}`, body: deal.restricted ? null : reasons.join("; "), href: `/proposals/${proposalId}` },
-      );
-    }
-  } else {
-    await db.update(s.proposals).set({ status: "draft", approvalReason: null }).where(eq(s.proposals.id, proposalId));
-    if (pending.length)
-      await db
-        .update(s.approvals)
-        .set({ status: "rejected", note: "Withdrawn: no longer requires approval", decidedAt: new Date() })
-        .where(inArray(s.approvals.id, pending.map((p) => p.id)));
-  }
-  return reasons;
+  return syncProposalApproval(user, { id: proposalId, version, kindLabel: "Pro forma" }, deal, reasons);
+}
+
+/** Next pro forma version for the deal (max + 1), retried once on a concurrent-insert conflict. */
+async function insertProFormaVersion(user: AppUser, dealId: string, clean: ProFormaInputs) {
+  return withVersionRetry(async () => {
+    const [{ v }] = await db.select({ v: max(s.proposals.version) }).from(s.proposals).where(and(eq(s.proposals.dealId, dealId), eq(s.proposals.kind, PRO_FORMA)));
+    const version = (v ?? 0) + 1;
+    const [row] = await db
+      .insert(s.proposals)
+      .values({ kind: PRO_FORMA, dealId, version, inputs: clean as never, outputs: computeProForma(clean) as never, status: "draft", createdBy: user.id })
+      .returning();
+    return { row: row!, version };
+  });
 }
 
 export const createProposal = action(z.object({ dealId: z.uuid("Pick a deal"), inputs: inputsSchema }), async ({ dealId, inputs }, user) => {
   await assertCan(user, "proposals", "create");
   const { deal } = await assertProposalDeal(user, dealId, "create");
   const clean = normalizeInputs(inputs);
-  const [{ v }] = await db.select({ v: max(s.proposals.version) }).from(s.proposals).where(eq(s.proposals.dealId, dealId));
-  const version = (v ?? 0) + 1;
-  const [row] = await db
-    .insert(s.proposals)
-    .values({ dealId, version, inputs: clean as never, outputs: computeProForma(clean) as never, status: "draft", createdBy: user.id })
-    .returning();
-  const reasons = await applyApprovalState(user, row!.id, clean, deal, version);
-  await audit({ actorId: user.id, action: "proposal.create", entity: "proposal", entityId: row!.id, after: { dealId, version, inputs: clean, reasons } });
+  const { row, version } = await insertProFormaVersion(user, dealId, clean);
+  const reasons = await applyApprovalState(user, row.id, clean, deal, version);
+  await audit({ actorId: user.id, action: "proposal.create", entity: "proposal", entityId: row.id, after: { dealId, version, inputs: clean, reasons } });
   revalidatePath("/proposals");
-  return { id: row!.id, version, reasons };
+  return { id: row.id, version, reasons };
 });
 
 export const updateProposal = action(z.object({ id: z.uuid(), inputs: inputsSchema }), async ({ id, inputs }, user) => {
   await assertCan(user, "proposals", "edit");
   const [before] = await db.select().from(s.proposals).where(eq(s.proposals.id, id));
-  if (!before) throw new UserError("Proposal not found.");
+  if (!before || before.kind !== PRO_FORMA) throw new UserError("Proposal not found.");
   const { deal } = await assertProposalDeal(user, before.dealId, "edit");
   if (isLocked(before.status)) throw new UserError(`Version ${before.version} is ${before.status} and locked. Create a new version to change it.`);
   const clean = normalizeInputs(inputs);
@@ -102,19 +92,14 @@ export const updateProposal = action(z.object({ id: z.uuid(), inputs: inputsSche
 export const newVersion = action(z.object({ fromId: z.uuid() }), async ({ fromId }, user) => {
   await assertCan(user, "proposals", "create");
   const [src] = await db.select().from(s.proposals).where(eq(s.proposals.id, fromId));
-  if (!src) throw new UserError("Proposal not found.");
+  if (!src || src.kind !== PRO_FORMA) throw new UserError("Proposal not found.");
   const { deal } = await assertProposalDeal(user, src.dealId, "create");
-  const [{ v }] = await db.select({ v: max(s.proposals.version) }).from(s.proposals).where(eq(s.proposals.dealId, src.dealId));
-  const version = (v ?? 0) + 1;
   const clean = normalizeInputs(src.inputs);
-  const [row] = await db
-    .insert(s.proposals)
-    .values({ dealId: src.dealId, version, inputs: clean as never, outputs: computeProForma(clean) as never, status: "draft", createdBy: user.id })
-    .returning();
-  await applyApprovalState(user, row!.id, clean, deal, version);
-  await audit({ actorId: user.id, action: "proposal.new_version", entity: "proposal", entityId: row!.id, after: { fromId, version } });
+  const { row, version } = await insertProFormaVersion(user, src.dealId, clean);
+  await applyApprovalState(user, row.id, clean, deal, version);
+  await audit({ actorId: user.id, action: "proposal.new_version", entity: "proposal", entityId: row.id, after: { fromId, version } });
   revalidatePath("/proposals");
-  return { id: row!.id, version };
+  return { id: row.id, version };
 });
 
 /** PRO-3: executive decision. Rejection returns the version to draft with the reason. */
@@ -147,12 +132,20 @@ export const decideProposal = action(z.object({ id: z.uuid(), decision: z.enum([
       .update(s.approvals)
       .set({ status: decision, decidedBy: user.id, decidedAt: now, note: note ?? null })
       .where(and(eq(s.approvals.kind, "proposal"), eq(s.approvals.entityId, id), eq(s.approvals.status, "pending")));
-    if (p.createdBy)
-      await tx.insert(s.notifications).values({ userId: p.createdBy, kind: "approval", title: `Proposal v${p.version} ${decision}`, body: note ?? null, href: `/proposals/${id}` });
   });
+  scheduleApprovalCardRefresh({ kind: "proposal", entityId: id });
+  // Through notify() (alert budget, Slack, MNPI flag) — not a raw insert (lead / FX-1).
+  if (p.createdBy && p.createdBy !== user.id)
+    await notify(p.createdBy, {
+      kind: "approval",
+      title: `Proposal v${p.version} ${decision}`,
+      body: note ?? null,
+      href: p.kind === PRO_FORMA ? `/proposals/${id}` : `/proposals/term-sheets/${id}`,
+      sensitive: await isSensitiveEntity("proposal", id).catch(() => true),
+    });
   await audit({ actorId: user.id, action: `proposal.${decision}`, entity: "proposal", entityId: id, before: { status: p.status }, after: patch });
   revalidatePath("/proposals");
-  revalidatePath(`/proposals/${id}`);
+  revalidatePath(p.kind === PRO_FORMA ? `/proposals/${id}` : `/proposals/term-sheets/${id}`);
   return { id, status: patch.status };
 });
 
@@ -160,7 +153,7 @@ export const decideProposal = action(z.object({ id: z.uuid(), decision: z.enum([
 export const markSent = action(z.object({ id: z.uuid() }), async ({ id }, user) => {
   await assertCan(user, "proposals", "edit");
   const [p] = await db.select().from(s.proposals).where(eq(s.proposals.id, id));
-  if (!p) throw new UserError("Proposal not found.");
+  if (!p || p.kind !== PRO_FORMA) throw new UserError("Proposal not found.");
   await assertProposalDeal(user, p.dealId, "edit");
   const triggers = approvalTriggers(normalizeInputs(p.inputs), await approvalRules());
   if (!canExport(p.status, triggers)) throw new UserError("This version needs executive approval before it can be sent.");

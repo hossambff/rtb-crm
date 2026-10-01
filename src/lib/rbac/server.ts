@@ -36,21 +36,44 @@ export class ForbiddenError extends Error {
 export const getCurrentUser = cache(async (): Promise<AppUser | null> => {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return null;
-  const [u] = await db.select().from(s.user).where(eq(s.user.id, session.user.id));
+  return loadAppUserById(session.user.id, {
+    allowPending: true, // the app shows pending users the /pending screen (requireUser)
+    revokeSessionsOnDenial: true,
+    impersonatedBy: (session.session as { impersonatedBy?: string | null }).impersonatedBy ?? null,
+  });
+});
+
+/**
+ * THE AppUser builder — getCurrentUser() uses it for the session user, and every background path that acts on a user's
+ * behalf (tick jobs, autopilot, Slack interactions, share links, approvals escalation) uses it without a session, so
+ * permission checks behave exactly like in the app.
+ *
+ * SEC M-2 / M-15: re-validates on every call (ban, access expiry, domain allowlist, dev account in production) and
+ * returns null when the check fails; with `revokeSessionsOnDenial` (request path) the user's sessions are also revoked.
+ * Pending users: null unless `allowPending` (background automation never runs for them).
+ * Team view = team members (+ the team's pipeline keys) + direct reports.
+ */
+export async function loadAppUserById(
+  userId: string,
+  opts: { allowPending?: boolean; revokeSessionsOnDenial?: boolean; impersonatedBy?: string | null } = {},
+): Promise<AppUser | null> {
+  if (!userId) return null;
+  const [u] = await db.select().from(s.user).where(eq(s.user.id, userId));
   if (!u) return null;
-  // SEC M-2 / M-15: re-validate on every request (ban, access expiry, domain allowlist, dev account in production),
-  // not only when the session was created; revoke the user's sessions when the check fails.
   const denial = sessionDenialReason(
     { email: u.email, banned: u.banned, banExpires: u.banExpires, accessExpiresAt: u.accessExpiresAt },
     { allowedDomains: [...env.allowedDomains, ...(await extraAllowedDomains())], isProd: env.isProd },
   );
   if (denial) {
-    await db
-      .delete(s.session)
-      .where(eq(s.session.userId, u.id))
-      .catch(() => undefined);
+    if (opts.revokeSessionsOnDenial)
+      await db
+        .delete(s.session)
+        .where(eq(s.session.userId, u.id))
+        .catch(() => undefined);
     return null;
   }
+  const role = (ROLES as readonly string[]).includes(u.role) ? (u.role as Role) : "pending";
+  if (role === "pending" && !opts.allowPending) return null;
   let teamPipelineKeys: string[] = [];
   let teamMemberIds: string[] = [u.id];
   if (u.teamId) {
@@ -62,7 +85,6 @@ export const getCurrentUser = cache(async (): Promise<AppUser | null> => {
   // Managers see their direct reports as "team" too.
   const reports = await db.select({ id: s.user.id }).from(s.user).where(eq(s.user.managerId, u.id));
   teamMemberIds = Array.from(new Set([...teamMemberIds, ...reports.map((r) => r.id)]));
-  const role = (ROLES as readonly string[]).includes(u.role) ? (u.role as Role) : "pending";
   return {
     id: u.id,
     name: u.name,
@@ -74,9 +96,9 @@ export const getCurrentUser = cache(async (): Promise<AppUser | null> => {
     teamMemberIds,
     employmentType: u.employmentType,
     timezone: u.timezone ?? "America/New_York",
-    impersonatedBy: (session.session as { impersonatedBy?: string | null }).impersonatedBy ?? null,
+    impersonatedBy: opts.impersonatedBy ?? null,
   };
-});
+}
 
 /** Use in server components/pages: redirects to sign-in / pending screen. */
 export async function requireUser(): Promise<AppUser> {
@@ -86,10 +108,16 @@ export async function requireUser(): Promise<AppUser> {
   return user;
 }
 
+/**
+ * All admin overrides of the permission matrix, loaded ONCE per request (perf H-4: the deal page builds the mention
+ * audience, which needs the matrix of every role — one query instead of one per role). Tiny table.
+ */
+const allRoleOverrides = cache(async () => db.select().from(s.rolePermissions));
+
 /** Effective permission matrix for a role = code defaults overlaid with DB overrides. */
 export const getMatrix = cache(async (role: Role): Promise<Matrix> => {
   const base: Matrix = structuredClone(DEFAULT_MATRIX[role] ?? {});
-  const overrides = await db.select().from(s.rolePermissions).where(eq(s.rolePermissions.role, role));
+  const overrides = (await allRoleOverrides()).filter((o) => o.role === role);
   for (const o of overrides) {
     const mod = o.module as Module;
     base[mod] = { ...(base[mod] ?? {}), [o.action as Action]: o.scope as Scope };
@@ -155,9 +183,21 @@ export async function canSeeRestricted(user: AppUser, entity: "deal" | "account"
  * SQL filter for deals the user may perform `action` on, across all pipelines.
  * Combines per-pipeline scopes, ownership/splits/team, and restricted-record access lists.
  */
-export async function dealAccessWhere(user: AppUser, action: Action = "view"): Promise<SQL> {
+export function dealAccessWhere(user: AppUser, action: Action = "view"): Promise<SQL> {
+  return dealAccessWhereCached(user, action);
+}
+
+/** Pipeline id → key, once per request (perf H-4: dealAccessWhere used to query pipelines on every call — 12× per deal view). */
+export const pipelineIdKeys = cache(async () => db.select({ id: s.pipelines.id, key: s.pipelines.key }).from(s.pipelines));
+
+/**
+ * Request-scoped memo of the access filter, keyed by the user object (getCurrentUser() is itself cached, so every slot of
+ * a page shares one) and the action. The returned SQL is immutable and safe to embed in many queries. Outside a React
+ * request (cron, scripts) `cache` is a pass-through.
+ */
+const dealAccessWhereCached = cache(async (user: AppUser, action: Action): Promise<SQL> => {
   const matrix = await getMatrix(user.role);
-  const pipes = await db.select({ id: s.pipelines.id, key: s.pipelines.key }).from(s.pipelines);
+  const pipes = await pipelineIdKeys();
   const clauses: SQL[] = [];
   const ownOrSplit = or(
     eq(s.deals.ownerId, user.id),
@@ -203,7 +243,7 @@ export async function dealAccessWhere(user: AppUser, action: Action = "view"): P
           ),
         )!;
   return and(isNull(s.deals.deletedAt), or(...clauses)!, restrictedOk)!;
-}
+});
 
 /** SQL filter for accounts/contacts style entities with ownerId. */
 export async function ownedEntityWhere(

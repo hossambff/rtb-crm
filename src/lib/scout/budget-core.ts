@@ -11,7 +11,7 @@ export type BudgetSettings = {
   maxDomainsPerRun: number;
 };
 
-export const DEFAULT_BUDGET: BudgetSettings = { orgMonthlyCents: 1000, userMonthlyCents: 200, execMonthlyCents: 500, perRunMaxCents: 50, maxDomainsPerRun: 50 };
+export const DEFAULT_BUDGET: BudgetSettings = { orgMonthlyCents: 500, userMonthlyCents: 200, execMonthlyCents: 500, perRunMaxCents: 50, maxDomainsPerRun: 50 };
 
 /** Roles that get the higher "SVP/exec" per-user cap. */
 export const EXEC_BUDGET_ROLES = ["super_admin", "admin", "executive", "sales_leader"];

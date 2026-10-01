@@ -97,7 +97,10 @@ export function NextStepLine({
         <StatusBadge status="critical" label={`Overdue ${overdueDays}d`} className="shrink-0" />
       ) : dueAt ? (
         <span className="shrink-0 text-[11px] text-muted tabular">{fmtDate(dueAt, "d MMM")}</span>
-      ) : null}
+      ) : (
+        // QA MIN-19: a next step without a due date never goes overdue — say so.
+        <StatusBadge status="warning" label="No due date" className="shrink-0" />
+      )}
     </div>
   );
 }

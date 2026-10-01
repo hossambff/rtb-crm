@@ -4,7 +4,7 @@ import { Loader2, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export type PickedDeal = { id: string; name: string; subtitle?: string };
+export type PickedDeal = { id: string; name: string; subtitle?: string; kind?: "deal" | "account" };
 
 /**
  * Deal search (uses /api/search, which is already permission-scoped by dealAccessWhere).
@@ -16,12 +16,15 @@ export function DealPicker({
   placeholder = "Search deals…",
   label = "Deal",
   className,
+  kinds = ["deal"],
 }: {
   value: PickedDeal | null;
   onChange: (d: PickedDeal | null) => void;
   placeholder?: string;
   label?: string;
   className?: string;
+  /** Which search hits to offer (quick capture also accepts accounts). */
+  kinds?: ("deal" | "account")[];
 }) {
   const id = useId();
   const [q, setQ] = useState("");
@@ -39,7 +42,11 @@ export function DealPicker({
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(q.trim())}`);
         const json = (await res.json()) as { hits?: { type: string; id: string; title: string; subtitle?: string }[] };
-        setHits((json.hits ?? []).filter((h) => h.type === "deal").map((h) => ({ id: h.id, name: h.title, subtitle: h.subtitle })));
+        setHits(
+          (json.hits ?? [])
+            .filter((h) => (kinds as string[]).includes(h.type))
+            .map((h) => ({ id: h.id, name: h.title, subtitle: kinds.length > 1 ? `${h.type === "deal" ? "Deal" : "Account"}${h.subtitle ? ` · ${h.subtitle}` : ""}` : h.subtitle, kind: h.type as "deal" | "account" })),
+        );
         setActive(0);
       } catch {
         setHits([]);
@@ -50,6 +57,8 @@ export function DealPicker({
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
+    // kinds is a static prop per picker instance
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
   if (value) {
@@ -61,7 +70,7 @@ export function DealPicker({
             {value.name}
             {value.subtitle ? <span className="ml-2 text-xs text-muted">{value.subtitle}</span> : null}
           </span>
-          <button type="button" onClick={() => onChange(null)} className="rounded p-0.5 text-muted hover:text-fg" aria-label="Clear deal">
+          <button type="button" onClick={() => onChange(null)} className="rounded p-0.5 text-muted hover:text-fg" aria-label={`Clear ${label.toLowerCase()}`}>
             <X className="size-3.5" />
           </button>
         </div>
@@ -111,7 +120,7 @@ export function DealPicker({
       </div>
       {open && q.trim().length >= 2 ? (
         <ul id={`${id}-list`} role="listbox" className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-border-strong bg-surface-2 p-1">
-          {list.length === 0 && !loading ? <li className="px-2 py-1.5 text-xs text-muted">No deals you can access match “{q}”.</li> : null}
+          {list.length === 0 && !loading ? <li className="px-2 py-1.5 text-xs text-muted">No {kinds.length > 1 ? "deals or accounts" : "deals"} you can access match “{q}”.</li> : null}
           {list.map((d, i) => (
             <li
               key={d.id}

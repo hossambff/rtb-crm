@@ -1,11 +1,11 @@
 "use client";
-import { useState, useTransition } from "react";
-import { AlertTriangle, FileText, Send } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
+import { AlertTriangle, FileText, Send, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/misc";
-import { sendEmail } from "@/lib/gmail/actions";
+import { composerCollisions, sendEmail, type ComposerCollision } from "@/lib/gmail/actions";
 import type { ClaimHit } from "@/lib/claims-core";
 
 export type EmailTemplate = { label: string; subject?: string; body: string };
@@ -62,6 +62,7 @@ export function EmailComposer({
   const [hits, setHits] = useState<ClaimHit[] | null>(null);
   const [pending, start] = useTransition();
   const isReply = Boolean(threadId);
+  const collision = useCollision({ dealId, threadId, to });
 
   function submit(confirmed: boolean) {
     start(async () => {
@@ -95,6 +96,26 @@ export function EmailComposer({
         <p className="rounded-md border border-border-strong bg-surface-2 px-3 py-2 text-xs text-secondary">
           Sending needs the Gmail “send” permission. <a href="/settings#connections" className="text-fg underline underline-offset-2">Connect your inbox</a> first.
         </p>
+      ) : null}
+      {collision ? (
+        <div role="note" className="rounded-md border border-border bg-surface-2/50 px-3 py-2 text-xs text-secondary">
+          {collision.people.length > 1 ? (
+            <details>
+              <summary className="flex cursor-pointer select-none items-center gap-1.5 marker:content-none">
+                <Users className="size-3.5 shrink-0 text-muted" aria-hidden /> <span className="text-body">{collision.headline}</span>
+              </summary>
+              <ul className="mt-1.5 space-y-0.5 pl-5">
+                {collision.people.map((p) => (
+                  <li key={p.name}>{p.line}</li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <p className="flex items-center gap-1.5">
+              <Users className="size-3.5 shrink-0 text-muted" aria-hidden /> <span className="text-body">{collision.headline}</span>
+            </p>
+          )}
+        </div>
       ) : null}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
@@ -186,4 +207,29 @@ export function EmailComposer({
       </div>
     </form>
   );
+}
+
+/**
+ * V2 C4: "Chris emailed this publisher 2 days ago" — looked up for the deal / thread, else the recipients' company
+ * (debounced while typing). Never blocks sending; failures just hide the hint.
+ */
+function useCollision({ dealId, threadId, to }: { dealId: string | null; threadId: string | null; to: string }): ComposerCollision | null {
+  const [state, setState] = useState<ComposerCollision | null>(null);
+  const recipients = dealId || threadId ? "" : splitEmails(to).filter((e) => /@[^@\s]+\.[a-z]{2,}$/i.test(e)).sort().join(",");
+  useEffect(() => {
+    let cancelled = false;
+    if (!dealId && !threadId && !recipients) {
+      const clear = setTimeout(() => setState(null), 0);
+      return () => clearTimeout(clear);
+    }
+    const t = setTimeout(async () => {
+      const r = await composerCollisions({ dealId, threadId, to: recipients ? recipients.split(",") : [] }).catch(() => null);
+      if (!cancelled) setState(r && r.ok ? r.data : null);
+    }, recipients ? 600 : 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [dealId, threadId, recipients]);
+  return state;
 }

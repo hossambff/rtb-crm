@@ -1,8 +1,8 @@
 import { cache } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/rbac/server";
-import { getProposal } from "@/lib/proposals/queries";
+import { getProposal, proposalKindOf } from "@/lib/proposals/queries";
 import { isLocked } from "@/lib/proposals/calc";
 import { fmtDate } from "@/lib/format";
 import { StatusBadge } from "@/components/ui/badge";
@@ -19,11 +19,15 @@ export async function generateMetadata({ params }: PageProps<"/proposals/[id]">)
 }
 
 export default async function ProposalPage({ params }: PageProps<"/proposals/[id]">) {
-  await requireUser();
+  const user = await requireUser();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const d = await loadProposal(id);
-  if (!d) notFound();
+  if (!d) {
+    // Approval notifications link every proposal kind to /proposals/<id>.
+    if ((await proposalKindOf(user, id)) === "coalition_term_sheet") redirect(`/proposals/term-sheets/${id}`);
+    notFound();
+  }
   const locked = isLocked(d.proposal.status);
   const readOnly = locked || !d.perms.canEdit;
 

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, LogOut, Menu, Search, Settings, ShieldAlert } from "lucide-react";
+import { Bell, LogOut, Menu, Search, Settings, ShieldAlert, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,9 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sidebar } from "./sidebar";
 import type { NavItem } from "@/lib/nav";
 import { CommandPalette } from "./command-palette";
+import { CopilotLauncher, openCopilot } from "./copilot-launcher";
+import { CaptureButton } from "@/components/capture/capture-button";
+import { ModKey } from "@/components/ui/mod-key";
 
 export function Topbar({
   user,
@@ -27,6 +30,7 @@ export function Topbar({
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const canCopilot = nav.some((i) => i.href === "/copilot");
 
   return (
     <>
@@ -56,17 +60,25 @@ export function Topbar({
         >
           <Search className="size-4 shrink-0" strokeWidth={1.5} />
           <span className="min-w-0 truncate">Search deals, accounts, contacts, or ask Copilot…</span>
-          <kbd className="ml-auto hidden rounded border border-border-strong px-1.5 text-[10px] text-muted md:inline">⌘K</kbd>
+          <kbd className="ml-auto hidden rounded border border-border-strong px-1.5 text-[10px] text-muted md:inline">
+            <ModKey then="K" />
+          </kbd>
         </button>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <Button variant="ghost" size="icon" className="sm:hidden" aria-label="Search or run a command" onClick={() => setPaletteOpen(true)}>
             <Search strokeWidth={1.5} />
           </Button>
+          {canCopilot ? (
+            <Button variant="ghost" size="icon" aria-label="Ask Copilot (⌘J)" title="Ask Copilot (⌘J)" onClick={() => openCopilot()}>
+              <Sparkles strokeWidth={1.5} />
+            </Button>
+          ) : null}
+          <CaptureButton />
           <Button variant="ghost" size="icon" asChild aria-label={`Notifications (${unread} unread)`}>
             <Link href="/tasks?tab=notifications" className="relative">
               <Bell strokeWidth={1.5} />
               {unread > 0 ? (
-                <span className="absolute right-1.5 top-1.5 min-w-4 rounded-full bg-white px-1 text-center text-[10px] font-semibold leading-4 text-black">
+                <span className="absolute right-1.5 top-1.5 min-w-4 rounded-full bg-fg px-1 text-center text-[10px] font-semibold leading-4 text-accent-inverse">
                   {unread > 99 ? "99+" : unread}
                 </span>
               ) : null}
@@ -108,6 +120,7 @@ export function Topbar({
         </DialogContent>
       </Dialog>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} nav={nav} />
+      {canCopilot ? <CopilotLauncher /> : null}
     </>
   );
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "rso"."approvals" ADD COLUMN "slack_messages" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "user_prefs_slack_user_id_uq" ON "rso"."user_prefs" USING btree ("slack_user_id") WHERE "rso"."user_prefs"."slack_user_id" is not null;

@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import * as s from "@/db/schema";
@@ -18,6 +18,10 @@ import { buildRawEmailBase64Url, buildReferences, replySubject } from "./mime";
 import { ingestParsedMessage, loadIngestContext, refreshThreadState } from "./ingest";
 import { analyzeStoredMessage, createCommitmentTask, type StoredEmailAnalysis } from "./analyze";
 import { parseGmailMessage } from "./parse";
+import { expireSignalsForSources } from "@/lib/signals/service";
+import { accountNoun, collisionHeadline, describeTouch, getRecentTouches, getRecentTouchesForDeal, latestPerPerson } from "@/lib/deals/collisions";
+import { internalDomains } from "@/lib/integrations/directory";
+import { PERSONAL_DOMAINS } from "@/lib/integrations/matching-core";
 
 async function ownThread(user: AppUser, threadId: string) {
   await assertCan(user, "email", "view");
@@ -153,6 +157,8 @@ export const linkThreadToDeal = action(z.object({ threadId: z.uuid(), dealId: z.
       .update(s.tasks)
       .set({ dealId, accountId })
       .where(and(eq(s.tasks.origin, "email_ai"), inArray(s.tasks.evidenceSource, msgIds.map((id) => `email:${id}`))));
+    // Signals detected while the thread pointed at another deal no longer apply.
+    await expireSignalsForSources("email", msgIds, { dealId });
   }
   await audit({ actorId: user.id, action: dealId ? "email.link_deal" : "email.unlink_deal", entity: "email_thread", entityId: threadId, before: { dealId: t.dealId }, after: { dealId } });
   revalidatePath("/inbox");
@@ -174,6 +180,8 @@ export const setThreadPrivate = action(z.object({ threadId: z.uuid(), private: z
         .set({ status: "cancelled" })
         .where(and(eq(s.tasks.origin, "email_ai"), eq(s.tasks.status, "open"), inArray(s.tasks.evidenceSource, msgIds.map((id) => `email:${id}`))));
       await db.update(s.emailMessages).set({ bodyText: null, analysis: null }).where(inArray(s.emailMessages.id, msgIds));
+      await expireSignalsForSources("email", msgIds, { scrubQuotes: true }); // pending signals + their quotes go too
+
     }
     await db.update(s.emailThreads).set({ private: true, snippet: null, aiIntent: null, awaitingReplyFrom: "none", dealId: null }).where(eq(s.emailThreads.id, t.id));
   } else {
@@ -232,3 +240,53 @@ export const reanalyzeMessage = action(z.object({ messageId: z.uuid() }), async 
   revalidatePath("/inbox");
   return { engine: r?.engine ?? null };
 });
+
+export type ComposerCollision = { headline: string; people: { name: string; line: string }[] };
+
+/**
+ * V2 C4 in the composer: "Chris emailed this publisher 2 days ago" — someone else on the team touched the account
+ * we're about to email. Account resolved from the deal, the thread, or the recipients' company domain. Names, kinds and
+ * dates only (getRecentTouches skips private threads and restricted deals the user can't see). Null when clear.
+ */
+export const composerCollisions = action(
+  z.object({ dealId: z.uuid().nullable().optional(), threadId: z.uuid().nullable().optional(), to: z.array(z.string().max(254)).max(20).default([]) }),
+  async (input, user): Promise<ComposerCollision | null> => {
+    let accountId: string | null = null;
+    let accountType: string | null = null;
+    let touches: Awaited<ReturnType<typeof getRecentTouches>> = [];
+    if (input.dealId) {
+      const r = await getRecentTouchesForDeal(user, input.dealId);
+      touches = r.touches;
+      accountType = r.accountType;
+    } else {
+      if (input.threadId) {
+        const [t] = await db.select({ accountId: s.emailThreads.accountId, owner: s.emailThreads.mailboxUserId }).from(s.emailThreads).where(eq(s.emailThreads.id, input.threadId));
+        if (t?.owner === user.id) accountId = t.accountId;
+      }
+      if (!accountId) {
+        const internal = await internalDomains(user.email);
+        const domains = [...new Set(input.to.map((e) => e.trim().toLowerCase().split("@")[1] ?? "").filter((d) => /^[a-z0-9.-]{3,253}$/.test(d) && !PERSONAL_DOMAINS.has(d) && !internal.includes(d)))].slice(0, 10);
+        if (domains.length) {
+          const [a] = await db
+            .select({ id: s.accounts.id })
+            .from(s.accounts)
+            .where(and(isNull(s.accounts.deletedAt), or(inArray(s.accounts.domain, domains), sql`${s.accounts.altDomains} && string_to_array(${domains.join(",")}, ',')`)))
+            .limit(1);
+          accountId = a?.id ?? null;
+        }
+      }
+      if (accountId) {
+        touches = await getRecentTouches(user, accountId);
+        if (touches.length) {
+          const [a] = await db.select({ type: s.accounts.type }).from(s.accounts).where(eq(s.accounts.id, accountId));
+          accountType = a?.type ?? null;
+        }
+      }
+    }
+    const now = new Date();
+    const noun = accountNoun(accountType);
+    const headline = collisionHeadline(touches, now, noun);
+    if (!headline) return null;
+    return { headline, people: latestPerPerson(touches).slice(0, 4).map((p) => ({ name: p.userName, line: describeTouch(p, now, noun) })) };
+  },
+);

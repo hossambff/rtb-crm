@@ -8,6 +8,7 @@ import { getSetting } from "@/lib/settings";
 import type { AppUser } from "@/lib/rbac/server";
 import { protectUntil } from "./registration";
 import { assertNotSelfDecision } from "@/lib/approvals/sod";
+import { scheduleApprovalCardRefresh } from "@/lib/slack/card-refresh";
 
 /**
  * Decide a lead registration (PRD COM-6) — the single path used by the Commissions → Registrations queue and by the
@@ -60,5 +61,6 @@ export async function applyRegistrationDecision(
     await audit({ actorId: user.id, action: `lead_registration.${decision}`, entity: "lead_registration", entityId: id, before: reg, after: patch }, tx);
     await opts.withinTx?.(tx);
   });
+  if (opts.syncApproval) scheduleApprovalCardRefresh({ kind: "lead_registration", entityId: id });
   return { id, status: decision };
 }

@@ -16,6 +16,8 @@ import { adminEndpointDecision, requestedRoles, sessionDenialReason, SESSION_DEN
 export const GOOGLE_WORKSPACE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
+  // V2 A1: post-call follow-ups are saved as Gmail drafts (users.drafts.create). Never used to send.
+  "https://www.googleapis.com/auth/gmail.compose",
   "https://www.googleapis.com/auth/calendar.readonly",
 ];
 

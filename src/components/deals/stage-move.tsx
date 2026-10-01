@@ -1,19 +1,32 @@
 "use client";
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
 import { getDealContacts, moveDealStage } from "@/lib/deals/actions";
-import { gateFieldMeta, missingFields, needsReason, reasonPicklist } from "@/lib/deals/gates";
+import { gateFieldMeta, missingFields, needsReason, nextStepPrefill, reasonPicklist, shouldPromptNextStep } from "@/lib/deals/gates";
 import type { ContactLite, Picklist, StageDTO } from "@/lib/deals/types";
+import { businessDateInput } from "@/lib/playbooks/core";
+import { DEFAULT_NEXT_STEP_DAYS } from "@/lib/deals/create-core";
 
-export type MovableDeal = { id: string; name: string; filled: string[]; stageId: string };
+function browserTz(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "America/New_York";
+  }
+}
+
+export type MovableDeal = { id: string; name: string; filled: string[]; stageId: string; nextStep?: string | null; nextStepDueAt?: string | Date | null };
 export type MovePayload = { fields: Record<string, string>; newContact?: { fullName: string; email?: string; title?: string }; reasonCode?: string; reasonText?: string };
 
 type Ctx = {
   picklists: { lost_reason: Picklist; hold_reason: Picklist };
+  /** V2 §B5: stageId → the stage playbook's first task, used to prefill the required next step. */
+  playbookHints?: Record<string, { title: string; dueInDays: number }>;
   hiddenFields: string[];
   canCreateContact: boolean;
   /** Called inside the transition before the server call (use with useOptimistic). */
@@ -28,6 +41,7 @@ type Ctx = {
 export function useStageMove(ctx: Ctx) {
   const [target, setTarget] = React.useState<{ deal: MovableDeal; stage: StageDTO } | null>(null);
   const [pending, startTransition] = React.useTransition();
+  const router = useRouter();
   const ctxRef = React.useRef(ctx);
   React.useEffect(() => {
     ctxRef.current = ctx;
@@ -51,18 +65,29 @@ export function useStageMove(ctx: Ctx) {
         ? " · Onboarding project created"
         : res.data.created.includes("invoice")
           ? " · Invoice scheduled"
-          : "";
-      toast.success(`${deal.name} → ${stage.name}${extra}`);
+          : res.data.playbookTasks
+            ? ` · ${res.data.playbookTasks} playbook task${res.data.playbookTasks === 1 ? "" : "s"} added`
+            : "";
+      if (res.data.sharePrompt) {
+        // A quiet "closed" moment (no confetti): one line + the story prompt (V2 §0.5 / §C9).
+        const won = res.data.status === "won";
+        toast.success(won ? `Won — ${deal.name}` : `Closed lost — ${deal.name}`, {
+          description: `${won ? "Tell the team how it closed." : "Share what you learned."}${extra ? ` ${extra.replace(/^ · /, "")}.` : ""}`,
+          duration: 8000,
+          action: { label: "Share the story", onClick: () => router.push(`/team?share=${deal.id}`) },
+        });
+      } else toast.success(`${deal.name} → ${stage.name}${extra}`);
       ctxRef.current.onMoved?.(deal.id, stage.id);
       onDone?.();
     });
-  }, []);
+  }, [router]);
 
   const request = React.useCallback(
     (deal: MovableDeal, stage: StageDTO) => {
       if (deal.stageId === stage.id) return;
       const missing = missingFields(stage, deal.filled);
-      if (missing.length === 0 && !needsReason(stage.category)) commit(deal, stage, { fields: {} });
+      // B5: an open target stage always gets the (prefilled) next-step prompt, so the playbook suggestion is offered.
+      if (missing.length === 0 && !needsReason(stage.category) && !shouldPromptNextStep(stage, ctxRef.current.hiddenFields)) commit(deal, stage, { fields: {} });
       else setTarget({ deal, stage });
     },
     [commit],
@@ -76,6 +101,7 @@ export function useStageMove(ctx: Ctx) {
       picklists={ctx.picklists}
       hiddenFields={ctx.hiddenFields}
       canCreateContact={ctx.canCreateContact}
+      hint={ctx.playbookHints?.[target.stage.id] ?? null}
       pending={pending}
       onCancel={() => setTarget(null)}
       onConfirm={(payload) => commit(target.deal, target.stage, payload, () => setTarget(null))}
@@ -91,6 +117,7 @@ function StageGateDialog({
   picklists,
   hiddenFields,
   canCreateContact,
+  hint,
   pending,
   onCancel,
   onConfirm,
@@ -100,6 +127,7 @@ function StageGateDialog({
   picklists: Ctx["picklists"];
   hiddenFields: string[];
   canCreateContact: boolean;
+  hint: { title: string; dueInDays: number } | null;
   pending: boolean;
   onCancel: () => void;
   onConfirm: (p: MovePayload) => void;
@@ -109,7 +137,27 @@ function StageGateDialog({
   const editable = missing.filter((k) => !hiddenFields.includes(k));
   const list = reasonPicklist(stage.category);
   const reasonOptions = list ? picklists[list] : [];
-  const [values, setValues] = React.useState<Record<string, string>>({});
+  // V2 §B5: every move into an open stage confirms the next step — prefilled from the stage playbook's first task (+ its
+  // due offset in business days) when it differs from the current one, else the current next step.
+  const prompt = shouldPromptNextStep(stage, hiddenFields);
+  const prefill = nextStepPrefill(deal.nextStep, hint);
+  const [values, setValues] = React.useState<Record<string, string>>(() => {
+    const v: Record<string, string> = {};
+    if (prompt || editable.includes("nextStep")) v.nextStep = prefill.value;
+    if (prompt || editable.includes("nextStepDueAt")) {
+      const now = new Date();
+      const cur = deal.nextStepDueAt ? new Date(deal.nextStepDueAt) : null;
+      const curKey = cur && !Number.isNaN(cur.getTime()) ? cur.toISOString().slice(0, 10) : null;
+      // Keep a still-upcoming due date when the next step itself is kept; a new (playbook) step gets its own offset.
+      v.nextStepDueAt =
+        !prefill.fromPlaybook && curKey && curKey > now.toISOString().slice(0, 10)
+          ? curKey
+          : businessDateInput(now, hint && prefill.fromPlaybook ? hint.dueInDays : DEFAULT_NEXT_STEP_DAYS, browserTz());
+    }
+    return v;
+  });
+  const stepKeys = prompt ? ["nextStep", "nextStepDueAt"] : editable.filter((k) => k === "nextStep" || k === "nextStepDueAt");
+  const otherKeys = editable.filter((k) => k !== "nextStep" && k !== "nextStepDueAt");
   const [reasonCode, setReasonCode] = React.useState("");
   const [reasonText, setReasonText] = React.useState("");
   const [contacts, setContacts] = React.useState<ContactLite[] | null>(null);
@@ -130,7 +178,7 @@ function StageGateDialog({
 
   const set = (k: string, v: string) => setValues((p) => ({ ...p, [k]: v }));
   const reasonOk = !needsReason(stage.category) || (list ? !!reasonCode : reasonText.trim().length >= 3);
-  const fieldsOk = editable.every((k) => (k === "primaryContactId" && creatingContact ? newContact.fullName.trim().length >= 2 : !!values[k]?.trim()));
+  const fieldsOk = stepKeys.every((k) => !!values[k]?.trim()) && editable.every((k) => (k === "primaryContactId" && creatingContact ? newContact.fullName.trim().length >= 2 : !!values[k]?.trim()));
   const canSubmit = !pending && blocked.length === 0 && reasonOk && fieldsOk;
 
   const title =
@@ -167,10 +215,36 @@ function StageGateDialog({
                 {blocked.length > 1 ? " them" : " it"}.
               </p>
             ) : null}
-            {editable.length ? (
+            {stepKeys.length ? (
+              <div className="space-y-2 rounded-md border border-border p-3">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Next step</p>
+                <div className="grid gap-2 sm:grid-cols-[1fr_150px]">
+                  {stepKeys.includes("nextStep") ? (
+                    <Input aria-label="Next step" value={values.nextStep ?? ""} onChange={(e) => set("nextStep", e.target.value)} placeholder="What happens next?" required autoFocus maxLength={500} />
+                  ) : (
+                    <p className="self-center truncate text-sm text-body">{deal.nextStep ?? "—"}</p>
+                  )}
+                  {stepKeys.includes("nextStepDueAt") ? (
+                    <Input aria-label="Next step due" type="date" value={values.nextStepDueAt ?? ""} onChange={(e) => set("nextStepDueAt", e.target.value)} required className="[color-scheme:dark]" />
+                  ) : null}
+                </div>
+                <p className="text-[11px] text-muted">
+                  {prefill.fromPlaybook && values.nextStep === prefill.value ? `Suggested by the ${stage.name} playbook — edit freely.` : "Every open deal needs a next step with a due date."}
+                  {prefill.alternative && values.nextStep !== prefill.alternative ? (
+                    <>
+                      {" "}
+                      <button type="button" className="text-secondary underline-offset-2 hover:text-fg hover:underline" onClick={() => set("nextStep", prefill.alternative!)}>
+                        Keep current: “{prefill.alternative.length > 60 ? `${prefill.alternative.slice(0, 60)}…` : prefill.alternative}”
+                      </button>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            ) : null}
+            {otherKeys.length ? (
               <div className="space-y-3">
                 <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Required to enter this stage</p>
-                {editable.map((k) => (
+                {otherKeys.map((k) => (
                   <GateField
                     key={k}
                     field={k}

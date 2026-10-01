@@ -12,6 +12,9 @@ import { hiddenDealFields, stripHidden } from "./service";
 import { parseStoredSummary } from "./summary-core";
 import { allLimited } from "./concurrency";
 import { coverageGaps } from "./rules";
+import { readAutofill } from "./create-core";
+import { getMyMotions } from "@/lib/prefs";
+import { leadWithMotions } from "@/lib/prefs/core";
 import type { BoardDeal, BoardFilters, ContactLite, PipelineDTO, Picklist, StageCategory, StageDTO, UserLite } from "./types";
 
 const DAY = 86_400_000;
@@ -346,6 +349,7 @@ async function boardBase(user: AppUser, pipelineKey: string, filters: BoardFilte
     conds.push(or(ilike(s.deals.name, pat), ilike(s.accounts.name, pat), ilike(s.accounts.domain, pat))!);
   }
   if (filters.owner === "me") conds.push(eq(s.deals.ownerId, user.id));
+  else if (filters.owner === "team") conds.push(inArray(s.deals.ownerId, user.teamMemberIds.length ? user.teamMemberIds : [user.id]));
   else if (filters.owner === "none") conds.push(isNull(s.deals.ownerId));
   else if (filters.owner) conds.push(eq(s.deals.ownerId, filters.owner));
   if (filters.priority === "none") conds.push(isNull(s.deals.priority));
@@ -446,14 +450,33 @@ export type VisibleDeal = Partial<typeof s.deals.$inferSelect> & Pick<typeof s.d
 export const getDealForUser = cache(async (
   user: AppUser,
   id: string,
-): Promise<(VisibleDeal & { pipeline: PipelineDTO; stage: StageDTO; hiddenFields: string[] }) | null> => {
+): Promise<(VisibleDeal & { pipeline: PipelineDTO; stage: StageDTO; hiddenFields: string[]; account: DealAccountLite | null; owner: UserLite | null }) | null> => {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const where = await dealAccessWhere(user, "view");
+  const ownerU = alias(s.user, "deal_owner");
   const [row] = await db
-    .select({ deal: s.deals, pipeline: s.pipelines, stage: s.stages })
+    .select({
+      owner: { id: ownerU.id, name: ownerU.name, image: ownerU.image },
+      deal: s.deals,
+      pipeline: s.pipelines,
+      stage: s.stages,
+      // The deal's account card (perf H-4: joined here instead of a separate lookup on the deal page).
+      account: {
+        id: s.accounts.id,
+        name: s.accounts.name,
+        domain: s.accounts.domain,
+        website: s.accounts.website,
+        category: s.accounts.category,
+        muu: s.accounts.muu,
+        type: s.accounts.type,
+        restricted: s.accounts.restricted,
+      },
+    })
     .from(s.deals)
     .innerJoin(s.pipelines, eq(s.pipelines.id, s.deals.pipelineId))
     .innerJoin(s.stages, eq(s.stages.id, s.deals.stageId))
+    .leftJoin(s.accounts, eq(s.accounts.id, s.deals.accountId))
+    .leftJoin(ownerU, eq(ownerU.id, s.deals.ownerId))
     .where(and(eq(s.deals.id, id), where));
   if (!row) return null;
   const hidden = await hiddenDealFields(user.role);
@@ -472,8 +495,12 @@ export const getDealForUser = cache(async (
       requiredFields: row.stage.requiredFields,
     },
     hiddenFields: [...hidden],
+    account: row.account?.id ? row.account : null,
+    owner: row.owner?.id ? row.owner : null,
   };
 });
+
+export type DealAccountLite = { id: string; name: string; domain: string | null; website: string | null; category: string | null; muu: number | null; type: string | null; restricted: boolean };
 
 /* ───────────── Lookups ───────────── */
 
@@ -494,19 +521,28 @@ export async function assignableUsers(user: AppUser, pipelineKey: string): Promi
   return all.filter((u) => u.id === user.id);
 }
 
-export const getPicklist = cache(async (list: string): Promise<Picklist> => {
-  return db
-    .select({ value: s.picklists.value, label: s.picklists.label })
+/** Every active picklist option, once per request (small table; the deal page needs two lists → one query). */
+const allActivePicklists = cache(async () =>
+  db
+    .select({ list: s.picklists.list, value: s.picklists.value, label: s.picklists.label })
     .from(s.picklists)
-    .where(and(eq(s.picklists.list, list), eq(s.picklists.active, true)))
-    .orderBy(asc(s.picklists.sortOrder));
+    .where(eq(s.picklists.active, true))
+    .orderBy(asc(s.picklists.sortOrder)),
+);
+
+export const getPicklist = cache(async (list: string): Promise<Picklist> => {
+  return (await allActivePicklists()).filter((o) => o.list === list).map(({ value, label }) => ({ value, label }));
 });
 
 /* ───────────── Record page bundle ───────────── */
 
 export type DealDetail = NonNullable<Awaited<ReturnType<typeof getDealDetail>>>;
 
-export async function getDealDetail(user: AppUser, id: string) {
+/**
+ * Everything the deal page needs. `opts.muuHistory` (default true) loads the audience-metric history, which only the
+ * Details tab shows — the page skips it for other tabs (perf H-4).
+ */
+export async function getDealDetail(user: AppUser, id: string, opts: { muuHistory?: boolean } = {}) {
   const deal = await getDealForUser(user, id);
   if (!deal) return null;
   const hidden = new Set(deal.hiddenFields);
@@ -518,16 +554,8 @@ export async function getDealDetail(user: AppUser, id: string) {
       .from(s.dealSplits)
       .innerJoin(s.user, eq(s.user.id, s.dealSplits.userId))
       .where(eq(s.dealSplits.dealId, id)),
-    () => deal.ownerId
-      ? db.select({ id: s.user.id, name: s.user.name, image: s.user.image }).from(s.user).where(eq(s.user.id, deal.ownerId)).then((r) => r[0] ?? null)
-      : Promise.resolve(null),
-    () => deal.accountId
-      ? db
-          .select({ id: s.accounts.id, name: s.accounts.name, domain: s.accounts.domain, website: s.accounts.website, category: s.accounts.category, muu: s.accounts.muu, type: s.accounts.type })
-          .from(s.accounts)
-          .where(eq(s.accounts.id, deal.accountId))
-          .then((r) => r[0] ?? null)
-      : Promise.resolve(null),
+    () => Promise.resolve(deal.owner), // joined in getDealForUser (perf H-4)
+    () => Promise.resolve(deal.account),
   ], 2);
   const stages = stagesBy[deal.pipelineId] ?? [];
   const editScope = await scopeFor(user, dealModule(deal.pipeline.key), "edit");
@@ -535,10 +563,9 @@ export async function getDealDetail(user: AppUser, id: string) {
 
   const actor = alias(s.user, "actor");
   const assignee = alias(s.user, "assignee");
-  const author = alias(s.user, "author");
   const contactWhere = await ownedEntityWhere(user, "contacts", "view", s.contacts.ownerId);
 
-  const [activities, tasks, stakeholders, accountContacts, documents, comments, muuHistory, invoices, migration, approval, lostReasons, holdReasons, users, assignable, canTask, canLog, canUseAi, canCreateContact] =
+  const [activities, tasks, stakeholders, accountContacts, documents, muuHistory, invoices, migration, approval, lostReasons, holdReasons, users, assignable, canTask, canLog, canUseAi, canCreateContact] =
     await allLimited([
       () => db
         .select({
@@ -606,14 +633,7 @@ export async function getDealDetail(user: AppUser, id: string) {
             .limit(200)
         : Promise.resolve([] as ContactLite[]),
       () => db.select().from(s.documents).where(eq(s.documents.dealId, id)).orderBy(desc(s.documents.createdAt)),
-      () => db
-        .select({ id: s.comments.id, body: s.comments.body, createdAt: s.comments.createdAt, authorId: s.comments.authorId, authorName: author.name, authorImage: author.image })
-        .from(s.comments)
-        .leftJoin(author, eq(author.id, s.comments.authorId))
-        .where(and(eq(s.comments.entity, "deal"), eq(s.comments.entityId, id)))
-        .orderBy(asc(s.comments.createdAt))
-        .limit(200),
-      () => deal.pipeline.unit === "muu" && deal.accountId
+      () => deal.pipeline.unit === "muu" && deal.accountId && opts.muuHistory !== false
         ? db
             .select({ id: s.audienceMetrics.id, metric: s.audienceMetrics.metric, value: s.audienceMetrics.value, derivedMuu: s.audienceMetrics.derivedMuu, period: s.audienceMetrics.period, source: s.audienceMetrics.source, confidence: s.audienceMetrics.confidence, rawValue: s.audienceMetrics.rawValue, createdAt: s.audienceMetrics.createdAt })
             .from(s.audienceMetrics)
@@ -623,12 +643,15 @@ export async function getDealDetail(user: AppUser, id: string) {
         : Promise.resolve([]),
       () => deal.pipeline.key === "ADS" ? db.select().from(s.invoices).where(eq(s.invoices.dealId, id)).orderBy(asc(s.invoices.dueAt)) : Promise.resolve([]),
       () => db.select({ id: s.migrationProjects.id, stage: s.migrationProjects.stage, name: s.migrationProjects.name }).from(s.migrationProjects).where(eq(s.migrationProjects.dealId, id)).then((r) => r[0] ?? null),
-      () => db
-        .select()
-        .from(s.approvals)
-        .where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entity, "deal"), eq(s.approvals.entityId, id), eq(s.approvals.status, "pending")))
-        .orderBy(desc(s.approvals.createdAt))
-        .then((r) => r[0] ?? null),
+      // Only a deal with a pending override has a pending override approval (perf H-4: skip the lookup otherwise).
+      () => deal.overrideStatus === "pending"
+        ? db
+            .select()
+            .from(s.approvals)
+            .where(and(eq(s.approvals.kind, "probability_override"), eq(s.approvals.entity, "deal"), eq(s.approvals.entityId, id), eq(s.approvals.status, "pending")))
+            .orderBy(desc(s.approvals.createdAt))
+            .then((r) => r[0] ?? null)
+        : Promise.resolve(null),
       () => getPicklist("lost_reason"),
       () => getPicklist("hold_reason"),
       () => listActiveUsers(),
@@ -703,6 +726,8 @@ export async function getDealDetail(user: AppUser, id: string) {
       aiSummary: parseStoredSummary(deal.aiSummary),
       aiSummaryAt: iso(deal.aiSummaryAt),
       filled: filledKeys(deal as unknown as Record<string, unknown>, customGateKeys),
+      /** V2 §B4: fields the system filled at creation (marked "auto" with an undo). */
+      autofill: readAutofill(deal.customFields),
     },
     pipeline: deal.pipeline,
     stage: deal.stage,
@@ -740,7 +765,6 @@ export async function getDealDetail(user: AppUser, id: string) {
       createdAt: iso(d.createdAt)!,
       expiringSoon: !!d.expiresAt && d.expiresAt.getTime() - now < 30 * DAY,
     })),
-    comments: comments.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
     muuHistory: muuHistory.map((m) => ({ ...m, createdAt: m.createdAt.toISOString() })),
     invoices: invoices.map((i) => ({ id: i.id, amountCents: i.amountCents, dueAt: i.dueAt.toISOString(), status: i.status, paidAt: iso(i.paidAt) })),
     migration,
@@ -775,10 +799,13 @@ export type CreatablePipeline = Awaited<ReturnType<typeof creatablePipelines>>[n
 
 /** Props for <CreateDealButton>: creatable pipelines (open stages only) + assignable owners per pipeline. */
 export async function createDealProps(user: AppUser) {
-  const pipelines = await creatablePipelines(user);
+  // "Motions I sell" first (V2 §B2), so the picker defaults to the user's own motion.
+  const [all, mine] = await Promise.all([creatablePipelines(user), getMyMotions(user).catch(() => null)]);
+  const pipelines = mine && mine.source !== "all" ? leadWithMotions(all, mine.keys) : all;
   const assignable: Record<string, UserLite[]> = {};
   for (const p of pipelines) assignable[p.key] = await assignableUsers(user, p.key);
-  return { pipelines: pipelines.map((p) => ({ id: p.id, key: p.key, name: p.name, type: p.type, unit: p.unit, color: p.color, usdPerMuu: p.usdPerMuu, defaultRevSharePct: p.defaultRevSharePct, description: p.description, stages: p.stages })), assignable, currentUserId: user.id };
+  const sources = (await getPicklist("source")).map((o) => o.value);
+  return { pipelines: pipelines.map((p) => ({ id: p.id, key: p.key, name: p.name, type: p.type, unit: p.unit, color: p.color, usdPerMuu: p.usdPerMuu, defaultRevSharePct: p.defaultRevSharePct, description: p.description, stages: p.stages })), assignable, currentUserId: user.id, sources };
 }
 
 /** Distinct account categories among the user's visible deals in a pipeline (board filter options). */

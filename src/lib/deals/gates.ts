@@ -111,3 +111,23 @@ export function parseGateValue(kind: GateFieldKind, raw: unknown, tz = DEFAULT_T
       return s;
   }
 }
+
+/**
+ * V2 §B5 (QA MAJ-07): moving into an OPEN stage always asks "what's next?" — prefilled — unless the role can't edit the
+ * next step (then the server keeps the current one and the gate decides). Closed stages use the reason dialog instead.
+ */
+export function shouldPromptNextStep(stage: { category: StageCategory }, hiddenFields: readonly string[]): boolean {
+  return stage.category === "open" && !hiddenFields.includes("nextStep") && !hiddenFields.includes("nextStepDueAt") && !hiddenFields.includes("*");
+}
+
+/**
+ * Prefill for the next-step prompt: the target stage's playbook suggestion when it differs from the current next step
+ * (so "Book intro call" doesn't survive into Contract), else the current next step. `alternative` is the other value,
+ * offered as a one-click swap in the dialog.
+ */
+export function nextStepPrefill(current: string | null | undefined, hint: { title: string; dueInDays: number } | null | undefined): { value: string; fromPlaybook: boolean; alternative: string | null } {
+  const cur = current?.trim() || "";
+  const sug = hint?.title.trim() || "";
+  if (sug && sug.toLowerCase() !== cur.toLowerCase()) return { value: sug, fromPlaybook: true, alternative: cur || null };
+  return { value: cur || sug, fromPlaybook: !cur && !!sug, alternative: null };
+}

@@ -3,6 +3,9 @@ import * as React from "react";
 import { Check, CheckCircle2, PauseCircle, XCircle } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { applyDealSignal } from "@/lib/signals/actions";
 import { useStageMove, type MovableDeal } from "../stage-move";
 import type { Picklist, StageDTO } from "@/lib/deals/types";
 import { cn } from "@/lib/utils";
@@ -15,6 +18,8 @@ export function StagePath({
   picklists,
   hiddenFields,
   canCreateContact,
+  playbookHints,
+  autoMove,
 }: {
   deal: MovableDeal;
   stages: StageDTO[];
@@ -22,9 +27,48 @@ export function StagePath({
   picklists: { lost_reason: Picklist; hold_reason: Picklist };
   hiddenFields: string[];
   canCreateContact: boolean;
+  playbookHints?: Record<string, { title: string; dueInDays: number }>;
+  /**
+   * CR M9 (from Today / signals): `?move=<stageId>[&signal=<signalId>]` opens the gate dialog for that stage on mount,
+   * prefilled from the playbook; after a successful move the signal is marked applied. The params are stripped so a
+   * refresh doesn't reopen the dialog.
+   */
+  autoMove?: { stageId: string; signalId: string | null } | null;
 }) {
+  const router = useRouter();
   const [optimisticStage, setOptimisticStage] = React.useOptimistic(deal.stageId);
-  const { request, dialog, pending } = useStageMove({ picklists, hiddenFields, canCreateContact, onOptimistic: (_id, stageId) => setOptimisticStage(stageId) });
+  const signalRef = React.useRef<string | null>(autoMove?.signalId ?? null);
+  const { request, dialog, pending } = useStageMove({
+    picklists,
+    hiddenFields,
+    canCreateContact,
+    playbookHints,
+    onOptimistic: (_id, stageId) => setOptimisticStage(stageId),
+    onMoved: (dealId) => {
+      const sig = signalRef.current;
+      signalRef.current = null;
+      if (!sig) return;
+      void applyDealSignal({ id: sig, dealId }).then((r) => {
+        if (!r.ok) toast.error(r.error);
+        router.refresh();
+      });
+    },
+  });
+  const autoRan = React.useRef(false);
+  React.useEffect(() => {
+    if (autoRan.current || !autoMove || !canEdit) return;
+    autoRan.current = true;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("move");
+      url.searchParams.delete("signal");
+      window.history.replaceState(window.history.state, "", url);
+    } catch {
+      /* non-critical */
+    }
+    const target = stages.find((st) => st.id === autoMove.stageId);
+    if (target && target.id !== deal.stageId) request(deal, target);
+  }, [autoMove, canEdit, stages, deal, request]);
   const current = stages.find((s) => s.id === optimisticStage);
   // Main path = open stages that aren't parking lots (Cold) + won stages; lost/hold via the outcome menu.
   const path = stages.filter((s) => s.category === "open" || s.category === "won");
@@ -55,7 +99,7 @@ export function StagePath({
                 className={cn(
                   "relative flex h-8 items-center gap-1 whitespace-nowrap pl-5 pr-3 text-[12px] font-medium transition-colors duration-150 [clip-path:polygon(0_0,calc(100%-10px)_0,100%_50%,calc(100%-10px)_100%,0_100%,10px_50%)] first:pl-3 first:[clip-path:polygon(0_0,calc(100%-10px)_0,100%_50%,calc(100%-10px)_100%,0_100%)]",
                   isCurrent ? "bg-white text-black" : done ? "bg-surface-3 text-body" : "bg-surface-2 text-muted",
-                  canEdit && !isCurrent ? "hover:bg-[#3c3c3c] hover:text-fg" : "",
+                  canEdit && !isCurrent ? "hover:bg-border-strong hover:text-fg" : "",
                   "disabled:cursor-default",
                 )}
               >
@@ -76,7 +120,7 @@ export function StagePath({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="secondary" size="sm" disabled={pending}>
-              Close / hold…
+              Close or pause…
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

@@ -72,3 +72,70 @@ Remediation status tables are in each audit file.
 - The Granola API endpoint paths are best-effort and kept in one constants block for easy adjustment.
 - `/pipelines/NET` takes about 2.5 s warm in dev. It loads board cards for about 2,000 deals, so a lighter card query is a follow-up.
 - Deferred Low findings are listed, with reasons, in the audit remediation sections.
+
+---
+
+# V2 release, 1 Oct 2026: productivity, simplicity, coordination
+
+All 30 features are built, along with the Network Development term-sheet generator.
+
+**Quality process**
+- Eight build teams, then an integration pass.
+- Three independent audits (security, correctness and performance, QA/UX), then four fix teams and a cleanup round.
+- A release verification, with verdict **GO**.
+
+**Release results**
+- Production build passes.
+- Typecheck and lint are clean.
+- 942 unit tests pass.
+- A parallel load test passed: 3 rounds × 18 routes, all 200.
+
+## What's new
+- **Productivity**
+  - **Calls and email:**
+    - Post-call autopilot (tasks, next step, a Gmail draft, 24-hour undo).
+    - Deal signals from email and calls (one click to apply).
+    - Auto meeting briefs.
+    - Voice/quick capture.
+  - **Outreach:**
+    - Sequences from each rep's own Gmail (auto-exit on reply, daily caps, no double-sends).
+    - Lead Scout → reviewed outreach batches.
+  - **Deals:**
+    - Stage playbooks (49 seeded).
+    - Four-field deal creation with auto-fill.
+    - Forecast autopilot.
+    - ⌘K natural-language commands with preview and undo.
+  - **Proposals:**
+    - Pro forma prefill.
+    - Coalition term-sheet generator.
+- **Simplicity**
+  - One ranked **Today** queue on **My Day** (keyboard j/k/e/s).
+  - A sidebar shaped to each role (≤12 items, the rest under More).
+  - Alert budget (bundles into the digest).
+  - Ask-Copilot bar and a first-run checklist.
+  - Saved views and smart defaults.
+  - Plain-language glossary.
+  - Summary-first deal page.
+- **Coordination**
+  - **Slack:** DMs, approve/reject from Slack, `/rtb deal`, an alerts channel and a wins channel. MNPI never leaves the app.
+  - **Approvals:** SLAs and escalation.
+  - **On a deal:**
+    - Deal threads with @mentions.
+    - Structured handoffs that must be accepted.
+    - Collision warnings.
+    - Exec help requests.
+  - **Team rituals:**
+    - Pipeline review mode.
+    - 1:1 prep.
+    - Win/loss stories and a playbook library.
+  - **Partners:** read-only partner links.
+
+## Ops checklist
+1. **Migrations 0004–0011** are already applied to the Supabase DB.
+2. **Starter sequences:** 3 are seeded **inactive**. Activate them in /sequences after reviewing the copy.
+3. **5-minute scheduler:** Supabase `pg_cron` + `pg_net` call `/api/cron/tick` with the CRON_SECRET bearer. Set it up once after deploy (see DEPLOY.md §7).
+4. **Google OAuth:** add the `gmail.compose` scope to the consent screen. Existing users must reconnect Gmail to get drafts in Gmail.
+5. **Term sheet:** upload the template at **Admin → Templates**. Map the detected fields, review the parsed revenue-share tiers, then **Activate**. The template is never stored in the repo.
+6. **Slack (optional):** follow docs/SLACK_SETUP.md, then paste the bot token and signing secret at Admin → Slack & approvals.
+7. **Forecast:** none of the 3,117 imported open deals has a close date, so they show as "Unscheduled". Reps set dates via /deals → bulk "Close date".
+8. **Apify:** on the free plan with a $5/month cap; the org budget is set to $5.
